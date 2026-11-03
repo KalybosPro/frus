@@ -11,11 +11,21 @@
 //! What is drawn: paths, with their fill rule; strokes, with their width, caps, joins,
 //! miter limit and dashes (expanded into outlines, which is also what lets a stroke take a
 //! gradient); flat colours, linear and radial gradients with any number of stops, their
-//! spread method and their own transform; group opacity; clip paths; embedded PNG and
-//! JPEG bitmaps, decoded once, when the picture is parsed, and embedded SVG pictures, drawn
-//! as vectors like the rest. What is not yet: masks, filters, patterns, GIF and WebP
-//! bitmaps, and text — each is skipped, and named in [`Svg::unsupported`], so an
-//! application can say why a picture looks incomplete.
+//! spread method and their own transform; group opacity; clip paths; masks, by luminance
+//! or by alpha; filters built from Gaussian blurs, drop shadows, offsets, floods, merges,
+//! `over`, `in` and `out` composites, normal blends and colour matrices (see below);
+//! embedded PNG and JPEG bitmaps, decoded once, when the picture is parsed, and embedded
+//! SVG pictures, drawn as vectors like the rest. What is not yet: patterns, the other filter
+//! primitives, GIF and WebP bitmaps, and text — each is skipped, and named in
+//! [`Svg::unsupported`], so an application can say why a picture looks incomplete.
+//!
+//! Masks and filters are layers of the scene: a mask is a layer meeting the masked group
+//! with `DstIn`, a blur a blurred layer, and so on. Filters mix colours in linear light by
+//! default and frus's colour matrix works on sRGB values, so a colour matrix is drawn when
+//! the picture asks for sRGB, or when it only keeps channels, sets them to constants and
+//! scales alpha — what design tools export for shadows; `atop`, `xor` and `lighter`
+//! composites likewise in sRGB only. A filter with a primitive that is not drawn is left
+//! off entirely — the group is drawn unfiltered — and named `"filter"`.
 //!
 //! A bitmap is read only from the picture itself, as a `data:` address: a picture never
 //! makes the application open a file it names.
@@ -29,10 +39,13 @@ use std::fmt;
 use std::sync::Arc;
 
 use frus_core::{
-    Affine, AlignmentGeometry, BoxFit, ClipShape, Color, FillRule, GradientRamp, ImageHandle,
-    LayerFilter, Path, Point, Primitive, RampShape, Rect, Scene, Size, TextDirection, TileMode,
+    Affine, AlignmentGeometry, BlendMode, BoxFit, ClipShape, Color, ColorFilter, FillRule,
+    GradientRamp, ImageFilter, ImageHandle, LayerFilter, Path, Point, Primitive, RampShape, Rect,
+    Scene, Size, TextDirection, TileMode,
 };
 use usvg::tiny_skia_path;
+
+mod effect;
 
 /// A parsing failure: the bytes are not an SVG this parser can read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,10 +83,12 @@ enum Item {
         paint: Paint,
         opacity: f32,
     },
-    /// Items drawn together: faded as one, clipped to an outline, or both.
+    /// Items drawn together, as one layer: faded as one, clipped to an outline, filtered,
+    /// or meeting what is under them by a blend mode — which is what a mask does.
     Group {
         opacity: f32,
         clip: Option<Path>,
+        effect: Effect,
         items: Vec<Item>,
     },
     /// A bitmap, its pixels taken to the picture's coordinates by `transform`.
@@ -83,7 +98,49 @@ enum Item {
     },
 }
 
+/// What a group's layer does to its pixels, beyond fading and clipping them.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Effect {
+    /// A Gaussian blur's standard deviations, in the picture's units along its axes.
+    blur: Option<(f32, f32)>,
+    /// A function of each pixel, on straight sRGB-encoded values.
+    color: Option<ColorFilter>,
+    /// How the layer meets what is drawn under it in its parent: `DstIn` keeps the parent's
+    /// pixels where this layer is opaque, which is what a mask is.
+    blend: Option<BlendMode>,
+    /// Pixels that only shape another group — a mask — and that a tint must not recolour,
+    /// or the mask would change with the theme.
+    untinted: bool,
+}
+
+impl Effect {
+    /// The effect carried into another picture by `map`: a blur's reach follows the scale.
+    fn mapped(self, map: Affine) -> Effect {
+        let (sx, sy) = axis_scales(map);
+        Effect {
+            blur: self.blur.map(|(x, y)| (x * sx, y * sy)),
+            ..self
+        }
+    }
+}
+
+/// How much `map` stretches lengths along each of its axes.
+fn axis_scales(map: Affine) -> (f32, f32) {
+    let [a, b, c, d, _, _] = map.m;
+    (a.hypot(b), c.hypot(d))
+}
+
 impl Item {
+    /// A layer holding `items`, unfaded: what a blend inside it needs, to meet only them.
+    fn layer(effect: Effect, clip: Option<Path>, items: Vec<Item>) -> Item {
+        Item::Group {
+            opacity: 1.0,
+            clip,
+            effect,
+            items,
+        }
+    }
+
     /// The item moved into another picture by `map` — an SVG drawn inside an SVG.
     fn mapped(self, map: Affine) -> Item {
         match self {
@@ -105,10 +162,12 @@ impl Item {
             Item::Group {
                 opacity,
                 clip,
+                effect,
                 items,
             } => Item::Group {
                 opacity,
                 clip: clip.map(|clip| mapped(&clip, map)),
+                effect: effect.mapped(map),
                 items: items.into_iter().map(|item| item.mapped(map)).collect(),
             },
             Item::Image { image, transform } => Item::Image {
@@ -168,8 +227,8 @@ impl Svg {
         self.size
     }
 
-    /// The SVG features this picture uses that are not drawn yet, by name (`"mask"`,
-    /// `"filter"`, `"pattern"`, `"image"` — a GIF, a WebP or a broken bitmap —, `"text"`,
+    /// The SVG features this picture uses that are not drawn yet, by name (`"filter"` — a
+    /// filter with a primitive not drawn, its group then drawn unfiltered —, `"pattern"`, `"image"` — a GIF, a WebP or a broken bitmap —, `"text"`,
     /// `"blend mode"`): empty when the whole picture is drawn.
     pub fn unsupported(&self) -> &[&'static str] {
         &self.unsupported
@@ -224,7 +283,7 @@ impl Svg {
         let start = scene.primitives().len();
         paint_items(scene, &self.items, place, tint);
         if opacity < 1.0 {
-            wrap(scene, start, opacity, ClipShape::Rect);
+            wrap(scene, start, opacity, ClipShape::Rect, LayerFilter::NONE);
         }
         scene.set_clip(outer);
     }
@@ -239,9 +298,12 @@ fn intersect(a: Rect, b: Rect) -> Rect {
 }
 
 /// The primitives painted since `start`, moved into one layer.
-fn wrap(scene: &mut Scene, start: usize, opacity: f32, clip_shape: ClipShape) {
+///
+/// A layer that blends with what is under it is kept even when it holds nothing: a mask
+/// with nothing in it hides everything.
+fn wrap(scene: &mut Scene, start: usize, opacity: f32, clip_shape: ClipShape, filter: LayerFilter) {
     let primitives = scene.split_off(start);
-    if primitives.is_empty() {
+    if primitives.is_empty() && filter.blend.is_none() {
         return;
     }
     scene.push_primitive(Primitive::Layer {
@@ -250,7 +312,7 @@ fn wrap(scene: &mut Scene, start: usize, opacity: f32, clip_shape: ClipShape) {
         clip: scene.current_clip(),
         clip_shape,
         transform: None,
-        filter: LayerFilter::NONE,
+        filter,
         owner: scene.current_owner(),
     });
 }
@@ -285,15 +347,28 @@ fn paint_items(scene: &mut Scene, items: &[Item], place: Affine, tint: Option<Co
             Item::Group {
                 opacity,
                 clip,
+                effect,
                 items,
             } => {
                 let start = scene.primitives().len();
+                let tint = if effect.untinted { None } else { tint };
                 paint_items(scene, items, place, tint);
                 let clip_shape = match clip {
                     Some(clip) => ClipShape::Path(mapped(clip, place)),
                     None => ClipShape::Rect,
                 };
-                wrap(scene, start, *opacity, clip_shape);
+                // `place` only moves and scales: a blur's reach scales with it, per axis.
+                let (sx, sy) = axis_scales(place);
+                let filter = LayerFilter {
+                    image: effect.blur.map(|(x, y)| ImageFilter::Blur {
+                        sigma_x: x * sx,
+                        sigma_y: y * sy,
+                    }),
+                    color: effect.color,
+                    blend: effect.blend,
+                    ..LayerFilter::NONE
+                };
+                wrap(scene, start, *opacity, clip_shape, filter);
             }
             Item::Image { image, transform } => {
                 scene.draw_image_mapped(image, transform.then(place), Color::WHITE)
@@ -414,26 +489,39 @@ fn group_items(group: &usvg::Group, unsupported: &mut Vec<&'static str>) -> Vec<
     for node in group.children() {
         match node {
             usvg::Node::Group(child) => {
-                if child.mask().is_some() {
-                    unsupported.push("mask");
-                }
-                if !child.filters().is_empty() {
-                    unsupported.push("filter");
-                }
                 if child.blend_mode() != usvg::BlendMode::Normal {
                     unsupported.push("blend mode");
                 }
-                let inner = group_items(child, unsupported);
+                let to_root = affine(child.abs_transform());
+                let mut inner = group_items(child, unsupported);
+                // In the reference renderer's order: the filters, then the clip and the
+                // mask, then the opacity.
+                if !child.filters().is_empty() {
+                    match effect::filtered(child.filters(), inner.clone(), to_root) {
+                        Some(output) => inner = output,
+                        // Drawn unfiltered, and said so.
+                        None => unsupported.push("filter"),
+                    }
+                }
                 let opacity = child.opacity().get();
                 let clip = child
                     .clip_path()
-                    .map(|clip| clip_outline(clip, affine(child.abs_transform()), unsupported));
-                if opacity >= 1.0 && clip.is_none() {
+                    .map(|clip| clip_outline(clip, to_root, unsupported));
+                let mut masked = false;
+                if let Some(mask) = child.mask() {
+                    if !effect::mask_layers(mask, to_root, &mut inner, unsupported) {
+                        // A mask with nothing in it hides the whole group.
+                        continue;
+                    }
+                    masked = true;
+                }
+                if opacity >= 1.0 && clip.is_none() && !masked {
                     items.extend(inner);
                 } else {
                     items.push(Item::Group {
                         opacity,
                         clip,
+                        effect: Effect::default(),
                         items: inner,
                     });
                 }
@@ -804,8 +892,240 @@ mod tests {
     fn what_is_not_drawn_is_named() {
         let svg = parse(
             r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
-            <defs><filter id="f"><feGaussianBlur stdDeviation="1"/></filter></defs>
-            <rect width="5" height="5" filter="url(#f)"/></svg>"##,
+            <defs><filter id="f"><feTurbulence baseFrequency="0.1"/></filter>
+              <pattern id="p" width="2" height="2" patternUnits="userSpaceOnUse">
+                <rect width="1" height="1"/></pattern></defs>
+            <rect width="5" height="5" filter="url(#f)"/>
+            <rect x="5" width="5" height="5" fill="url(#p)"/></svg>"##,
+        );
+        assert_eq!(svg.unsupported(), &["filter", "pattern"]);
+        // The filtered square is drawn as it is, unfiltered; the pattern is not drawn.
+        let drawn = painted(&svg, Rect::new(0.0, 0.0, 10.0, 10.0), BoxFit::Fill);
+        assert_eq!(drawn.len(), 1);
+        assert!(matches!(&drawn[0], Primitive::Path { .. }), "{drawn:?}");
+    }
+
+    /// The layer's filter, or a panic naming what was found.
+    fn layer(p: &Primitive) -> (&LayerFilter, &ClipShape, &[Primitive]) {
+        match p {
+            Primitive::Layer {
+                filter,
+                clip_shape,
+                primitives,
+                ..
+            } => (filter, clip_shape, primitives),
+            p => panic!("a layer: {p:?}"),
+        }
+    }
+
+    #[test]
+    fn an_alpha_mask_is_a_layer_meeting_the_group_with_dst_in() {
+        let svg = parse(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+            <defs><mask id="m" mask-type="alpha" maskUnits="userSpaceOnUse" x="0" y="0" width="10" height="5">
+              <rect width="10" height="10" fill="#000" fill-opacity="0.5"/></mask></defs>
+            <rect width="10" height="10" fill="#f00" mask="url(#m)"/></svg>"##,
+        );
+        assert!(svg.unsupported().is_empty(), "{:?}", svg.unsupported());
+        let drawn = painted(&svg, Rect::new(0.0, 0.0, 100.0, 100.0), BoxFit::Fill);
+        assert_eq!(drawn.len(), 1, "one isolated group: {drawn:?}");
+        let (group, _, inside) = layer(&drawn[0]);
+        assert!(group.is_none());
+        // The red square, then the mask over it.
+        assert_eq!(inside.len(), 2, "{inside:?}");
+        assert!(matches!(&inside[0], Primitive::Path { fill: Some(c), .. } if c.r == 1.0));
+        let (mask, shape, coverage) = layer(&inside[1]);
+        assert_eq!(mask.blend, Some(BlendMode::DstIn));
+        assert_eq!(mask.color, None);
+        // Unclipped itself — what it does not cover, it hides —, its content clipped to
+        // the mask's region.
+        assert!(matches!(shape, ClipShape::Rect));
+        assert_eq!(coverage.len(), 1);
+        let (_, region, content) = layer(&coverage[0]);
+        assert!(matches!(region, ClipShape::Path(_)));
+        assert!(matches!(&content[0], Primitive::Path { fill: Some(c), .. }
+            if (c.a - 0.5).abs() < 0.01));
+    }
+
+    #[test]
+    fn a_luminance_mask_keeps_the_content_by_its_luminance() {
+        let svg = parse(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+            <defs><mask id="m"><rect width="10" height="10" fill="#fff"/></mask></defs>
+            <g mask="url(#m)"><rect width="10" height="10" fill="#00f"/></g></svg>"##,
+        );
+        assert!(svg.unsupported().is_empty(), "{:?}", svg.unsupported());
+        let drawn = painted(&svg, Rect::new(0.0, 0.0, 10.0, 10.0), BoxFit::Fill);
+        let (_, _, inside) = layer(&drawn[0]);
+        let (mask, _, coverage) = layer(&inside[1]);
+        assert_eq!(mask.blend, Some(BlendMode::DstIn));
+        // The coverage, then its luminance kept of it.
+        assert_eq!(coverage.len(), 2);
+        let (luminance, _, _) = layer(&coverage[1]);
+        assert_eq!(luminance.blend, Some(BlendMode::DstIn));
+        let Some(ColorFilter::Matrix(m)) = luminance.color else {
+            panic!("{luminance:?}")
+        };
+        // Alpha from the colour alone: white keeps everything, black nothing.
+        assert!((m[15] + m[16] + m[17] - 1.0).abs() < 1e-4 && m[18] == 0.0);
+    }
+
+    #[test]
+    fn an_empty_mask_hides_its_group_and_a_tint_spares_the_mask() {
+        let svg = parse(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+            <defs><mask id="empty"/><mask id="m"><rect width="10" height="10" fill="#fff"/></mask></defs>
+            <rect width="10" height="10" fill="#f00" mask="url(#empty)"/>
+            <rect width="10" height="10" fill="#f00" mask="url(#m)"/></svg>"##,
+        );
+        let mut scene = Scene::new();
+        scene.set_clip(Rect::new(0.0, 0.0, 10.0, 10.0));
+        svg.paint(
+            &mut scene,
+            Rect::new(0.0, 0.0, 10.0, 10.0),
+            BoxFit::Fill,
+            AlignmentGeometry::Physical(frus_core::Alignment::CENTER),
+            Some(Color::rgb(0.0, 1.0, 0.0)),
+            1.0,
+        );
+        // Only the second square.
+        assert_eq!(scene.primitives().len(), 1);
+        let (_, _, inside) = layer(&scene.primitives()[0]);
+        assert!(matches!(&inside[0], Primitive::Path { fill: Some(c), .. } if c.g == 1.0));
+        // The mask's white stays white: a tint recolouring it would change what it keeps.
+        let (_, _, coverage) = layer(&inside[1]);
+        let (_, _, content) = layer(&coverage[0]);
+        assert!(matches!(&content[0], Primitive::Path { fill: Some(c), .. }
+            if c.r == 1.0 && c.g == 1.0 && c.b == 1.0));
+    }
+
+    #[test]
+    fn a_gaussian_blur_is_a_blurred_layer_clipped_to_the_filter_region() {
+        let svg = parse(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+            <defs><filter id="f"><feGaussianBlur stdDeviation="0.5 1"/></filter></defs>
+            <g transform="scale(2 1)"><rect x="1" y="2" width="2" height="5" filter="url(#f)"/></g></svg>"##,
+        );
+        assert!(svg.unsupported().is_empty(), "{:?}", svg.unsupported());
+        // The picture shown ten times its size.
+        let drawn = painted(&svg, Rect::new(0.0, 0.0, 100.0, 100.0), BoxFit::Fill);
+        let (region, shape, inside) = layer(&drawn[0]);
+        assert!(region.is_none());
+        let ClipShape::Path(region) = shape else {
+            panic!("{shape:?}")
+        };
+        // The default region: the box grown by a tenth on each side — x 0.8..3.2 in the
+        // group, 16..64 on the screen; y 1.5..7.5, 15..75.
+        let first = match region.verbs()[0] {
+            frus_core::PathVerb::MoveTo(p) => p,
+            ref v => panic!("{v:?}"),
+        };
+        assert!(
+            (first.x - 16.0).abs() < 1e-3 && (first.y - 15.0).abs() < 1e-3,
+            "{first:?}"
+        );
+        let (blur, _, content) = layer(&inside[0]);
+        // 0.5 × 2 (the group) × 10 (the screen) across, 1 × 10 down.
+        assert_eq!(
+            blur.image,
+            Some(ImageFilter::Blur {
+                sigma_x: 10.0,
+                sigma_y: 10.0
+            })
+        );
+        assert!(matches!(&content[0], Primitive::Path { .. }));
+    }
+
+    #[test]
+    fn a_drop_shadow_is_the_silhouette_coloured_blurred_and_moved_under_the_source() {
+        let svg = parse(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+            <defs><filter id="f"><feDropShadow dx="1" dy="2" stdDeviation="0.5"
+              flood-color="#00f" flood-opacity="0.5"/></filter></defs>
+            <rect x="2" y="2" width="4" height="4" fill="#f00" filter="url(#f)"/></svg>"##,
+        );
+        assert!(svg.unsupported().is_empty(), "{:?}", svg.unsupported());
+        let drawn = painted(&svg, Rect::new(0.0, 0.0, 10.0, 10.0), BoxFit::Fill);
+        let (_, _, inside) = layer(&drawn[0]);
+        assert_eq!(inside.len(), 2, "{inside:?}");
+        let (shadow, _, moved) = layer(&inside[0]);
+        assert_eq!(shadow.image, Some(ImageFilter::blur(0.5)));
+        let Some(ColorFilter::Mode(c, BlendMode::SrcIn)) = shadow.color else {
+            panic!("{shadow:?}")
+        };
+        assert!(c.b == 1.0 && (c.a - 0.5).abs() < 0.01);
+        let p = first_point(&moved[0]);
+        assert!(
+            (p.x - 3.0).abs() < 1e-3 && (p.y - 4.0).abs() < 1e-3,
+            "{p:?}"
+        );
+        // The source over it, where it was.
+        let p = first_point(&inside[1]);
+        assert!(
+            (p.x - 2.0).abs() < 1e-3 && (p.y - 2.0).abs() < 1e-3,
+            "{p:?}"
+        );
+    }
+
+    #[test]
+    fn a_graph_of_offset_flood_composite_and_merge_is_drawn() {
+        // A design tool's drop shadow, spelled out.
+        let svg = parse(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+            <defs><filter id="f" x="0" y="0" width="10" height="10" filterUnits="userSpaceOnUse">
+              <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+              <feColorMatrix in="SourceAlpha" type="matrix"
+                values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+              <feOffset dy="1"/>
+              <feGaussianBlur stdDeviation="0.5"/>
+              <feComposite in2="hardAlpha" operator="out"/>
+              <feColorMatrix type="matrix" values="0 0 0 0 0.2 0 0 0 0 0.2 0 0 0 0 0.2 0 0 0 0.25 0"/>
+              <feBlend mode="normal" in2="BackgroundImageFix" result="shadow"/>
+              <feMerge><feMergeNode in="shadow"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter></defs>
+            <rect x="2" y="2" width="4" height="4" fill="#f00" filter="url(#f)"/></svg>"##,
+        );
+        assert!(svg.unsupported().is_empty(), "{:?}", svg.unsupported());
+        let drawn = painted(&svg, Rect::new(0.0, 0.0, 10.0, 10.0), BoxFit::Fill);
+        let (_, _, inside) = layer(&drawn[0]);
+        // The transparent flood, the tinted shadow, the source.
+        assert_eq!(inside.len(), 3, "{inside:?}");
+        let (tint, _, composite) = layer(&inside[1]);
+        let Some(ColorFilter::Matrix(m)) = tint.color else {
+            panic!("{tint:?}")
+        };
+        // The constant 0.2, given in linear light, re-encoded as sRGB.
+        assert!((m[4] - 0.4845).abs() < 1e-3, "{}", m[4]);
+        let (_, _, composite) = layer(&composite[0]);
+        let (out, _, _) = layer(&composite[1]);
+        assert_eq!(out.blend, Some(BlendMode::SrcOut));
+    }
+
+    #[test]
+    fn a_colour_matrix_mixing_channels_in_linear_light_is_not_drawn() {
+        let mixing = |space: &str| {
+            parse(&format!(
+                r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+                <defs><filter id="f" color-interpolation-filters="{space}">
+                  <feColorMatrix type="saturate" values="0"/></filter></defs>
+                <rect width="5" height="5" fill="#f00" filter="url(#f)"/></svg>"##
+            ))
+        };
+        assert_eq!(mixing("linearRGB").unsupported(), &["filter"]);
+        let svg = mixing("sRGB");
+        assert!(svg.unsupported().is_empty());
+        let drawn = painted(&svg, Rect::new(0.0, 0.0, 10.0, 10.0), BoxFit::Fill);
+        let (_, _, inside) = layer(&drawn[0]);
+        let (grey, _, _) = layer(&inside[0]);
+        assert!(matches!(grey.color, Some(ColorFilter::Matrix(_))));
+    }
+
+    #[test]
+    fn a_blur_unlike_along_its_axes_on_a_turned_group_is_not_drawn() {
+        let svg = parse(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">
+            <defs><filter id="f"><feGaussianBlur stdDeviation="1 0"/></filter></defs>
+            <rect width="5" height="5" transform="rotate(30)" filter="url(#f)"/></svg>"##,
         );
         assert_eq!(svg.unsupported(), &["filter"]);
     }
