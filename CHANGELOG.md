@@ -8,10 +8,16 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 733 so far, each documenting the objective, the alternatives
+> record — one per step, 736 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Cmd is the key of the shortcuts on a Mac** (J736): Copy, Cut, Paste, Select all, Undo and
+  Redo answered Ctrl alone, so Cmd+C and the rest did nothing in a macOS build or in a browser on
+  a Mac. They now answer the platform's own modifier: Cmd on an Apple keyboard (natively from the
+  build, on the web from the browser), Ctrl elsewhere, and only that one, so Ctrl+C does not copy
+  on a Mac. Option+arrow jumps a word and Cmd+arrow goes to the line's or the field's bound there.
 
 - **A canvas as small as the screen** (J735): on the web, the minimum of 360 by 280 meant for a
   desktop window held the canvas wider than a small phone's screen or a narrow frame, and what
