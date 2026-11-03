@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 736 so far, each documenting the objective, the alternatives
+> record — one per step, 737 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -18,7 +18,13 @@ any release may break.
   a Mac. They now answer the platform's own modifier: Cmd on an Apple keyboard (natively from the
   build, on the web from the browser), Ctrl elsewhere, and only that one, so Ctrl+C does not copy
   on a Mac. Option+arrow jumps a word and Cmd+arrow goes to the line's or the field's bound there.
-
+- **SVG masks and filters** (J737): an `SvgPicture` now draws `<mask>` (luminance and alpha,
+  a mask's own region and a masked mask) and the filters `feGaussianBlur`, `feDropShadow`,
+  `feOffset`, `feFlood`, `feMerge`, `feComposite` (`over`, `in`, `out`; `atop`, `xor` and
+  `lighter` in sRGB), `feBlend` in its normal mode and `feColorMatrix` where frus's sRGB
+  matrix gives the same pixels — the shadow graphs design tools export among them. Both are
+  built from the scene's layers. A filter with any other primitive is drawn unfiltered and
+  still named by `Svg::unsupported`, as patterns and text are.
 - **A canvas as small as the screen** (J735): on the web, the minimum of 360 by 280 meant for a
   desktop window held the canvas wider than a small phone's screen or a narrow frame, and what
   was past the edge was cut off. The minimum no longer applies to the web.
