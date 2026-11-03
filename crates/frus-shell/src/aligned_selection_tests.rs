@@ -4,12 +4,13 @@
 //! Selecting aligned and cut texts, driven through the shell (milestone 742): a drag in a
 //! centred and in an end-aligned line of a selection area copies the words it went over
 //! and paints their highlight under them, a text selectable on its own does the same, and
-//! a drag to the end of a text cut by an ellipsis copies the whole of it.
+//! a drag to the end of a text cut by an ellipsis copies the whole of it. The rows of a list
+//! built on demand are selected where they are drawn too.
 
 use crate::app::testing::Driver;
 use crate::{Application, Command};
 use frus_widgets::{
-    Container, Flex, KeyStroke, Point, Rect, SelectionArea, ShortcutKey, Text, TextAlign,
+    Container, Flex, KeyStroke, ListView, Point, Rect, SelectionArea, ShortcutKey, Text, TextAlign,
     TextOverflow, TextStyle, Theme, Widget,
 };
 
@@ -20,9 +21,10 @@ const ENDED: &str = "ending words here";
 const CUT: &str = "a sentence far too long to be drawn whole on one line of this narrow box";
 
 /// Three texts in a selection area — one centred, one end-aligned, one cut by an ellipsis —
-/// or a centred one selectable on its own.
+/// or a centred one selectable on its own, or a list of centred rows in a selection area.
 struct Doc {
     alone: bool,
+    list: bool,
 }
 
 impl Application for Doc {
@@ -33,7 +35,16 @@ impl Application for Doc {
     }
 
     fn view(&self, _theme: &Theme) -> Box<dyn Widget<()>> {
-        let child: Box<dyn Widget<()>> = if self.alone {
+        let child: Box<dyn Widget<()>> = if self.list {
+            Box::new(SelectionArea::around(
+                ListView::builder(40, |i| {
+                    Text::new(format!("centred row {i:02}")).align(TextAlign::Center)
+                })
+                .estimated_extent(20.0)
+                .width(W)
+                .height(200.0),
+            ))
+        } else if self.alone {
             Box::new(Flex::column().child(Text::new(CENTRED).selectable().align(TextAlign::Center)))
         } else {
             Box::new(SelectionArea::around(
@@ -48,7 +59,11 @@ impl Application for Doc {
 }
 
 fn driver(alone: bool) -> Driver<Doc> {
-    let mut driver = Driver::new(Doc { alone }, W, H);
+    open(Doc { alone, list: false })
+}
+
+fn open(doc: Doc) -> Driver<Doc> {
+    let mut driver = Driver::new(doc, W, H);
     driver.run(0.2);
     driver
 }
@@ -191,4 +206,21 @@ fn a_selectable_centred_text_copies_what_was_dragged_over() {
         (highlight.x - (rect.x + start)).abs() < 1.5,
         "{highlight:?} from {start}"
     );
+}
+
+/// **A centred row of a list built on demand, in a selection area,** is selected where it
+/// is drawn: a drag over a word of it copies that word.
+#[test]
+fn a_centred_row_of_a_built_list_copies_the_word_dragged_over() {
+    let mut d = open(Doc {
+        alone: false,
+        list: true,
+    });
+    let row = "centred row 03";
+    let left = (W - width(row)) / 2.0;
+    let start = left + width("centred ");
+    let end = left + width("centred row");
+    let (a, b) = (on(&d, row, start + 1.0), on(&d, row, end + 1.0));
+    drag(&mut d, a, b);
+    assert_eq!(copy(&mut d).as_deref(), Some("row"));
 }

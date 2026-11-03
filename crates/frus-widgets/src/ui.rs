@@ -1042,7 +1042,7 @@ impl<Msg: Clone> Ui<Msg> {
             .iter()
             .rev()
             .find(|stop| stop.rect.contains(point))
-            .copied()
+            .cloned()
     }
 
     /// The text of `area` **nearest** `point`: the one under it, or the one closest to it —
@@ -1060,14 +1060,14 @@ impl<Msg: Clone> Ui<Msg> {
                 .max(0.0);
             dy * 4.0 + dx
         };
-        let mut best: Option<(f32, crate::TextStop)> = None;
+        let mut best: Option<(f32, &crate::TextStop)> = None;
         for stop in self.text_stops_in(area) {
             let d = distance(stop.rect);
             if best.is_none_or(|(so_far, _)| d <= so_far) {
-                best = Some((d, *stop));
+                best = Some((d, stop));
             }
         }
-        best.map(|(_, stop)| stop)
+        best.map(|(_, stop)| stop.clone())
     }
 
     /// Topmost focusable widget containing `point`: (id, its bounds).
@@ -4080,12 +4080,18 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         // A text in a selection area: a place a selection can begin, end or pass through,
         // registered as far as it is visible, in the order it is painted.
         if self.theme.widgets.text.selectable && visible.width > 0.0 && visible.height > 0.0 {
-            if let (Some(area), Some(_)) = (self.area, widget.selection_text()) {
-                self.text_stops.push(crate::TextStop {
-                    id,
-                    rect: draw_rect,
-                    area,
-                });
+            // What it answers is registered with it, not looked up in the tree later: a row
+            // of a list that builds only what shows is let go once the frame is drawn
+            // (milestone 741).
+            if let Some(area) = self.area {
+                if let Some(text) = widget.selectable_text() {
+                    self.text_stops.push(crate::TextStop {
+                        id,
+                        rect: draw_rect,
+                        area,
+                        text,
+                    });
+                }
             }
         }
         // A focus stop clipped entirely away by a **scroll** is still a focus stop.

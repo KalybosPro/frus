@@ -62,9 +62,14 @@ of the one before at the end of a line. For a left-to-right line this is exactly
 list, so a field, which uses the same layout, is unchanged: the plain layout's tests and the
 fields' pass as they were.
 
-**Nothing in the shell changed.** A selection area already asked the widget where a press lands,
-where a handle hangs and what to highlight (milestone 575); answering those questions from the
-drawn layout was all the fix needed.
+**Nothing in the shell changed.** Since milestone 741 a text registers its words with its
+selection area as a `SelectableText` that answers where a press lands and where a handle hangs,
+and keeps answering once a list has recycled the row. Those words now carry everything the drawn
+layout needs: the resolved style, the alignment, the line limit and the overflow (a `Text`'s
+whole resolution; a `RichText`'s runs and its box). A recycled row, or one a drag reaches
+after it was built, is laid out exactly as it was painted. The layout is worked out by functions
+that do not need the widget (`fit`, `laid_out` and a paragraph's `Shape`), so the widget's own
+selection, its highlight and the registered words cannot disagree.
 
 ## Tests
 
@@ -89,9 +94,13 @@ drawn layout was all the fix needed.
   centred line copies `words` and paints its highlight in the middle of the box; a drag over the
   last word of an end-aligned line copies `here`, highlighted against the right edge; a drag
   across a text cut by an ellipsis copies the whole sentence and highlights one line; a centred
-  text selectable on its own copies the word dragged over with Ctrl+C.
+  text selectable on its own copies the word dragged over with Ctrl+C. A `SelectionArea` around a
+  `ListView::builder` of centred rows: a drag over a word of a row copies that word. The words a
+  text and a paragraph register are checked to hit where they are drawn: in the middle of a
+  centred box, and at the end of the words below a cut text.
 - fmt, clippy `--workspace --all-targets -D warnings`, and `cargo test -p frus-text -p frus-widgets
   -p frus-shell -p frus-demo` (unit, integration and doc tests) pass.
+- The widgets example builds (`cargo check`).
 
 ## Not done
 
@@ -105,4 +114,3 @@ drawn layout was all the fix needed.
   `rich_text_alignment_and_limit` draws a rich paragraph cut at two lines with an ellipsis, and the
   ellipsis fix may change it if its last run overflowed the line; it has to be run (and
   regenerated if it changed) under WSL.
-- The widgets example was not rebuilt: the public changes are three new `TextLayout` methods.

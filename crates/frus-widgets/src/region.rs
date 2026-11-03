@@ -16,14 +16,16 @@
 //! been walked yet. Whoever moves an end has the whole frame in hand — the shell — and works
 //! the ranges out once.
 
+use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
+use std::rc::Rc;
 
-use std::cell::OnceCell;
-
-use frus_core::Color;
+use frus_core::{Color, Point};
+use frus_text::TextLayout;
 
 use crate::interaction::WidgetId;
 use crate::selectiontoolbar::{SelectionToolbar, ToolbarContext, ToolbarItem};
+use crate::textinput::handle_at;
 use crate::theme::Theme;
 use crate::widget::Widget;
 use crate::widgettheme::TextSelectionTheme;
@@ -228,9 +230,80 @@ pub fn region_copy(
     lines.join("\n")
 }
 
+/// What a text in a [`SelectionArea`] answers for a selection: its words, where a point falls
+/// among them and where a handle hangs from them.
+///
+/// A text hands one to its area as it is painted ([`Widget::selectable_text`]), and the area's
+/// registry ([`TextStop`]) keeps it. A selection is then worked out from what the texts
+/// registered, never from the widgets themselves: a list that builds only the rows in view
+/// drops its rows once the frame is drawn, and a row that is gone still answers through what
+/// it registered.
+///
+/// [`Text`](crate::Text) and [`RichText`](crate::RichText) give one; a widget of words of its
+/// own makes one by implementing this trait.
+pub trait SelectableText {
+    /// The words, as they are selected and copied.
+    fn words(&self) -> &str;
+
+    /// The character boundary of [`words`](Self::words) nearest `local` — a position in px
+    /// from the text's top-left corner — for a text laid out `width` wide, as it was drawn.
+    fn hit(&self, local: Point, width: f32) -> usize;
+
+    /// The handle that hangs from character boundary `index` — the start handle when `start`,
+    /// the end handle otherwise — in local coordinates, for a text laid out `width` wide.
+    fn handle(&self, width: f32, index: usize, start: bool) -> crate::SelectionHandle;
+}
+
+/// A [`SelectableText`] made from words and the layout they are drawn with, for the texts of
+/// this crate. The layout is made the first time it is asked for at a width, and kept for the
+/// next question at that width: a drag asks once a move.
+pub(crate) struct LaidWords {
+    words: Rc<str>,
+    layout: Box<dyn Fn(f32) -> TextLayout>,
+    laid: RefCell<Option<(f32, TextLayout)>>,
+}
+
+impl LaidWords {
+    /// `words`, laid out at a width by `layout`.
+    pub(crate) fn new(words: Rc<str>, layout: impl Fn(f32) -> TextLayout + 'static) -> Self {
+        Self {
+            words,
+            layout: Box::new(layout),
+            laid: RefCell::new(None),
+        }
+    }
+
+    /// Runs `f` on the layout at `width`.
+    fn with_layout<R>(&self, width: f32, f: impl FnOnce(&TextLayout) -> R) -> R {
+        let mut laid = self.laid.borrow_mut();
+        if laid.as_ref().is_none_or(|(at, _)| *at != width) {
+            *laid = Some((width, (self.layout)(width)));
+        }
+        let (_, layout) = laid.as_ref().expect("laid out just now");
+        f(layout)
+    }
+}
+
+impl SelectableText for LaidWords {
+    fn words(&self) -> &str {
+        &self.words
+    }
+
+    fn hit(&self, local: Point, width: f32) -> usize {
+        self.with_layout(width, |layout| layout.hit_test(local))
+    }
+
+    fn handle(&self, width: f32, index: usize, start: bool) -> crate::SelectionHandle {
+        let len = self.words.chars().count();
+        self.with_layout(width, |layout| {
+            handle_at(layout, Point::new(0.0, 0.0), index.min(len), start)
+        })
+    }
+}
+
 /// A text that takes part in a [`SelectionArea`], as one frame laid it out: what the shell
 /// hit-tests a press against and works a selection out from.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone)]
 pub struct TextStop {
     /// The text's identity.
     pub id: WidgetId,
@@ -238,6 +311,30 @@ pub struct TextStop {
     pub rect: crate::Rect,
     /// The area it is in.
     pub area: WidgetId,
+    /// What it answers for a selection: kept here, so that a text the frame built and let go
+    /// of — a row of a list that builds only what shows — still answers.
+    pub text: Rc<dyn SelectableText>,
+}
+
+impl std::fmt::Debug for TextStop {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TextStop")
+            .field("id", &self.id)
+            .field("rect", &self.rect)
+            .field("area", &self.area)
+            .field("words", &self.text.words())
+            .finish()
+    }
+}
+
+/// Two stops are the same when they are the same text, in the same place, with the same words.
+impl PartialEq for TextStop {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.rect == other.rect
+            && self.area == other.area
+            && self.text.words() == other.text.words()
+    }
 }
 
 /// A subtree in which **every [`Text`](crate::Text) can be selected, and one drag selects
@@ -739,7 +836,7 @@ mod tests {
             let selected = |tree: &dyn Widget<()>| {
                 let mut rt = Runtime::default();
                 let bare = build_ui::<()>(tree, size, &rt, &theme);
-                let stop = bare.text_stops()[0];
+                let stop = bare.text_stops()[0].clone();
                 let (from, to) = (
                     RegionPoint {
                         text: stop.id,
@@ -797,7 +894,7 @@ mod tests {
             let stops: Vec<TextStop> = bare.text_stops().to_vec();
             assert_eq!(stops.len(), 3, "alpha, the paragraph, omega: {stops:?}");
             assert!(stops[0].rect.y < stops[1].rect.y && stops[1].rect.y < stops[2].rect.y);
-            let rich = stops[1];
+            let rich = stops[1].clone();
 
             let lengths = [(stops[0].id, 5), (rich.id, 14), (stops[2].id, 5)];
             let from = RegionPoint {
@@ -837,6 +934,56 @@ mod tests {
             );
             let point = Point::new(rich.rect.x + 2.0, rich.rect.y + 4.0);
             assert_eq!(selected.text_stop_at(point).map(|s| s.id), Some(rich.id));
+        }
+
+        /// **The rows of a list built on demand register what they answer** (milestone 741): each
+        /// row's words, where a point falls in them and where a handle hangs, kept with the stop
+        /// — and still answered once the list that built the rows, and the rows, are gone.
+        #[test]
+        fn a_built_rows_text_answers_after_the_row_is_gone() {
+            let list = SelectionArea::around(
+                crate::ListView::builder(100, |i| Text::new(format!("row {i:02}")).no_wrap())
+                    .estimated_extent(20.0)
+                    .width(300.0)
+                    .height(100.0),
+            );
+            let ui = build_ui::<()>(
+                &list,
+                Size::new(300.0, 100.0),
+                &Runtime::default(),
+                &Theme::default(),
+            );
+            drop(list);
+            let stops: Vec<TextStop> = ui.text_stops().to_vec();
+            assert!(
+                (4..=8).contains(&stops.len()),
+                "only the rows in view: {stops:?}"
+            );
+            let words: Vec<&str> = stops.iter().map(|s| s.text.words()).collect();
+            assert_eq!(&words[..3], ["row 00", "row 01", "row 02"]);
+            let second = &stops[1];
+            assert!(stops[0].rect.y < second.rect.y, "in reading order");
+            let width = second.rect.width;
+            assert_eq!(second.text.hit(Point::new(0.0, 4.0), width), 0);
+            assert_eq!(second.text.hit(Point::new(width, 4.0), width), 6);
+            let start = second.text.handle(width, 0, true);
+            let end = second.text.handle(width, 6, false);
+            assert!(start.line_center.x < end.line_center.x, "{start:?} {end:?}");
+            // Asked twice at one width, it answers the same: the layout is kept for the next.
+            assert_eq!(second.text.hit(Point::new(width, 4.0), width), 6);
+        }
+
+        /// **A text with no words takes no part**: nothing to select in it, nothing registered.
+        #[test]
+        fn an_empty_text_registers_nothing() {
+            assert!(Widget::<()>::selectable_text(&Text::new("")).is_none());
+            let words = Widget::<()>::selectable_text(&Text::new("héllo")).expect("words");
+            assert_eq!(words.words(), "héllo");
+            assert_eq!(
+                words.hit(Point::new(1000.0, 4.0), 1000.0),
+                5,
+                "in characters"
+            );
         }
 
         /// **What the application says about the bar is the area's answer**, through any wrapper

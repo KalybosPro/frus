@@ -31,7 +31,7 @@ use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
 use crate::selectiontoolbar::{ToolbarContext, ToolbarItem};
 use crate::text::{area_bar, paint_grips, paint_highlight, AreaBars, Selection};
-use crate::textinput::{handle_at, handles_in, move_caret, selection_box_in, word_range};
+use crate::textinput::{handles_in, move_caret, selection_box_in, word_range};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -159,28 +159,19 @@ impl RichText {
     /// kept — with its indices still the whole plain text's (see [`TextLayout::elided`]).
     fn text_layout(&self, width: f32) -> TextLayout {
         frus_core::with_text_scale(self.scale.get(), || {
-            let (drawn, cut) = self.fitted(self.runs(Color::WHITE, 1.0), width);
-            let layout = TextLayout::of_runs_in(&drawn, self.block(width));
-            if !cut {
-                return layout;
-            }
-            // What was kept is a prefix of the plain text, an ellipsis perhaps after it.
-            let visible = drawn
-                .iter()
-                .flat_map(|run| run.text.chars())
-                .zip(self.plain.chars())
-                .take_while(|(a, b)| a == b)
-                .count();
-            layout.elided(visible, self.len())
+            self.shape()
+                .layout(&self.runs(Color::WHITE, 1.0), &self.plain, width)
         })
     }
 
-    /// The box the runs are drawn in at `width`.
-    fn block(&self, width: f32) -> TextBlock {
-        TextBlock {
-            width: (self.wrap || self.align != TextAlign::Start).then_some(width),
-            soft_wrap: self.wrap,
+    /// How the runs are put in their box: what a selection area's registered words carry, so
+    /// that a paragraph recycled out of a list is still hit where it was drawn.
+    fn shape(&self) -> Shape {
+        Shape {
+            wrap: self.wrap,
             align: self.align,
+            max_lines: self.max_lines,
+            overflow: self.overflow,
         }
     }
 
@@ -241,13 +232,86 @@ impl RichText {
         self.align != TextAlign::Start
     }
 
+    /// A line limit is a height cap and nothing else.
+    fn capped(&self, height: f32) -> f32 {
+        match self.max_lines {
+            // Rounded up for the reason `Text`'s own clamp is (issue #54): the pixels
+            // the allowed lines occupy are pixels a layout will round.
+            Some(max) => height.min(frus_core::fits(
+                self.base.resolved().line_height() * max as f32,
+            )),
+            None => height,
+        }
+    }
+
+    /// The fade that ends a cut paragraph — the same rule as [`crate::Text`]'s.
+    fn fade(&self, bounds: Rect, horizontal: bool) -> ShaderMask {
+        let extent = if horizontal {
+            bounds.width
+        } else {
+            bounds.height
+        };
+        let run = (extent * 0.2).min(self.base.resolved().line_height() * 3.0);
+        let (from, to) = if horizontal {
+            (
+                Point::new(bounds.x + bounds.width - run, bounds.y),
+                Point::new(bounds.x + bounds.width, bounds.y),
+            )
+        } else {
+            (
+                Point::new(bounds.x, bounds.y + bounds.height - run),
+                Point::new(bounds.x, bounds.y + bounds.height),
+            )
+        };
+        ShaderMask::new(MaskShader::Linear {
+            from,
+            to,
+            from_color: Color::WHITE,
+            to_color: Color::WHITE.fade(0.0),
+        })
+    }
+
+    /// Resolved runs: the inherited color is settled against `fallback` and
+    /// modulated by `opacity`. (For measuring, the color makes no difference.)
+    fn runs(&self, fallback: Color, opacity: f32) -> Vec<TextRun> {
+        self.span
+            .flatten(self.base)
+            .into_iter()
+            .map(|(text, style)| TextRun {
+                text,
+                size: style.size,
+                weight: style.weight,
+                italic: style.italic,
+                color: style.color.unwrap_or(fallback).fade(opacity),
+                decoration: style.decoration,
+                // Inherited = the run's color: resolved here so that the
+                // fade-out applies to the decorations too.
+                decoration_color: style.decoration_color.map(|c| c.fade(opacity)),
+                letter_spacing: style.letter_spacing,
+            })
+            .collect()
+    }
+}
+
+/// How a paragraph's runs are put in their box — whether they wrap, where the lines sit,
+/// and how many there may be and how the last ends. Kept apart from the widget so that the
+/// words a selection area registers can lay the runs out as they were drawn.
+#[derive(Clone, Copy)]
+struct Shape {
+    wrap: bool,
+    align: TextAlign,
+    max_lines: Option<usize>,
+    overflow: TextOverflow,
+}
+
+impl Shape {
     /// The runs that actually fit `width`, and whether anything was left over.
     ///
     /// The cut lands on a break the shaper chose, which is why the offset comes from
     /// `frus-text` rather than from arithmetic here; splitting the runs at it is the easy
     /// half. The ellipsis inherits the style of the run it ends, because it is that run's
     /// last character as far as a reader is concerned.
-    fn fitted(&self, runs: Vec<TextRun>, width: f32) -> (Vec<TextRun>, bool) {
+    fn fitted(self, runs: Vec<TextRun>, width: f32) -> (Vec<TextRun>, bool) {
         let Some(max) = self.max_lines else {
             return (runs, false);
         };
@@ -309,64 +373,32 @@ impl RichText {
         (kept, true)
     }
 
-    /// A line limit is a height cap and nothing else.
-    fn capped(&self, height: f32) -> f32 {
-        match self.max_lines {
-            // Rounded up for the reason `Text`'s own clamp is (issue #54): the pixels
-            // the allowed lines occupy are pixels a layout will round.
-            Some(max) => height.min(frus_core::fits(
-                self.base.resolved().line_height() * max as f32,
-            )),
-            None => height,
+    /// The box the runs are drawn in at `width`.
+    fn block(self, width: f32) -> TextBlock {
+        TextBlock {
+            width: (self.wrap || self.align != TextAlign::Start).then_some(width),
+            soft_wrap: self.wrap,
+            align: self.align,
         }
     }
 
-    /// The fade that ends a cut paragraph — the same rule as [`crate::Text`]'s.
-    fn fade(&self, bounds: Rect, horizontal: bool) -> ShaderMask {
-        let extent = if horizontal {
-            bounds.width
-        } else {
-            bounds.height
-        };
-        let run = (extent * 0.2).min(self.base.resolved().line_height() * 3.0);
-        let (from, to) = if horizontal {
-            (
-                Point::new(bounds.x + bounds.width - run, bounds.y),
-                Point::new(bounds.x + bounds.width, bounds.y),
-            )
-        } else {
-            (
-                Point::new(bounds.x, bounds.y + bounds.height - run),
-                Point::new(bounds.x, bounds.y + bounds.height),
-            )
-        };
-        ShaderMask::new(MaskShader::Linear {
-            from,
-            to,
-            from_color: Color::WHITE,
-            to_color: Color::WHITE.fade(0.0),
-        })
-    }
-
-    /// Resolved runs: the inherited color is settled against `fallback` and
-    /// modulated by `opacity`. (For measuring, the color makes no difference.)
-    fn runs(&self, fallback: Color, opacity: f32) -> Vec<TextRun> {
-        self.span
-            .flatten(self.base)
-            .into_iter()
-            .map(|(text, style)| TextRun {
-                text,
-                size: style.size,
-                weight: style.weight,
-                italic: style.italic,
-                color: style.color.unwrap_or(fallback).fade(opacity),
-                decoration: style.decoration,
-                // Inherited = the run's color: resolved here so that the
-                // fade-out applies to the decorations too.
-                decoration_color: style.decoration_color.map(|c| c.fade(opacity)),
-                letter_spacing: style.letter_spacing,
-            })
-            .collect()
+    /// The layout of `runs` — whose plain text is `plain` — as they are drawn at `width`:
+    /// what [`Shape::fitted`] kept of them, in their box, with the indices the whole plain
+    /// text's (see [`TextLayout::elided`]).
+    fn layout(self, runs: &[TextRun], plain: &str, width: f32) -> TextLayout {
+        let (drawn, cut) = self.fitted(runs.to_vec(), width);
+        let layout = TextLayout::of_runs_in(&drawn, self.block(width));
+        if !cut {
+            return layout;
+        }
+        // What was kept is a prefix of the plain text, an ellipsis perhaps after it.
+        let visible = drawn
+            .iter()
+            .flat_map(|run| run.text.chars())
+            .zip(plain.chars())
+            .take_while(|(a, b)| a == b)
+            .count();
+        layout.elided(visible, plain.chars().count())
     }
 }
 
@@ -464,11 +496,11 @@ impl<Msg: Clone + 'static> Widget<Msg> for RichText {
         // paragraph's own while it is focused.
         let runs = self.runs(theme.on_surface, status.opacity);
         let natural = frus_text::measure_runs(&runs).width;
-        let (runs, too_tall) = self.fitted(runs, bounds.width);
+        let (runs, too_tall) = self.shape().fitted(runs, bounds.width);
         // A paragraph that wraps has no line wider than its box; one that does not may.
         let too_wide = !self.wrap && natural > bounds.width + 0.5;
         let over = too_tall || too_wide;
-        let block = self.block(bounds.width);
+        let block = self.shape().block(bounds.width);
         paint_highlight(
             || self.text_layout(bounds.width),
             self.len(),
@@ -529,9 +561,23 @@ impl<Msg: Clone + 'static> Widget<Msg> for RichText {
         false
     }
 
-    /// The plain text, for a selection that spans texts: any paragraph with words in it.
-    fn selection_text(&self) -> Option<&str> {
-        (!self.plain.is_empty()).then_some(self.plain.as_str())
+    /// The plain text and how its runs are laid out, for a selection that spans texts: any
+    /// paragraph with words in it.
+    fn selectable_text(&self) -> Option<std::rc::Rc<dyn crate::SelectableText>> {
+        if self.plain.is_empty() {
+            return None;
+        }
+        let scale = self.scale.get();
+        let runs = frus_core::with_text_scale(scale, || self.runs(Color::WHITE, 1.0));
+        // The alignment, the line limit and the overflow travel with the words, so that they
+        // are hit where they were drawn.
+        let shape = self.shape();
+        let plain: std::rc::Rc<str> = self.plain.as_str().into();
+        let laid = std::rc::Rc::clone(&plain);
+        Some(std::rc::Rc::new(crate::region::LaidWords::new(
+            plain,
+            move |width| frus_core::with_text_scale(scale, || shape.layout(&runs, &laid, width)),
+        )))
     }
 
     fn region_toolbar(
@@ -553,30 +599,6 @@ impl<Msg: Clone + 'static> Widget<Msg> for RichText {
         );
         let bar = area_bar(&self.area_bars, context)?;
         Some((anchor, bar))
-    }
-
-    fn selection_grip(
-        &self,
-        width: f32,
-        index: usize,
-        start: bool,
-    ) -> Option<crate::SelectionHandle> {
-        Some(handle_at(
-            &self.text_layout(width),
-            Point::new(0.0, 0.0),
-            index.min(self.len()),
-            start,
-        ))
-    }
-
-    fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
-        if self.plain.is_empty() {
-            return None;
-        }
-        Some(
-            self.text_layout(width)
-                .hit_test(Point::new(local_x, local_y)),
-        )
     }
 
     fn cursor_at(
@@ -649,6 +671,13 @@ mod tests {
     use super::*;
     use crate::interaction::Status;
     use frus_core::{FontWeight, Primitive};
+
+    /// The boundary of `rich`'s words nearest a point, as its area finds it: through what the
+    /// paragraph registers, laid out 300 px wide.
+    fn hit(rich: &RichText, x: f32, y: f32) -> Option<usize> {
+        let words = Widget::<()>::selectable_text(rich)?;
+        Some(words.hit(Point::new(x, y), 300.0))
+    }
 
     #[test]
     fn paints_resolved_runs_with_theme_colour() {
@@ -870,15 +899,16 @@ mod tests {
     fn a_paragraph_offers_its_plain_text_to_a_selection() {
         let plain = mixed();
         assert_eq!(
-            Widget::<()>::selection_text(&plain),
+            Widget::<()>::selectable_text(&plain)
+                .as_deref()
+                .map(|text| text.words()),
             Some("plain bold tail")
         );
         assert!(!Widget::<()>::focusable(&plain), "read, not selected alone");
         assert_eq!(Widget::<()>::text_value(&plain), None);
         let empty = RichText::new(TextSpan::new(""));
-        assert_eq!(
-            Widget::<()>::selection_text(&empty),
-            None,
+        assert!(
+            Widget::<()>::selectable_text(&empty).is_none(),
             "nothing to select"
         );
 
@@ -903,12 +933,9 @@ mod tests {
         )
         .base_style(TextStyle::new(16.0));
         let x = width("ab", TextStyle::new(16.0)) + width("C", TextStyle::new(40.0)) + 1.0;
-        assert_eq!(Widget::<()>::selection_hit(&rich, x, 20.0, 300.0), Some(3));
+        assert_eq!(hit(&rich, x, 20.0), Some(3));
         let far = width("ab", TextStyle::new(16.0)) + width("CD", TextStyle::new(40.0)) + 1.0;
-        assert_eq!(
-            Widget::<()>::selection_hit(&rich, far, 20.0, 300.0),
-            Some(4)
-        );
+        assert_eq!(hit(&rich, far, 20.0), Some(4));
     }
 
     /// **The highlight covers the glyphs selected, in the style they are drawn in**: the bold
@@ -986,7 +1013,9 @@ mod tests {
             ..Status::default()
         };
         assert_eq!(paths(grips), 2);
-        assert!(Widget::<()>::selection_grip(&mixed(), 300.0, 6, true).is_some());
+        let words = Widget::<()>::selectable_text(&mixed()).expect("a paragraph with words");
+        let handle = words.handle(300.0, 6, true);
+        assert!(handle.rect.height > 0.0, "{handle:?}");
     }
 
     /// **A hit follows the reader's font setting the paragraph was painted under**, though it
@@ -998,7 +1027,7 @@ mod tests {
             paint_with(&rich, Status::default());
         });
         let x = frus_core::with_text_scale(2.0, || width("abc", TextStyle::new(16.0)));
-        assert_eq!(Widget::<()>::selection_hit(&rich, x, 10.0, 300.0), Some(3));
+        assert_eq!(hit(&rich, x, 10.0), Some(3));
     }
     /// **A centred paragraph is highlighted and hit where its runs are drawn** (milestone
     /// 742): the bold run's box is the bold word's, half the room left over in from the edge.
@@ -1020,9 +1049,11 @@ mod tests {
         assert!((rects[0].width - width("bold", bold)).abs() < 1.5);
         // A press on the "o" of "bold" lands in it.
         let x = left + width("plain ", plain) + width("b", bold) + 1.0;
-        assert_eq!(Widget::<()>::selection_hit(&rich, x, 10.0, 300.0), Some(7));
+        assert_eq!(hit(&rich, x, 10.0), Some(7));
         // The handles hang from where the word is.
-        let handle = Widget::<()>::selection_grip(&rich, 300.0, 6, true).expect("a handle");
+        let handle = Widget::<()>::selectable_text(&rich)
+            .expect("words")
+            .handle(300.0, 6, true);
         assert!(
             (handle.line_center.x - (left + width("plain ", plain))).abs() < 1.5,
             "{handle:?}"
@@ -1043,10 +1074,7 @@ mod tests {
             (rects[0].x + rects[0].width - 310.0).abs() < 1.0,
             "{rects:?}"
         );
-        assert_eq!(
-            Widget::<()>::selection_hit(&rich, 299.0, 10.0, 300.0),
-            Some(15)
-        );
+        assert_eq!(hit(&rich, 299.0, 10.0), Some(15));
     }
 
     /// **A paragraph a line limit cuts short** is highlighted only on the line drawn, a hit
@@ -1068,10 +1096,7 @@ mod tests {
         let rects = highlights(&paint_with(&rich, status));
         assert_eq!(rects.len(), 1, "one line drawn: {rects:?}");
         assert!(rects[0].x + rects[0].width <= 310.0 + 0.5, "{rects:?}");
-        assert_eq!(
-            Widget::<()>::selection_hit(&rich, 5.0, 200.0, 300.0),
-            Some(len)
-        );
+        assert_eq!(hit(&rich, 5.0, 200.0), Some(len));
         let edit = Edit {
             cursor: len,
             anchor: Some(0),
