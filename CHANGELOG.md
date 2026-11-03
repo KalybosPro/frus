@@ -8,11 +8,15 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 738 so far, each documenting the objective, the alternatives
+> record — one per step, 740 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **A clip path's transformed shapes are placed once** (J740): in an `SvgPicture`, a shape in a
+  `<clipPath>` with a `transform` of its own, or reached through a `<use>` with one, was
+  transformed twice, so the clip showed the picture in the wrong place or not at all. Each
+  transform now applies once, as in the reference renderer.
 - **A rich paragraph in a selection** (J738): a `RichText` inside a `SelectionArea` now takes
   part as a `Text` does: a selection can begin, end or pass through it, the highlight covers the
   glyphs selected in whatever run they are in, and Copy takes its plain text in order.
