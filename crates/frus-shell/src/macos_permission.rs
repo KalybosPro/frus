@@ -112,7 +112,9 @@ pub(crate) fn status(permission: Permission) -> PermissionStatus {
             Some(PermissionStatus::Ask) if !says_why(permission) => {
                 log::warn!(
                     "{permission} is refused without asking: the application's Info.plist does \
-                     not say why it wants it ({})",
+                     not say why it wants it ({}). Declare it with its reason in \
+                     [package.metadata.frus.permissions] and start the application with frus \
+                     run, or from the bundle frus build makes",
                     usage_keys(permission).join(" or ")
                 );
                 PermissionStatus::Blocked
