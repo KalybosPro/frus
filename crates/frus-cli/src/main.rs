@@ -15,6 +15,7 @@
 
 mod analyze;
 mod build;
+mod bundle;
 mod cargo;
 mod clean;
 mod create;
@@ -26,6 +27,7 @@ mod emulators;
 mod hot;
 mod json;
 mod keys;
+mod permissions;
 mod project;
 mod report;
 mod run;

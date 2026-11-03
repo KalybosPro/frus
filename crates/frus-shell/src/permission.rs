@@ -43,7 +43,8 @@
 //!   application's `Info.plist` must say why it wants each one (`NSCameraUsageDescription`,
 //!   `NSMicrophoneUsageDescription`, `NSLocationWhenInUseUsageDescription`): macOS ends a process
 //!   that asks without it, so frus does not ask, the status is [`PermissionStatus::Blocked`] and
-//!   the log says which is missing. That includes a program run outside a bundle. A refusal is
+//!   the log says which is missing. That includes a program run outside a bundle. The `frus`
+//!   tool writes them from `[package.metadata.frus.permissions]` (milestone 744). A refusal is
 //!   final: [`PermissionStatus::Blocked`], and [`open_permission_settings`] is the way left.
 //!   Notifications are [`PermissionStatus::Granted`]: the notification centre asks by itself the
 //!   first time one is shown.

@@ -250,10 +250,39 @@ A status is one of five:
 | `Blocked` | Refused for good, by a policy, or not declared by the application. | `open_permission_settings()`. |
 | `Unavailable` | Not something this platform or page can grant. | Do without it. |
 
-On **Android** the application's manifest must name each permission it asks for — for cargo-apk,
-one `[[package.metadata.android.uses_permission]]` per permission (`android.permission.CAMERA`,
-`RECORD_AUDIO`, `ACCESS_FINE_LOCATION` with `ACCESS_COARSE_LOCATION`, `POST_NOTIFICATIONS`) —
-or the system refuses without asking, which reads as `Blocked` and is written in the log. After
+### Declaring them
+
+An application declares what it asks for once, in its `Cargo.toml`, with the reason the person
+reads in the system's question:
+
+```toml
+[package.metadata.frus.permissions]
+camera = "Scans the code on your ticket."
+microphone = "Records your voice notes."
+location = "Shows the shops near you."
+notifications = true
+```
+
+The camera, the microphone and the location must have a reason: macOS and iOS end an
+application that asks without one. Notifications show none, so `true` declares them; `false`
+declares nothing. `frus build` and `frus run` stop with an error before building when a reason
+is missing or a key is not one of these four, and write each platform's declaration from the
+table:
+
+| Platform | What is written |
+| --- | --- |
+| macOS | The program becomes `name.app`, beside it in the build directory. Its `Info.plist` holds `NSCameraUsageDescription`, `NSMicrophoneUsageDescription` and `NSLocationWhenInUseUsageDescription` (with the older `NSLocationUsageDescription`) as declared. `frus run` starts the program from such a bundle too. |
+| Android | Each permission the manifest does not name yet is added to `Cargo.toml` as a `[[package.metadata.android.uses_permission]]`: `CAMERA`, `RECORD_AUDIO`, `ACCESS_FINE_LOCATION` with `ACCESS_COARSE_LOCATION`, `POST_NOTIFICATIONS`. What is already there stays. |
+| Web, Windows, Linux | Nothing: they declare nothing ahead. |
+
+`cargo run` alone makes no bundle, so on a Mac a program started that way has no usage string
+and frus asks nothing.
+
+### Per platform
+
+On **Android** the application's manifest must name each permission it asks for (the table
+above writes them), or the system refuses without asking, which reads as `Blocked` and is
+written in the log. After
 two refusals the system stops asking, and the settings are the way left. On the **web** a
 request is what the browser asks on (the camera opened for a moment, the position read once),
 and a page refused once is `Blocked` until the site's settings change; camera, microphone and
@@ -262,7 +291,7 @@ the status reads the person's privacy settings, `Blocked` when they turn the dev
 desktop applications. **Linux** has nothing to ask. **macOS** shows the system's question, and
 a refusal is final (`Blocked`). The application's `Info.plist` must say why it wants each one
 (`NSCameraUsageDescription`, `NSMicrophoneUsageDescription`,
-`NSLocationWhenInUseUsageDescription`): macOS ends a process that asks without it, so frus does
+`NSLocationWhenInUseUsageDescription`, written from the table above): macOS ends a process that asks without it, so frus does
 not ask, and the status is `Blocked` with a line in the log. That includes a program run outside
 a bundle.
 

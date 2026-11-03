@@ -1126,7 +1126,7 @@ dependencies = [
 
 [[package]]
 name = "frus"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "frus-shell",
  "frus-text",
@@ -1135,20 +1135,31 @@ dependencies = [
 
 [[package]]
 name = "frus-core"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "bytemuck",
 ]
 
 [[package]]
+name = "frus-glyphon"
+version = "0.5.0"
+dependencies = [
+ "cosmic-text",
+ "etagere",
+ "lru",
+ "rustc-hash 2.1.3",
+ "wgpu",
+]
+
+[[package]]
 name = "frus-gpu"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "bytemuck",
  "frus-core",
+ "frus-glyphon",
  "frus-text",
- "glyphon",
  "log",
  "lyon",
  "pollster",
@@ -1158,7 +1169,7 @@ dependencies = [
 
 [[package]]
 name = "frus-image"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "frus-core",
  "image",
@@ -1167,7 +1178,7 @@ dependencies = [
 
 [[package]]
 name = "frus-layout"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "frus-core",
  "taffy",
@@ -1175,7 +1186,7 @@ dependencies = [
 
 [[package]]
 name = "frus-shell"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -1184,6 +1195,7 @@ dependencies = [
  "arboard",
  "async-executor",
  "async-io",
+ "block2 0.6.2",
  "blocking",
  "cfg_aliases",
  "console_error_panic_hook",
@@ -1196,19 +1208,21 @@ dependencies = [
  "jni 0.21.1",
  "js-sys",
  "log",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
  "pollster",
  "sys-locale",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
  "web-time",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
  "winit",
 ]
 
 [[package]]
 name = "frus-text"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "cosmic-text",
  "frus-core",
@@ -1219,7 +1233,7 @@ dependencies = [
 
 [[package]]
 name = "frus-widgets"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "frus-core",
  "frus-image",
@@ -1347,19 +1361,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c4ee00b289aba7a9e5306d57c2d05499b2e5dc427f84ac708bd2c090212cf3e"
 dependencies = [
  "gl_generator",
-]
-
-[[package]]
-name = "glyphon"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faea0bba2b305a172098adfc17f1a34a30282361903957da8c7a51049b4fae7b"
-dependencies = [
- "cosmic-text",
- "etagere",
- "lru",
- "rustc-hash 2.1.3",
- "wgpu",
 ]
 
 [[package]]
@@ -1701,9 +1702,9 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "lru"
-version = "0.16.4"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
+checksum = "4a9f71e3591c7ec44d3e563e87bf14ddc2bada8519dca046e5b0e560cd004e2d"
 
 [[package]]
 name = "lyon"

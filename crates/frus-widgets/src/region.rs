@@ -155,6 +155,63 @@ pub fn region_ranges(
     ranges
 }
 
+/// The texts a selection is worked out over, once the frame has changed under it: `present`,
+/// the texts of the area in this frame, in reading order, and among them, where they were,
+/// the texts of `known` — the ones the selection was worked out over before — that are no
+/// longer there.
+///
+/// A selection dragged past the edge of a scrolling area scrolls it, and the texts it began in
+/// go out of sight — out of the frame, and out of the tree altogether in a list that builds
+/// only what shows. Their place among the others is what keeps them selected and copied. A
+/// text gone from the frame is put back after the last text before it that is still there, or
+/// at the start when none before it is; if none of `known` is still there, nothing tells where
+/// they were, and they are taken to come before (a page read downwards).
+///
+/// Each entry carries what the caller needs of a text — its words, its length; a present
+/// text's is the one used.
+///
+/// ```
+/// use frus_widgets::{merge_text_stops, WidgetId};
+///
+/// let [a, b, c, d] = [1, 2, 3, 4].map(WidgetId::from_u64);
+/// // `a` and `b` have scrolled out of sight; `d` has come in.
+/// let known = [(a, 5), (b, 7), (c, 3)];
+/// let present = [(c, 3), (d, 9)];
+/// let ids: Vec<WidgetId> = merge_text_stops(&known, &present)
+///     .into_iter()
+///     .map(|(id, _)| id)
+///     .collect();
+/// assert_eq!(ids, [a, b, c, d]);
+/// ```
+pub fn merge_text_stops<T: Clone>(
+    known: &[(WidgetId, T)],
+    present: &[(WidgetId, T)],
+) -> Vec<(WidgetId, T)> {
+    let here = |id: WidgetId| present.iter().any(|(p, _)| *p == id);
+    let first_kept = known.iter().position(|(id, _)| here(*id));
+    let mut merged: Vec<(WidgetId, T)> = Vec::with_capacity(known.len() + present.len());
+    let Some(first_kept) = first_kept else {
+        merged.extend(known.iter().filter(|(id, _)| !here(*id)).cloned());
+        merged.extend(present.iter().cloned());
+        return merged;
+    };
+    // Those before the first one still there, at the start.
+    merged.extend(known[..first_kept].iter().cloned());
+    for entry in present {
+        merged.push(entry.clone());
+        // The run of gone texts that followed this one, after it.
+        if let Some(at) = known.iter().position(|(id, _)| *id == entry.0) {
+            merged.extend(
+                known[at + 1..]
+                    .iter()
+                    .take_while(|(id, _)| !here(*id))
+                    .cloned(),
+            );
+        }
+    }
+    merged
+}
+
 /// The words selected, as they are copied: each text's selected slice, in the order of
 /// `texts`, **one per line** — a paragraph broken into several texts is copied as those
 /// lines, which is what a reader who selected them across sees.
@@ -403,6 +460,74 @@ mod tests {
     fn an_end_is_clamped_and_a_missing_one_selects_nothing() {
         assert_eq!(region_ranges(&stops(), at(1, 0), at(1, 99))[&id(1)], (0, 5));
         assert!(region_ranges(&stops(), at(1, 0), at(9, 1)).is_empty());
+    }
+
+    fn ids<T>(stops: &[(WidgetId, T)]) -> Vec<u64> {
+        let names: Vec<WidgetId> = (1..=9).map(id).collect();
+        stops
+            .iter()
+            .map(|(stop, _)| names.iter().position(|n| n == stop).unwrap() as u64 + 1)
+            .collect()
+    }
+
+    fn list(names: &[u64]) -> Vec<(WidgetId, u64)> {
+        names.iter().map(|n| (id(*n), *n)).collect()
+    }
+
+    /// **Texts scrolled out at the top keep their place before the ones still there**, and the
+    /// ones come in at the bottom follow.
+    #[test]
+    fn texts_scrolled_out_above_stay_before() {
+        let merged = merge_text_stops(&list(&[1, 2, 3, 4]), &list(&[3, 4, 5, 6]));
+        assert_eq!(ids(&merged), [1, 2, 3, 4, 5, 6]);
+    }
+
+    /// **And scrolled out at the bottom, after.**
+    #[test]
+    fn texts_scrolled_out_below_stay_after() {
+        let merged = merge_text_stops(&list(&[4, 5, 6]), &list(&[2, 3, 4]));
+        assert_eq!(ids(&merged), [2, 3, 4, 5, 6]);
+    }
+
+    /// A text gone from the middle goes back after the one before it; nothing is doubled; a
+    /// present text's own entry wins over the remembered one.
+    #[test]
+    fn a_gone_text_goes_back_after_its_neighbour() {
+        let merged = merge_text_stops(&list(&[1, 2, 3]), &list(&[1, 3]));
+        assert_eq!(ids(&merged), [1, 2, 3]);
+        let known = vec![(id(1), "old"), (id(2), "kept")];
+        let present = vec![(id(1), "new")];
+        assert_eq!(
+            merge_text_stops(&known, &present),
+            vec![(id(1), "new"), (id(2), "kept")]
+        );
+    }
+
+    /// With nothing in common, the remembered texts come first; with nothing remembered, the
+    /// frame is the list.
+    #[test]
+    fn nothing_in_common_reads_downwards() {
+        assert_eq!(
+            ids(&merge_text_stops(&list(&[1, 2]), &list(&[5, 6]))),
+            [1, 2, 5, 6]
+        );
+        assert_eq!(ids(&merge_text_stops(&list(&[]), &list(&[5, 6]))), [5, 6]);
+    }
+
+    /// **A selection whose beginning scrolled away still holds it**: worked out over the merged
+    /// texts, the first is still selected from the press, where over the frame alone it would
+    /// be no selection at all.
+    #[test]
+    fn a_selection_survives_its_beginning_scrolling_away() {
+        let known = vec![(id(1), 5), (id(2), 10), (id(3), 4)];
+        let present = vec![(id(3), 4), (id(4), 8)];
+        assert!(region_ranges(&present, at(1, 2), at(4, 3)).is_empty());
+        let merged = merge_text_stops(&known, &present);
+        let ranges = region_ranges(&merged, at(1, 2), at(4, 3));
+        assert_eq!(ranges[&id(1)], (2, 5));
+        assert_eq!(ranges[&id(2)], (0, 10));
+        assert_eq!(ranges[&id(3)], (0, 4));
+        assert_eq!(ranges[&id(4)], (0, 3));
     }
 
     /// **What is copied is one line per text**, in reading order and by character.
