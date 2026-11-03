@@ -5,7 +5,7 @@ frus's layout engine: it turns a tree of styled nodes into positioned rectangles
 **Layer:** Foundations. Flexbox comes from [`taffy`](https://github.com/DioxusLabs/taffy),
 kept behind frus's own types so it can be replaced without breaking the API. It does not
 know what a widget is. See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What you reach for
 
@@ -41,5 +41,5 @@ assert_eq!(b_rect.x, 90.0);
 ## Part of frus
 
 Widgets build their layout through this crate; an application describes layout with
-widgets instead. See the [workspace README](https://github.com/KalybosPro/frus#readme).
+widgets instead. See the [workspace README](https://github.com/frus-rs/frus#readme).
 Licensed under MIT or Apache-2.0.

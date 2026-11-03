@@ -6,7 +6,7 @@ application is driven through, on desktop, Android and the web.
 **Layer:** Shell. It is the only crate that knows which platform it runs on; everything
 platform-specific (winit, the Android input and clipboard bridges, AccessKit, the browser)
 is gated here and nowhere else. See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What you reach for
 
@@ -51,5 +51,5 @@ font choice.
 ## Part of frus
 
 Applications usually depend on the `frus` facade, which re-exports this crate. See the
-[workspace README](https://github.com/KalybosPro/frus#readme). Licensed under MIT or
+[workspace README](https://github.com/frus-rs/frus#readme). Licensed under MIT or
 Apache-2.0.

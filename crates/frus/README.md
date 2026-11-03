@@ -4,7 +4,7 @@ The one dependency a frus application declares: it re-exports the shell, the wid
 the `main!` entry point.
 
 **Layer:** Application. The facade holds no logic of its own. See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What you reach for
 
@@ -44,7 +44,7 @@ fn main() -> frus::anyhow::Result<()> {
 }
 ```
 
-A complete version is [`frus-hello`](https://github.com/KalybosPro/frus/tree/master/crates/frus-hello),
+A complete version is [`frus-hello`](https://github.com/frus-rs/frus/tree/master/crates/frus-hello),
 and `frus create my_app` (`cargo install frus-cli`) starts a project from it.
 
 ## Features
@@ -57,6 +57,6 @@ icon styles. `images` (default) decodes embedded PNG and JPEG.
 ## Part of frus
 
 Add it with `cargo add frus`. See the
-[workspace README](https://github.com/KalybosPro/frus#readme) and
-[the getting-started guide](https://github.com/KalybosPro/frus/blob/master/docs/getting-started.md).
+[workspace README](https://github.com/frus-rs/frus#readme) and
+[the getting-started guide](https://github.com/frus-rs/frus/blob/master/docs/getting-started.md).
 Licensed under MIT or Apache-2.0.

@@ -5,7 +5,7 @@
 #
 # It is also a `cargo generate` template, for whoever prefers that tool:
 #
-#   cargo generate --git https://github.com/KalybosPro/frus crates/frus-cli/template --name my_app
+#   cargo generate --git https://github.com/frus-rs/frus crates/frus-cli/template --name my_app
 #
 # The manifest is `Cargo.toml.liquid` because a directory holding a `Cargo.toml` is a separate
 # package to `cargo publish`, which would leave the whole template out of `frus-cli`. Both tools

@@ -11,13 +11,13 @@
 # Requires: gh (authenticated), curl. Run: bash scripts/watch-copies.sh
 set -u
 
-OWN_REPO="KalybosPro/frus"
+OWN_REPO="frus-rs/frus"
 
 # Identifiers distinctive enough that a hit almost certainly came from frus.
 # VERIFIED to return zero external hits on 2026-11-02 — a new hit is a signal.
 # Do NOT add common names here: `paint_elevation` and `takes_typing`, for
 # example, occur in hundreds of unrelated projects and only create noise.
-# To add a token, first run:  gh api -X GET search/code -f q='"TOKEN" -repo:KalybosPro/frus' --jq .total_count
+# To add a token, first run:  gh api -X GET search/code -f q='"TOKEN" -repo:frus-rs/frus' --jq .total_count
 # and only keep it if that prints 0.
 TOKENS=(
   "QUICK_DECODE_PIXELS"

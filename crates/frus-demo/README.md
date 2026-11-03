@@ -6,7 +6,7 @@ the framework, written as an outside consumer would write it — with `Stateless
 
 **Layer:** Application. It uses `frus-shell`, `frus-widgets`, `frus-l10n` and `frus-image`
 directly rather than through the facade. See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What to read
 
@@ -29,5 +29,5 @@ cargo run -p frus-demo --features shots --bin shots -- docs/media
 ## Part of frus
 
 An example, not a library to depend on. See the
-[workspace README](https://github.com/KalybosPro/frus#readme). Licensed under MIT or
+[workspace README](https://github.com/frus-rs/frus#readme). Licensed under MIT or
 Apache-2.0.

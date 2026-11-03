@@ -6,7 +6,7 @@ frus's performance harness: what a frame costs on the CPU, measured with
 **Layer:** none of the four. It is a measuring instrument that uses `frus-core`,
 `frus-gpu`, `frus-text` and `frus-widgets`, and it is never published
 (`publish = false`). See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What is here
 
@@ -26,5 +26,5 @@ The numbers go to the terminal; there are no HTML reports.
 
 ## Part of frus
 
-See the [workspace README](https://github.com/KalybosPro/frus#readme). Licensed under MIT
+See the [workspace README](https://github.com/frus-rs/frus#readme). Licensed under MIT
 or Apache-2.0.

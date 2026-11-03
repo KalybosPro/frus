@@ -5,7 +5,7 @@ turns a tree into a scene plus everything needed to hit-test, focus and scroll i
 
 **Layer:** Widgets, above the foundations and below the shell. It is platform-independent:
 the shell feeds it input, and it never opens a window. See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What you reach for
 
@@ -37,5 +37,5 @@ beyond the filled set.
 ## Part of frus
 
 Applications get all of this through the `frus` facade. See the
-[workspace README](https://github.com/KalybosPro/frus#readme). Licensed under MIT or
+[workspace README](https://github.com/frus-rs/frus#readme). Licensed under MIT or
 Apache-2.0.

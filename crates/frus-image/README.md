@@ -5,7 +5,7 @@ PNG and JPEG decoding into frus's `ImageData`.
 **Layer:** Foundations. A deliberately narrow crate: `frus-core` holds raw pixels and no
 decoder, and this one adds [`image`](https://crates.io/crates/image), with only the PNG
 and JPEG formats turned on, so nothing else inherits its dependency tree. See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What you reach for
 
@@ -32,5 +32,5 @@ assert_eq!((decoded.width(), decoded.height()), (2, 2));
 ## Part of frus
 
 Applications use it through `frus-widgets`' `images` feature (`Image::memory`, `asset!`),
-on by default. See the [workspace README](https://github.com/KalybosPro/frus#readme).
+on by default. See the [workspace README](https://github.com/frus-rs/frus#readme).
 Licensed under MIT or Apache-2.0.

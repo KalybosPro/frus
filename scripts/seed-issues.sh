@@ -117,4 +117,4 @@ done
 
 echo
 echo "Done. Newcomers land here:"
-echo "  https://github.com/KalybosPro/frus/labels/good%20first%20issue"
+echo "  https://github.com/frus-rs/frus/labels/good%20first%20issue"

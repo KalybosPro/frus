@@ -4,9 +4,9 @@ The smallest complete frus application, a counter, and the canonical place to st
 
 **Layer:** Application. It depends on the `frus` facade alone, and it is the source of the
 template `frus create` writes, in
-[`crates/frus-cli/template`](https://github.com/KalybosPro/frus/tree/master/crates/frus-cli/template): a change
+[`crates/frus-cli/template`](https://github.com/frus-rs/frus/tree/master/crates/frus-cli/template): a change
 to one belongs in the other. See
-[ARCHITECTURE.md](https://github.com/KalybosPro/frus/blob/master/ARCHITECTURE.md).
+[ARCHITECTURE.md](https://github.com/frus-rs/frus/blob/master/ARCHITECTURE.md).
 
 ## What to read
 
@@ -23,10 +23,10 @@ cargo apk run -p frus-hello --lib          # Android, with cargo-apk, the SDK an
 ```
 
 The web build is described in
-[`web/README.md`](https://github.com/KalybosPro/frus/blob/master/crates/frus-hello/web/README.md).
+[`web/README.md`](https://github.com/frus-rs/frus/blob/master/crates/frus-hello/web/README.md).
 
 ## Part of frus
 
 An example, not a library to depend on. See the
-[workspace README](https://github.com/KalybosPro/frus#readme). Licensed under MIT or
+[workspace README](https://github.com/frus-rs/frus#readme). Licensed under MIT or
 Apache-2.0.

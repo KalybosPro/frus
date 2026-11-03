@@ -8,12 +8,12 @@
   "icon": "icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/KalybosPro/frus",
+    "url": "https://github.com/frus-rs/frus",
     "directory": "editors/vscode"
   },
-  "homepage": "https://github.com/KalybosPro/frus/tree/master/editors/vscode",
+  "homepage": "https://github.com/frus-rs/frus/tree/master/editors/vscode",
   "bugs": {
-    "url": "https://github.com/KalybosPro/frus/issues"
+    "url": "https://github.com/frus-rs/frus/issues"
   },
   "galleryBanner": {
     "color": "#121418",
