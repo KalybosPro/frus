@@ -19,6 +19,16 @@ any release may break.
   clear error when a reason is missing, make a `.app` on macOS whose `Info.plist` holds the usage
   strings (XML-escaped), and add the matching `[[package.metadata.android.uses_permission]]`
   tables for Android. The `frus create` template shows the table.
+- **Aligned and cut texts are selected where they are drawn** (J742): a selectable `Text` or
+  `RichText`, or one inside a `SelectionArea`, that was centred, end-aligned, justified, written
+  right to left or cut by a line limit was highlighted, hit and given handles as if it were
+  start-aligned and whole. The highlight, the caret, the handles and a press, a double click or a
+  drag now follow the glyphs as drawn. A text cut short is highlighted only as far as it is drawn
+  (a selection reaching into the cut covers the ellipsis), a drag past its end selects to the end
+  of its words, and Copy takes all the selected words, the hidden ones included. A `RichText`
+  cut with an ellipsis no longer spills a line past its limit when its last run shares the line
+  with others. `frus-text`
+  gained `TextLayout::in_block`, `TextLayout::of_runs_in` and `TextLayout::elided`.
 - **Images drawn small are averaged** (J743): an image drawn much smaller than its pixels
   shimmered, its fine patterns and thin lines aliased, because a texture had a single level. The
   first time an image is drawn smaller than its pixels it now gets a mip chain, made on the GPU in

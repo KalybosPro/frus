@@ -26,6 +26,9 @@ mod a11y;
 mod a11y_web;
 #[cfg(web)]
 mod address;
+/// Selecting aligned and cut texts through the shell (milestone 742).
+#[cfg(all(test, desktop))]
+mod aligned_selection_tests;
 #[cfg(android)]
 mod android_autofill;
 #[cfg(android)]

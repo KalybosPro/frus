@@ -65,7 +65,7 @@ pub struct Text {
     /// force — and a text's size may be handed down by a subtree and scaled by that setting,
     /// neither of which the widget can see from where it is asked. So layout and paint write
     /// down what they resolved, and the questions read it back.
-    shaping: Cell<Option<Shaping>>,
+    shaping: Cell<Option<Resolved>>,
     /// The reader's font-size setting when the text was built, for a question asked before
     /// any layout has: the best guess there is, and the right one for a text that sets its
     /// own size.
@@ -173,11 +173,16 @@ pub(crate) fn area_bar<Msg: Clone + 'static>(
 /// The highlight under the selected words of a text drawn at `bounds` with `layout`: a
 /// selection area's range, whatever the focus, or the text's own selection while it is
 /// focused and `selectable`. Painted before the words, so that they sit on it.
+///
+/// `clipped` keeps the highlight inside `bounds`, for words the box cuts off at its edge.
+// The geometry, the state and the scene, each needed; grouping them would only move them.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn paint_highlight(
     layout: impl FnOnce() -> TextLayout,
     len: usize,
     selectable: bool,
     bounds: Rect,
+    clipped: bool,
     status: &Status,
     theme: &Theme,
     scene: &mut Scene,
@@ -192,15 +197,15 @@ pub(crate) fn paint_highlight(
         .selection_color_in(theme)
         .fade(status.opacity);
     for rect in layout().selection_rects(start.min(len), end.min(len)) {
-        scene.fill_rect(
-            Rect::new(
-                bounds.x + rect.x,
-                bounds.y + rect.y,
-                rect.width,
-                rect.height,
-            ),
-            highlight,
-        );
+        let rect = rect.translate(bounds.x, bounds.y);
+        let rect = if clipped {
+            rect.intersect(bounds)
+        } else {
+            rect
+        };
+        if rect.width > 0.0 && rect.height > 0.0 {
+            scene.fill_rect(rect, highlight);
+        }
     }
 }
 
@@ -250,14 +255,6 @@ pub(crate) fn paint_grips(
     }
 }
 
-/// What a selection is measured against: the typography a text resolved, and whether it
-/// wraps at the width it is given.
-#[derive(Copy, Clone)]
-struct Shaping {
-    style: ResolvedTextStyle,
-    wrap: bool,
-}
-
 /// A [`Text`]'s questions, all answered: what the caller said where they said it, what the
 /// subtree's [`DefaultTextStyle`](crate::DefaultTextStyle) said where they did not, and
 /// the framework's own default where neither did.
@@ -267,6 +264,7 @@ struct Shaping {
 /// tidiness: a size resolved one way for the measurement and another way for the paint is
 /// a layout that is wrong everywhere at once, with nothing in the picture to say which of
 /// the two numbers was the mistake.
+#[derive(Copy, Clone)]
 pub(crate) struct Resolved {
     pub style: ResolvedTextStyle,
     pub align: TextAlign,
@@ -347,6 +345,83 @@ impl Fitted {
     }
 }
 
+/// The text that actually fits `width`, and which way it ran over: [`Text::fitted`] for
+/// `content` resolved as `r`, here so that a selection area's registered words can ask it
+/// without the widget.
+pub(crate) fn fit(content: &str, width: f32, r: &Resolved) -> Fitted {
+    // Only a line **limit** makes the words the widget's business. Left alone, the
+    // text goes to the renderer whole and is broken there.
+    //
+    // And what goes over is a **prefix**, cut at a break the shaper chose — never a
+    // list of lines glued back together. Lines glued back together are a paragraph
+    // *per line*, and rules that span a paragraph stop working: a justified block can
+    // only leave its last line ragged if it knows which line is the last.
+    let mut text = content.to_string();
+    let mut too_tall = false;
+    if let Some(max) = r.max_lines {
+        // Under the whole style — its line height, family and letter spacing break
+        // the lines as the renderer will (milestone 623).
+        let spans = frus_text::line_spans_resolved(content, &r.style, Some(width), r.wrap);
+        if spans.len() > max {
+            too_tall = true;
+            let cut = spans[max].start;
+            let last = spans[max - 1].start;
+            text = if r.overflow == TextOverflow::Ellipsis {
+                let ended = ellipsise(&content[last..cut], &r.style, width);
+                format!("{}{ended}", &content[..last])
+            } else {
+                content[..cut].to_string()
+            };
+        }
+    }
+    // A line can only be wider than the box when nothing may push it onto the next
+    // one. Where the text wraps, every line fits by construction.
+    let too_wide = !r.wrap && frus_text::measure_resolved(&text, &r.style).width > width + 0.5;
+    if too_wide && !too_tall && r.overflow == TextOverflow::Ellipsis {
+        text = ellipsise(&text, &r.style, width);
+    }
+    Fitted {
+        text,
+        too_wide,
+        too_tall,
+    }
+}
+
+/// The layout of `content` resolved as `r`, as it is drawn at `width`: what [`fit`] kept of
+/// it, in the box the paint draws it in, with its indices the whole text's (see
+/// [`TextLayout::elided`]).
+fn laid_out(content: &str, width: f32, r: &Resolved) -> TextLayout {
+    drawn_layout(content, &fit(content, width, r).text, width, r)
+}
+
+/// The layout of `drawn` — what [`fit`] kept of `content` at `width` — in the box the paint
+/// draws it in, with its indices `content`'s.
+fn drawn_layout(content: &str, drawn: &str, width: f32, r: &Resolved) -> TextLayout {
+    let layout = TextLayout::in_block(drawn, &r.style, text_block(width, r));
+    if drawn == content {
+        return layout;
+    }
+    // What was kept is a prefix of the words, an ellipsis perhaps after it.
+    let visible = drawn
+        .chars()
+        .zip(content.chars())
+        .take_while(|(a, b)| a == b)
+        .count();
+    layout.elided(visible, content.chars().count())
+}
+
+/// The box the words resolved as `r` are drawn in at `width`.
+fn text_block(width: f32, r: &Resolved) -> TextBlock {
+    TextBlock {
+        // A width is handed over only when something is going to use it. Giving the
+        // renderer one it did not have changes where right-to-left text lands, which
+        // is a bug this codebase has already had once.
+        width: (r.wrap || r.align != TextAlign::Start).then_some(width),
+        soft_wrap: r.wrap,
+        align: r.align,
+    }
+}
+
 impl Text {
     /// Creates a text that has **chosen nothing**: it takes its size, weight and colour
     /// from whatever subtree it is put in, and the framework's own where nothing says
@@ -414,9 +489,13 @@ impl Text {
     /// # let _ = code;
     /// ```
     ///
-    /// **Limits.** What is selected is what is drawn from the start of each line: a text
-    /// aligned to the centre or the end, or one that a line limit or an ellipsis cuts short,
-    /// is highlighted as if it were not. Up and Down move focus rather than the caret.
+    /// What is highlighted, hit and given handles is what is drawn: a centred, end-aligned,
+    /// justified or right-to-left line where its glyphs are, and a text that a line limit or
+    /// an ellipsis cuts short only as far as it is drawn — a selection that runs into the cut
+    /// covers the ellipsis, a drag past the end of the last line selects to the end of the
+    /// words, and Copy takes the **whole** selected words, the hidden ones included.
+    ///
+    /// **Limits.** Up and Down move focus rather than the caret.
     /// A selectable text inside something that takes a tap — a button, a list tile — takes
     /// the press instead of it: make selectable the texts that are not the button's label.
     pub fn selectable(mut self) -> Self {
@@ -461,29 +540,28 @@ impl Text {
 
     /// The layout of this text as it was drawn, at `width` — for any text, selectable or
     /// not: a [`SelectionArea`](crate::SelectionArea) selects in texts that never asked to be.
+    ///
+    /// It is the layout of the words **as they were drawn**: in the box the paint handed the
+    /// renderer, so a centred, end-aligned, justified or right-to-left line is hit and
+    /// highlighted where its glyphs are; and, for a text a line limit or an ellipsis cut
+    /// short, of what was kept, with its indices still the whole text's (see
+    /// [`TextLayout::elided`]).
     fn text_layout(&self, width: f32) -> TextLayout {
-        let shaping = self.shaping();
-        TextLayout::resolved(&self.content, &shaping.style, shaping.wrap.then_some(width))
+        laid_out(&self.content, width, &self.resolution())
     }
 
-    /// What this text was shaped with: as it resolved when it was painted, or as it resolves
-    /// now if it has not been.
-    fn shaping(&self) -> Shaping {
-        self.shaping.get().unwrap_or_else(|| {
-            let resolved = frus_core::with_text_scale(self.scale, || self.resolved(None));
-            Shaping {
-                style: resolved.style,
-                wrap: resolved.wrap,
-            }
-        })
+    /// What this text was laid out with: as it resolved when it was last laid out or
+    /// painted, or as it resolves now if it has not been. A selection area's registered
+    /// words carry a copy, so that a row recycled out of a list still answers.
+    fn resolution(&self) -> Resolved {
+        self.shaping
+            .get()
+            .unwrap_or_else(|| frus_core::with_text_scale(self.scale, || self.resolved(None)))
     }
 
     /// Writes down what this text resolved, for the questions a selection is asked later.
     fn remember(&self, r: &Resolved) {
-        self.shaping.set(Some(Shaping {
-            style: r.style,
-            wrap: r.wrap,
-        }));
+        self.shaping.set(Some(*r));
     }
 
     /// Wraps at the width the parent offers. This is the default, and the call is kept
@@ -696,43 +774,7 @@ impl Text {
     /// limit, cutting the last one, deciding whether a line ran past the edge. The paint
     /// draws what comes back, and the overflow mode decides how.
     pub(crate) fn fitted(&self, width: f32, r: &Resolved) -> Fitted {
-        // Only a line **limit** makes the words the widget's business. Left alone, the
-        // text goes to the renderer whole and is broken there.
-        //
-        // And what goes over is a **prefix**, cut at a break the shaper chose — never a
-        // list of lines glued back together. Lines glued back together are a paragraph
-        // *per line*, and rules that span a paragraph stop working: a justified block can
-        // only leave its last line ragged if it knows which line is the last.
-        let mut text = self.content.clone();
-        let mut too_tall = false;
-        if let Some(max) = r.max_lines {
-            // Under the whole style — its line height, family and letter spacing break
-            // the lines as the renderer will (milestone 623).
-            let spans =
-                frus_text::line_spans_resolved(&self.content, &r.style, Some(width), r.wrap);
-            if spans.len() > max {
-                too_tall = true;
-                let cut = spans[max].start;
-                let last = spans[max - 1].start;
-                text = if r.overflow == TextOverflow::Ellipsis {
-                    let ended = ellipsise(&self.content[last..cut], &r.style, width);
-                    format!("{}{ended}", &self.content[..last])
-                } else {
-                    self.content[..cut].to_string()
-                };
-            }
-        }
-        // A line can only be wider than the box when nothing may push it onto the next
-        // one. Where the text wraps, every line fits by construction.
-        let too_wide = !r.wrap && frus_text::measure_resolved(&text, &r.style).width > width + 0.5;
-        if too_wide && !too_tall && r.overflow == TextOverflow::Ellipsis {
-            text = ellipsise(&text, &r.style, width);
-        }
-        Fitted {
-            text,
-            too_wide,
-            too_tall,
-        }
+        fit(&self.content, width, r)
     }
 
     /// Whether this text needs the **whole width it is offered** rather than its own.
@@ -976,26 +1018,23 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
             .unwrap_or(theme.on_surface)
             .fade(status.opacity);
         let fitted = self.fitted(bounds.width, &r);
+        // Words cut at the edge of the box are not drawn past it, and neither is their
+        // highlight.
+        let clipped = fitted.over() && r.overflow != TextOverflow::Visible;
         // The selection: the highlight below the words (the handles of a touch selection are
         // drawn after them). A selection area's covers this text whether or not it is focused;
         // a selectable text's own only while it is.
         paint_highlight(
-            || self.text_layout(bounds.width),
+            || drawn_layout(&self.content, &fitted.text, bounds.width, &r),
             self.content.chars().count(),
             self.selecting().is_some(),
             bounds,
+            clipped,
             &status,
             theme,
             scene,
         );
-        let block = TextBlock {
-            // A width is handed over only when something is going to use it. Giving the
-            // renderer one it did not have changes where right-to-left text lands, which
-            // is a bug this codebase has already had once.
-            width: (r.wrap || r.align != TextAlign::Start).then_some(bounds.width),
-            soft_wrap: r.wrap,
-            align: r.align,
-        };
+        let block = text_block(bounds.width, &r);
         let draw = |scene: &mut Scene| {
             scene.text_block(
                 Point::new(bounds.x, bounds.y),
@@ -1058,12 +1097,14 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
         if self.content.is_empty() {
             return None;
         }
-        let shaping = self.shaping();
+        // Everything the drawn layout needs travels with the words — the alignment, the line
+        // limit and the overflow too — so that they are hit where they were drawn.
+        let r = self.resolution();
         let words: std::rc::Rc<str> = self.content.as_str().into();
         let laid = std::rc::Rc::clone(&words);
         Some(std::rc::Rc::new(crate::region::LaidWords::new(
             words,
-            move |width| TextLayout::resolved(&laid, &shaping.style, shaping.wrap.then_some(width)),
+            move |width| laid_out(&laid, width, &r),
         )))
     }
 
@@ -2581,5 +2622,153 @@ mod selectable_tests {
         };
         assert!(found(true));
         assert!(!found(false));
+    }
+    /// A focused selection of `range` in `text`, painted at `(10, 20)` in a box 300 wide.
+    fn highlighted(text: &Text, range: (usize, usize)) -> Vec<Rect> {
+        highlights(&paint(
+            text,
+            Status {
+                focused: true,
+                selection: Some(range),
+                ..Status::default()
+            },
+        ))
+    }
+
+    /// **A centred text is highlighted, hit and given handles where it is drawn**
+    /// (milestone 742): the words sit in the middle of the box, and so do the highlight of
+    /// the first word, the press that lands in it and the handles that hang from it.
+    #[test]
+    fn a_centred_text_is_selected_where_it_is_drawn() {
+        let text = Text::new("hello world")
+            .selectable()
+            .align(TextAlign::Center);
+        let left = (300.0 - width_of("hello world")) / 2.0;
+        let boxes = highlighted(&text, (0, 5));
+        assert_eq!(boxes.len(), 1, "{boxes:?}");
+        assert!((boxes[0].x - (10.0 + left)).abs() < 1.0, "{boxes:?}");
+        assert!((boxes[0].width - width_of("hello")).abs() < 1.0);
+        // A press over the "w" is a press over the "w", not past the end of the text.
+        let w = left + width_of("hello ") + 1.0;
+        assert_eq!(hit(&text, w, 5.0, 300.0), Some(6));
+        // And so do the words it registers with a selection area.
+        let words = Widget::<()>::selectable_text(&text).expect("words");
+        assert_eq!(words.hit(Point::new(w, 5.0), 300.0), 6);
+        // A press left of the words is their start.
+        assert_eq!(hit(&text, 2.0, 5.0, 300.0), Some(0));
+        let [start, end] =
+            Widget::<()>::selection_handles(&text, 300.0, &selected(5, Some(0)), 0.0)
+                .expect("the handles of a selection");
+        assert!((start.line_center.x - left).abs() < 1.0, "{start:?}");
+        assert!(
+            (end.line_center.x - (left + width_of("hello"))).abs() < 1.0,
+            "{end:?}"
+        );
+    }
+
+    /// An **end-aligned** text's last word is highlighted against the box's right edge,
+    /// whether it wraps or not.
+    #[test]
+    fn an_end_aligned_text_is_highlighted_against_the_edge() {
+        for text in [
+            Text::new("hello world").selectable().align(TextAlign::End),
+            Text::new("hello world")
+                .selectable()
+                .no_wrap()
+                .align(TextAlign::End),
+        ] {
+            let boxes = highlighted(&text, (6, 11));
+            assert_eq!(boxes.len(), 1, "{boxes:?}");
+            let right = boxes[0].x + boxes[0].width;
+            assert!((right - 310.0).abs() < 1.0, "{boxes:?}");
+            assert!((boxes[0].width - width_of("world")).abs() < 1.0);
+            assert_eq!(hit(&text, 299.0, 5.0, 300.0), Some(11));
+        }
+    }
+
+    /// A **justified** paragraph's first line is highlighted from edge to edge.
+    #[test]
+    fn a_justified_line_is_highlighted_edge_to_edge() {
+        let text = Text::new(WORDS).selectable().align(TextAlign::Justify);
+        let style = TextStyle::NONE.resolved();
+        let spans = frus_text::line_spans_resolved(WORDS, &style, Some(300.0), true);
+        assert!(spans.len() >= 2, "the fixture has to wrap: {spans:?}");
+        let first = WORDS[spans[0].clone()].trim_end().chars().count();
+        let boxes = highlighted(&text, (0, first));
+        assert_eq!(boxes.len(), 1, "{boxes:?}");
+        assert!((boxes[0].x - 10.0).abs() < 1.0, "{boxes:?}");
+        assert!(
+            (boxes[0].x + boxes[0].width - 310.0).abs() < 2.0,
+            "{boxes:?}"
+        );
+    }
+
+    /// A **right-to-left** paragraph's first word is highlighted at the right of its box.
+    #[test]
+    fn a_right_to_left_text_is_highlighted_from_the_right() {
+        let words = "مرحبا بالعالم";
+        let text = Text::new(words).selectable();
+        let boxes = highlighted(&text, (0, 5));
+        assert_eq!(boxes.len(), 1, "{boxes:?}");
+        assert!(
+            (boxes[0].x + boxes[0].width - 310.0).abs() < 1.5,
+            "{boxes:?}"
+        );
+        // A press near the right edge is the start of the words.
+        assert_eq!(hit(&text, 299.0, 5.0, 300.0), Some(0));
+    }
+
+    /// **A text a line limit cuts short** is highlighted only as far as it is drawn — the
+    /// ellipsis standing for what was cut — while a drag past its end reaches the end of
+    /// the words and Copy takes all of them.
+    #[test]
+    fn a_cut_text_is_highlighted_as_drawn_and_copied_whole() {
+        let len = WORDS.chars().count();
+        let text = Text::new(WORDS)
+            .selectable()
+            .max_lines(1)
+            .overflow(TextOverflow::Ellipsis);
+        let theme = Theme::default();
+        let r = text.resolved(Some(&theme));
+        let drawn = text.fitted(300.0, &r).text;
+        assert!(drawn.ends_with(ELLIPSIS), "the fixture is cut: {drawn}");
+        // Everything selected: one line, as wide as what is drawn and no wider.
+        let boxes = highlighted(&text, (0, len));
+        assert_eq!(boxes.len(), 1, "one line drawn, one box: {boxes:?}");
+        assert_eq!(boxes[0].y, 20.0);
+        let drawn_width = frus_text::measure_resolved(&drawn, &r.style).width;
+        assert!(
+            (boxes[0].width - drawn_width).abs() < 1.0,
+            "{boxes:?} vs {drawn_width}"
+        );
+        // A drag below the line, or past the ellipsis, ends at the end of the words.
+        assert_eq!(hit(&text, 5.0, 200.0, 300.0), Some(len));
+        let words = Widget::<()>::selectable_text(&text).expect("words");
+        assert_eq!(words.hit(Point::new(5.0, 200.0), 300.0), len);
+        assert_eq!(hit(&text, drawn_width + 5.0, 5.0, 300.0), Some(len));
+        // And Copy has every word, the hidden ones too.
+        let copied = Widget::<()>::selected_text(&text, &selected(len, Some(0)));
+        assert_eq!(copied.as_deref(), Some(WORDS));
+        // Inside a selection area, the same: the area's range is highlighted as drawn.
+        let region = highlights(&paint(
+            &text,
+            Status {
+                region: Some((4, len)),
+                ..Status::default()
+            },
+        ));
+        assert_eq!(region.len(), 1, "{region:?}");
+        assert!((region[0].x + region[0].width - (10.0 + drawn_width)).abs() < 1.0);
+    }
+
+    /// Words drawn past the edge of a box that clips them are not highlighted past it.
+    #[test]
+    fn a_clipped_line_keeps_its_highlight_in_the_box() {
+        let text = Text::new(WORDS).selectable().no_wrap();
+        let len = WORDS.chars().count();
+        assert!(width_of(WORDS) > 300.0, "the fixture overflows");
+        let boxes = highlighted(&text, (0, len));
+        assert_eq!(boxes.len(), 1);
+        assert!(boxes[0].x + boxes[0].width <= 310.0 + 0.01, "{boxes:?}");
     }
 }

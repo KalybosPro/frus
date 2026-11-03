@@ -22,7 +22,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 
 use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping, Style, Weight};
-use frus_core::{fits, FontWeight, Point, Rect, ResolvedTextStyle, Size, TextRun, TextStyle};
+use frus_core::{
+    fits, FontWeight, Point, Rect, ResolvedTextStyle, Size, TextAlign, TextBlock, TextRun,
+    TextStyle,
+};
 
 /// The default line-height to font-size ratio.
 ///
@@ -1379,13 +1382,21 @@ pub fn runs_cut_at(
     None
 }
 
-/// One shaped line of a [`TextLayout`]: the `x` offsets of every **character
-/// boundary**, taken from the real glyphs, kerning and ligatures included.
+/// One shaped line of a [`TextLayout`]: where each of its characters was drawn and where
+/// the caret stands at each of its character boundaries — both taken from the real glyphs,
+/// so kerning, ligatures, the alignment and the direction of the script are all in them.
 struct LayoutLine {
     /// The line's first boundary, as a character index global to the text.
     start_char: usize,
-    /// The `x` of every character boundary on the line (`chars + 1` entries).
-    offsets: Vec<f32>,
+    /// The caret's `x` at every character boundary on the line (`chars + 1` entries): the
+    /// **leading** edge of the character after it — its left in a left-to-right run, its
+    /// right in a right-to-left one — and, at the end of the line, the trailing edge of the
+    /// character before it.
+    carets: Vec<f32>,
+    /// The left and right edges of every character on the line, in reading order. A
+    /// character drawn by no glyph (the space a line broke at) is an empty extent at its
+    /// caret.
+    extents: Vec<(f32, f32)>,
     /// The line's top edge.
     top: f32,
     /// The line's height.
@@ -1401,11 +1412,62 @@ struct LayoutLine {
 /// Unlike a prefix measurement re-shaped substring by substring, the offsets come
 /// from the **whole** shaped line: consistent with one another (kerning), and
 /// computed in one pass instead of `n`.
+///
+/// Laid out in a [`TextBlock`] ([`TextLayout::in_block`], [`TextLayout::of_runs_in`]),
+/// the geometry is the one the renderer draws: lines centred, pushed to the end or
+/// justified, and right-to-left runs read from the right. A text drawn **cut short** — by
+/// a line limit, with or without an ellipsis — is laid out as drawn and then told how much
+/// of its source it shows ([`TextLayout::elided`]); its indices are the source's again.
 pub struct TextLayout {
     lines: Vec<LayoutLine>,
     size: Size,
-    /// The total character count — the last valid boundary.
+    /// The drawn character count — the last boundary of the shaped text.
     chars: usize,
+    /// How many characters of the source the drawn text shows as they are: all of them,
+    /// unless [`TextLayout::elided`] said otherwise.
+    visible: usize,
+    /// The source's character count: the last boundary an index may name.
+    source: usize,
+}
+
+/// cosmic-text's alignment for one of ours. `None` — our `Start` — leaves cosmic-text to
+/// align by the paragraph's own direction, which is what the renderer does.
+fn cosmic_align(align: TextAlign) -> Option<cosmic_text::Align> {
+    use cosmic_text::Align;
+    match align {
+        TextAlign::Start => None,
+        TextAlign::End => Some(Align::End),
+        TextAlign::Center => Some(Align::Center),
+        TextAlign::Justify => Some(Align::Justified),
+        TextAlign::Left => Some(Align::Left),
+        TextAlign::Right => Some(Align::Right),
+    }
+}
+
+/// Sets `align` on every line of `buffer`, as the renderer does before shaping.
+fn align_lines(buffer: &mut Buffer, align: TextAlign) {
+    if let Some(align) = cosmic_align(align) {
+        for line in &mut buffer.lines {
+            line.set_align(Some(align));
+        }
+    }
+}
+
+/// Where the caret of an **empty** line stands in a box `width` wide: the start of the
+/// line under `align`, read in the paragraph's direction.
+fn empty_line_x(width: Option<f32>, align: TextAlign, rtl: bool) -> f32 {
+    let Some(width) = width.filter(|w| w.is_finite()) else {
+        return 0.0;
+    };
+    match align {
+        TextAlign::Left => 0.0,
+        TextAlign::Right => width,
+        TextAlign::Center => width / 2.0,
+        TextAlign::End if rtl => 0.0,
+        TextAlign::End => width,
+        TextAlign::Start | TextAlign::Justify if rtl => width,
+        TextAlign::Start | TextAlign::Justify => 0.0,
+    }
 }
 
 impl TextLayout {
@@ -1430,15 +1492,20 @@ impl TextLayout {
         italic: bool,
         max_width: Option<f32>,
     ) -> Self {
-        Self::shaped(
-            text,
-            size_px,
+        let style = ResolvedTextStyle {
             weight,
             italic,
-            max_width,
+            ..ResolvedTextStyle::exact(size_px)
+        };
+        Self::shaped(
+            text,
+            &style,
             line_height(size_px),
-            None,
-            0.0,
+            TextBlock {
+                width: max_width,
+                soft_wrap: true,
+                align: TextAlign::Start,
+            },
         )
     }
 
@@ -1450,48 +1517,51 @@ impl TextLayout {
     /// painted at another puts every line after the first somewhere else, and a tap lands
     /// on the wrong word.
     pub fn resolved(text: &str, style: &ResolvedTextStyle, max_width: Option<f32>) -> Self {
-        Self::shaped(
+        Self::in_block(
             text,
-            style.size,
-            style.weight,
-            style.italic,
-            max_width,
-            style.line_height(),
-            style.family,
-            style.letter_spacing,
+            style,
+            TextBlock {
+                width: max_width,
+                soft_wrap: true,
+                align: TextAlign::Start,
+            },
         )
     }
 
-    // A text's whole shaping, argument by argument; grouping them would only move them.
-    #[allow(clippy::too_many_arguments)]
-    fn shaped(
-        text: &str,
-        size_px: f32,
-        weight: FontWeight,
-        italic: bool,
-        max_width: Option<f32>,
-        fallback_h: f32,
-        family: Option<frus_core::FontFamily>,
-        letter_spacing: f32,
-    ) -> Self {
+    /// Like [`TextLayout::resolved`], in the **box the text is drawn in**: `block`'s
+    /// width, whether the text wraps at it, and where the lines sit inside it — the
+    /// [`TextBlock`] a widget hands the renderer with the same words. A centred,
+    /// end-aligned or justified text is hit, highlighted and given handles where its
+    /// glyphs are, and so is a right-to-left one.
+    pub fn in_block(text: &str, style: &ResolvedTextStyle, block: TextBlock) -> Self {
+        Self::shaped(text, style, style.line_height(), block)
+    }
+
+    /// A text's whole shaping, in the box it is drawn in.
+    fn shaped(text: &str, style: &ResolvedTextStyle, fallback_h: f32, block: TextBlock) -> Self {
         if text.is_empty() {
-            return Self::from_buffer(text, None, fallback_h);
+            return Self::from_buffer(text, None, fallback_h, block);
         }
+        let size_px = style.size;
         let mut font_system = font_system().lock().expect("FontSystem lock");
         let metrics = Metrics::new(size_px, fallback_h);
         let mut buffer = Buffer::new(&mut font_system, metrics);
-        buffer.set_size(max_width, None);
+        if !block.soft_wrap {
+            buffer.set_wrap(cosmic_text::Wrap::None);
+        }
+        buffer.set_size(block.width, None);
         let attrs = spaced(
             Attrs::new()
-                .family(family_for_style(text, family))
-                .weight(Weight(available_weight(weight)))
-                .style(available_style(italic)),
-            letter_spacing,
+                .family(family_for_style(text, style.family))
+                .weight(Weight(available_weight(style.weight)))
+                .style(available_style(style.italic)),
+            style.letter_spacing,
             size_px,
         );
         buffer.set_text(text, &attrs, Shaping::Advanced, None);
+        align_lines(&mut buffer, block.align);
         buffer.shape_until_scroll(&mut font_system, false);
-        Self::from_buffer(text, Some(&buffer), fallback_h)
+        Self::from_buffer(text, Some(&buffer), fallback_h, block)
     }
 
     /// The layout of a **rich text** — resolved runs of mixed styles, shaped together as the
@@ -1504,18 +1574,31 @@ impl TextLayout {
     /// not a boundary here. For a rich paragraph that has to be hit, highlighted and given
     /// handles where it is drawn.
     pub fn of_runs(runs: &[TextRun], max_width: Option<f32>, soft_wrap: bool) -> Self {
+        Self::of_runs_in(
+            runs,
+            TextBlock {
+                width: max_width,
+                soft_wrap,
+                align: TextAlign::Start,
+            },
+        )
+    }
+
+    /// Like [`TextLayout::of_runs`], in the box the runs are drawn in — its width, its
+    /// wrapping and its alignment, as [`TextLayout::in_block`] is for a single style.
+    pub fn of_runs_in(runs: &[TextRun], block: TextBlock) -> Self {
         let text: String = runs.iter().map(|run| run.text.as_str()).collect();
         let base = runs.iter().map(|r| r.size).fold(0.0_f32, f32::max);
         if text.is_empty() {
-            return Self::from_buffer(&text, None, line_height(base.max(1.0)));
+            return Self::from_buffer(&text, None, line_height(base.max(1.0)), block);
         }
         let mut font_system = font_system().lock().expect("FontSystem lock");
         let metrics = Metrics::new(base, line_height(base));
         let mut buffer = Buffer::new(&mut font_system, metrics);
-        if !soft_wrap {
+        if !block.soft_wrap {
             buffer.set_wrap(cosmic_text::Wrap::None);
         }
-        buffer.set_size(max_width, None);
+        buffer.set_size(block.width, None);
         let spans = runs.iter().map(|run| {
             (
                 run.text.as_str(),
@@ -1531,13 +1614,63 @@ impl TextLayout {
             )
         });
         buffer.set_rich_text(spans, &Attrs::new(), Shaping::Advanced, None);
+        align_lines(&mut buffer, block.align);
         buffer.shape_until_scroll(&mut font_system, false);
-        Self::from_buffer(&text, Some(&buffer), line_height(base))
+        Self::from_buffer(&text, Some(&buffer), line_height(base), block)
     }
 
-    /// The geometry of `text` as `buffer` shaped it — every visual line's character
-    /// boundaries — or that of an empty text when there is no buffer.
-    fn from_buffer(text: &str, buffer: Option<&Buffer>, fallback_h: f32) -> Self {
+    /// Says that the text this layout was shaped from is a **cut** of a longer source:
+    /// its first `visible` characters are the source's first `visible`, and whatever was
+    /// drawn after them — an ellipsis — stands for the rest of a source `source`
+    /// characters long. From then on every index is the source's:
+    ///
+    /// - a character the cut hid has no box, and a selection that reaches into the hidden
+    ///   part is highlighted up to the end of what is drawn, the ellipsis included;
+    /// - a caret past the visible part stands after the last drawn character;
+    /// - a hit past the end of what is drawn — on the ellipsis's far half, or below the
+    ///   last line — is the end of the source, so a drag to the end of a cut paragraph
+    ///   selects the whole of it.
+    ///
+    /// `visible` is clamped to the drawn text, and `source` to at least `visible`.
+    pub fn elided(mut self, visible: usize, source: usize) -> Self {
+        self.visible = visible.min(self.chars);
+        self.source = source.max(self.visible);
+        self
+    }
+
+    /// Whether the drawn text is a cut of its source.
+    fn is_elided(&self) -> bool {
+        self.visible < self.source || self.visible < self.chars
+    }
+
+    /// A source index as a drawn one, for the **start** of a range: a hidden character's
+    /// start is where the visible part ends — on the ellipsis, when there is one.
+    fn drawn_start(&self, index: usize) -> usize {
+        index.min(self.visible)
+    }
+
+    /// A source index as a drawn one, for the **end** of a range or a caret: past the
+    /// visible part is past everything drawn.
+    fn drawn_end(&self, index: usize) -> usize {
+        if index <= self.visible {
+            index
+        } else {
+            self.chars
+        }
+    }
+
+    /// A drawn index as a source one.
+    fn source_index(&self, drawn: usize) -> usize {
+        if drawn <= self.visible && !(drawn == self.chars && self.is_elided()) {
+            drawn
+        } else {
+            self.source
+        }
+    }
+
+    /// The geometry of `text` as `buffer` shaped it in `block` — every visual line's
+    /// characters and caret stops — or that of an empty text when there is no buffer.
+    fn from_buffer(text: &str, buffer: Option<&Buffer>, fallback_h: f32, block: TextBlock) -> Self {
         let mut lines: Vec<LayoutLine> = Vec::new();
         let mut width = 0.0_f32;
         let mut height = 0.0_f32;
@@ -1578,43 +1711,59 @@ impl TextLayout {
                 let span = &line_text[lo..hi];
                 let char_bytes: Vec<usize> = span.char_indices().map(|(b, _)| lo + b).collect();
                 let n = char_bytes.len();
-                let mut offsets = vec![f32::NAN; n + 1];
-                offsets[0] = 0.0;
 
                 // Each glyph covers a byte cluster [start, end) over [x, x+w), where x is
-                // **local to the visual line**; interior boundaries are interpolated.
+                // **local to the visual line** and already carries the alignment; the
+                // characters of a cluster share its width, in the cluster's direction.
+                let mut drawn: Vec<Option<(f32, f32, bool)>> = vec![None; n];
                 for glyph in run.glyphs.iter() {
                     let covered: Vec<usize> = (0..n)
                         .filter(|&i| char_bytes[i] >= glyph.start && char_bytes[i] < glyph.end)
                         .collect();
                     let k = covered.len().max(1) as f32;
+                    let rtl = glyph.level.is_rtl();
                     for (j, &i) in covered.iter().enumerate() {
-                        offsets[i] = glyph.x + glyph.w * (j as f32 / k);
-                    }
-                    if let Some(next) = (0..=n).find(|&i| {
-                        let b = if i == n {
-                            lo + span.len()
+                        let from = glyph.w * (j as f32 / k);
+                        let to = glyph.w * ((j + 1) as f32 / k);
+                        drawn[i] = Some(if rtl {
+                            (glyph.x + glyph.w - to, glyph.x + glyph.w - from, true)
                         } else {
-                            char_bytes[i]
-                        };
-                        b == glyph.end
-                    }) {
-                        offsets[next] = glyph.x + glyph.w;
+                            (glyph.x + from, glyph.x + to, false)
+                        });
                     }
                 }
-                // Boundaries left without a glyph (the break space) keep continuity.
-                for i in 1..=n {
-                    if offsets[i].is_nan() {
-                        offsets[i] = offsets[i - 1];
-                    }
-                }
+                let leading = |(left, right, rtl): (f32, f32, bool)| if rtl { right } else { left };
+                let trailing =
+                    |(left, right, rtl): (f32, f32, bool)| if rtl { left } else { right };
+
+                // The caret at each boundary: before a drawn character, at its leading edge;
+                // otherwise after the last drawn one before it, or before the first after it,
+                // or — on a line with no glyph at all — where the line starts.
+                let origin = empty_line_x(block.width, block.align, run.rtl);
+                let carets: Vec<f32> = (0..=n)
+                    .map(|i| match drawn.get(i).copied().flatten() {
+                        Some(d) => leading(d),
+                        None => (0..i)
+                            .rev()
+                            .find_map(|j| drawn[j].map(trailing))
+                            .or_else(|| (i..n).find_map(|j| drawn[j].map(leading)))
+                            .unwrap_or(origin),
+                    })
+                    .collect();
+                let extents = (0..n)
+                    .map(|i| match drawn[i] {
+                        Some((left, right, _)) => (left, right),
+                        None => (carets[i], carets[i]),
+                    })
+                    .collect();
 
                 let start_char = text[..line_byte_start[run.line_i] + lo].chars().count();
                 width = width.max(run.line_w);
                 height = height.max(run.line_top + run.line_height);
                 lines.push(LayoutLine {
                     start_char,
-                    offsets,
+                    carets,
+                    extents,
                     top: run.line_top,
                     height: run.line_height,
                 });
@@ -1622,11 +1771,12 @@ impl TextLayout {
         }
 
         // Empty text, or no shaped line: a synthetic empty line keeps caret and hit
-        // defined, with the caret at x = 0.
+        // defined, with the caret where the box's alignment starts a line.
         if lines.is_empty() {
             lines.push(LayoutLine {
                 start_char: 0,
-                offsets: vec![0.0],
+                carets: vec![empty_line_x(block.width, block.align, false)],
+                extents: Vec::new(),
                 top: 0.0,
                 height: fallback_h,
             });
@@ -1638,6 +1788,8 @@ impl TextLayout {
             lines,
             size: Size::new(width, height),
             chars,
+            visible: chars,
+            source: chars,
         }
     }
 
@@ -1646,7 +1798,7 @@ impl TextLayout {
         self.size
     }
 
-    /// The line containing the character boundary `index`.
+    /// The line containing the drawn character boundary `index`.
     fn line_of(&self, index: usize) -> &LayoutLine {
         self.lines
             .iter()
@@ -1658,52 +1810,86 @@ impl TextLayout {
     /// The caret's rectangle at boundary `index`, of zero width — it is up to the
     /// widget to choose the stroke thickness. `index` is clamped to the text.
     pub fn caret_rect(&self, index: usize) -> Rect {
-        let index = index.min(self.chars);
+        let index = self.drawn_end(index.min(self.source));
         let line = self.line_of(index);
-        let local = (index - line.start_char).min(line.offsets.len() - 1);
-        Rect::new(line.offsets[local], line.top, 0.0, line.height)
+        let local = (index - line.start_char).min(line.carets.len() - 1);
+        Rect::new(line.carets[local], line.top, 0.0, line.height)
     }
 
     /// The character boundary **closest** to `point`, in text-local coordinates. The
     /// `y` picks the line (clamped), the `x` picks the boundary.
     pub fn hit_test(&self, point: Point) -> usize {
+        let last = self.lines.last().expect("at least one line");
+        // Below the last line of a cut text is past everything it was cut from.
+        if self.is_elided() && point.y >= last.top + last.height {
+            return self.source;
+        }
         let line = self
             .lines
             .iter()
             .find(|line| point.y < line.top + line.height)
-            .unwrap_or(self.lines.last().expect("at least one line"));
+            .unwrap_or(last);
 
         let mut best = 0;
         let mut best_dist = f32::MAX;
-        for (i, x) in line.offsets.iter().enumerate() {
+        for (i, x) in line.carets.iter().enumerate() {
             let dist = (x - point.x).abs();
             if dist < best_dist {
                 best_dist = dist;
                 best = i;
             }
         }
-        (line.start_char + best).min(self.chars)
+        self.source_index((line.start_char + best).min(self.chars))
     }
 
-    /// The rectangles covering the character range `[start, end)`, one per line
-    /// crossed; empty ones are omitted.
+    /// The rectangles covering the character range `[start, end)`: one per line crossed,
+    /// or more on a line where the range is not one stretch on screen (a run in the other
+    /// direction in the middle of it). Empty ones are omitted.
     pub fn selection_rects(&self, start: usize, end: usize) -> Vec<Rect> {
-        let (start, end) = (start.min(self.chars), end.min(self.chars));
+        let (start, end) = (start.min(self.source), end.min(self.source));
         if start >= end {
             return Vec::new();
         }
+        let (start, end) = (self.drawn_start(start), self.drawn_end(end));
         let mut rects = Vec::new();
         for line in &self.lines {
-            let line_len = line.offsets.len() - 1;
+            let line_len = line.extents.len();
             let lo = start.max(line.start_char);
             let hi = end.min(line.start_char + line_len);
             if lo >= hi {
                 continue;
             }
-            let x0 = line.offsets[lo - line.start_char];
-            let x1 = line.offsets[hi - line.start_char];
-            if x1 > x0 {
-                rects.push(Rect::new(x0, line.top, x1 - x0, line.height));
+            // The line's characters left to right, each marked selected or not; every
+            // unbroken stretch of selected ones is one rectangle.
+            let mut order: Vec<(f32, f32, bool)> = line
+                .extents
+                .iter()
+                .enumerate()
+                .map(|(i, &(left, right))| {
+                    let at = line.start_char + i;
+                    (left, right, at >= lo && at < hi)
+                })
+                .collect();
+            order.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let mut stretch: Option<(f32, f32)> = None;
+            for (left, right, selected) in order {
+                if selected {
+                    stretch = Some(match stretch {
+                        Some((x0, x1)) => (x0.min(left), x1.max(right)),
+                        None => (left, right),
+                    });
+                } else if left < right {
+                    if let Some((x0, x1)) = stretch.take() {
+                        if x1 > x0 {
+                            rects.push(Rect::new(x0, line.top, x1 - x0, line.height));
+                        }
+                    }
+                }
+            }
+            if let Some((x0, x1)) = stretch {
+                if x1 > x0 {
+                    rects.push(Rect::new(x0, line.top, x1 - x0, line.height));
+                }
             }
         }
         rects
@@ -2716,5 +2902,187 @@ mod tests {
         assert_eq!(measure_wrapped_resolved(words, &mono, None), second);
         assert_eq!(measure_wrapped_resolved(words, &plain, None), first);
         assert_ne!(first.width, second.width);
+    }
+
+    /// The box a block is laid out in, `width` wide.
+    fn block(width: f32, soft_wrap: bool, align: TextAlign) -> TextBlock {
+        TextBlock {
+            width: Some(width),
+            soft_wrap,
+            align,
+        }
+    }
+
+    /// **A centred line is hit and highlighted where it is drawn** (milestone 742): its
+    /// first caret stands half the room left over in from the edge, its highlight covers
+    /// the word there, and a press at the middle of the box lands in the middle of the word.
+    #[test]
+    fn a_centred_line_has_its_carets_where_its_glyphs_are() {
+        let style = ResolvedTextStyle::exact(16.0);
+        let word = "Centred";
+        let natural = TextLayout::resolved(word, &style, None).size().width;
+        let layout = TextLayout::in_block(word, &style, block(300.0, true, TextAlign::Center));
+        let start = layout.caret_rect(0).x;
+        let expected = (300.0 - natural) / 2.0;
+        assert!((start - expected).abs() < 1.0, "{start} vs {expected}");
+        let end = layout.caret_rect(7).x;
+        assert!((end - (expected + natural)).abs() < 1.0, "{end}");
+        let rects = layout.selection_rects(0, 7);
+        assert_eq!(rects.len(), 1);
+        assert!((rects[0].x - start).abs() < 0.01);
+        assert!((rects[0].width - natural).abs() < 1.0);
+        // The middle of the box is the middle of the word, not past its end.
+        let hit = layout.hit_test(Point::new(150.0, 5.0));
+        assert!((3..=4).contains(&hit), "{hit}");
+        // Left of the word is its start; right of it, its end.
+        assert_eq!(layout.hit_test(Point::new(1.0, 5.0)), 0);
+        assert_eq!(layout.hit_test(Point::new(299.0, 5.0)), 7);
+    }
+
+    /// An **end-aligned** line ends at the box's edge, and a line that does not wrap is
+    /// aligned in its box all the same.
+    #[test]
+    fn an_end_aligned_line_ends_at_the_edge() {
+        let style = ResolvedTextStyle::exact(16.0);
+        let word = "Ended";
+        let natural = TextLayout::resolved(word, &style, None).size().width;
+        for soft_wrap in [true, false] {
+            let layout =
+                TextLayout::in_block(word, &style, block(240.0, soft_wrap, TextAlign::End));
+            let end = layout.caret_rect(5).x;
+            assert!((end - 240.0).abs() < 1.0, "wrap {soft_wrap}: {end}");
+            let start = layout.caret_rect(0).x;
+            assert!((start - (240.0 - natural)).abs() < 1.0, "{start}");
+            let rects = layout.selection_rects(1, 3);
+            assert_eq!(rects.len(), 1);
+            assert!(rects[0].x > 240.0 - natural, "{:?}", rects[0]);
+            assert_eq!(layout.hit_test(Point::new(239.0, 5.0)), 5);
+        }
+    }
+
+    /// A **justified** paragraph's lines but the last reach both edges: the end of the
+    /// first line is at the box's right edge, and the last line still starts at the left
+    /// and stops short of the right.
+    #[test]
+    fn a_justified_paragraph_is_highlighted_to_both_edges() {
+        let style = ResolvedTextStyle::exact(16.0);
+        let text = "one two three four five six seven eight nine ten eleven";
+        let width = 200.0;
+        let layout = TextLayout::in_block(text, &style, block(width, true, TextAlign::Justify));
+        let spans = line_spans_resolved(text, &style, Some(width), true);
+        assert!(spans.len() >= 2, "the fixture has to wrap: {spans:?}");
+        // The first line's last character, the break space aside.
+        let first = &text[spans[0].clone()];
+        let last_char = first.trim_end().chars().count();
+        let rects = layout.selection_rects(0, last_char);
+        assert_eq!(rects.len(), 1, "{rects:?}");
+        let right = rects[0].x + rects[0].width;
+        assert!(
+            right > width - 2.0,
+            "the first line is flush right: {right}"
+        );
+        assert!(rects[0].x < 1.0, "and flush left: {}", rects[0].x);
+        // The last line is ragged: it starts at the left and ends short of the edge.
+        let total = text.chars().count();
+        let last_start = text[..spans.last().unwrap().start].chars().count();
+        let rects = layout.selection_rects(last_start, total);
+        assert!(rects[0].x < 1.0);
+        assert!(rects[0].x + rects[0].width < width - 10.0, "{rects:?}");
+    }
+
+    /// A **right-to-left** line reads from the right: its first caret is at its right
+    /// edge, its first character is highlighted there, and a press at the right is its
+    /// start.
+    #[test]
+    #[cfg(feature = "bundled-arabic")]
+    fn a_right_to_left_line_reads_from_the_right() {
+        let style = ResolvedTextStyle::exact(20.0);
+        let text = "مرحبا بالعالم";
+        let len = text.chars().count();
+        let layout = TextLayout::in_block(text, &style, block(300.0, true, TextAlign::Start));
+        let natural = layout.size().width;
+        let start = layout.caret_rect(0).x;
+        let end = layout.caret_rect(len).x;
+        assert!(
+            (start - 300.0).abs() < 1.5,
+            "the start is at the right: {start}"
+        );
+        assert!(
+            (end - (300.0 - natural)).abs() < 1.5,
+            "the end at the left: {end}"
+        );
+        // Carets run leftwards through the line.
+        for i in 1..=len {
+            assert!(layout.caret_rect(i).x <= layout.caret_rect(i - 1).x + 0.01);
+        }
+        // The first word is highlighted at the right, the second at the left.
+        let first = layout.selection_rects(0, 5);
+        assert_eq!(first.len(), 1);
+        assert!(first[0].x + first[0].width > 299.0, "{first:?}");
+        let second = layout.selection_rects(6, len);
+        assert!(
+            second[0].x + second[0].width < first[0].x + 0.5,
+            "{second:?}"
+        );
+        // A press at the right is the start, at the left the end.
+        assert_eq!(layout.hit_test(Point::new(299.0, 5.0)), 0);
+        assert_eq!(layout.hit_test(Point::new(300.0 - natural - 5.0, 5.0)), len);
+        // And caret to hit round-trips.
+        for i in [0, 3, 6, len] {
+            let c = layout.caret_rect(i);
+            assert_eq!(layout.hit_test(Point::new(c.x, c.y + 1.0)), i);
+        }
+    }
+
+    /// A text **cut short** answers in its source's indices: a hidden character has no box,
+    /// a selection running into the cut covers the ellipsis, a caret past the cut stands
+    /// after it, and a hit past the end of what is drawn — or below it — is the source's end.
+    #[test]
+    fn a_cut_text_answers_in_its_sources_indices() {
+        let style = ResolvedTextStyle::exact(16.0);
+        // "one two three four", 18 characters, drawn as its first 7 and an ellipsis.
+        let drawn = "one two\u{2026}";
+        let layout =
+            TextLayout::in_block(drawn, &style, block(400.0, true, TextAlign::Start)).elided(7, 18);
+        let ellipsis_start = layout.caret_rect(7).x;
+        let end = TextLayout::resolved(drawn, &style, None).size().width;
+        // A caret past the cut stands after the ellipsis.
+        assert!((layout.caret_rect(12).x - end).abs() < 1.0);
+        assert_eq!(layout.caret_rect(18).x, layout.caret_rect(12).x);
+        // A selection from "two" into the hidden words covers "two" and the ellipsis.
+        let rects = layout.selection_rects(4, 13);
+        assert_eq!(rects.len(), 1);
+        assert!((rects[0].x + rects[0].width - end).abs() < 1.0);
+        // One wholly hidden is the ellipsis alone.
+        let hidden = layout.selection_rects(10, 15);
+        assert_eq!(hidden.len(), 1);
+        assert!((hidden[0].x - ellipsis_start).abs() < 0.01);
+        // A selection inside the kept words is unchanged.
+        let kept = layout.selection_rects(0, 3);
+        assert!(kept[0].x + kept[0].width < ellipsis_start);
+        // Hits: on the far half of the ellipsis, or below the line, the source's end.
+        assert_eq!(layout.hit_test(Point::new(end + 20.0, 5.0)), 18);
+        assert_eq!(layout.hit_test(Point::new(1.0, 500.0)), 18);
+        assert_eq!(layout.hit_test(Point::new(1.0, 5.0)), 0);
+        let c = layout.caret_rect(5);
+        assert_eq!(layout.hit_test(Point::new(c.x, c.y + 1.0)), 5);
+        // Cut without an ellipsis: the end of what is drawn is the end of the source too.
+        let clipped = TextLayout::in_block("one two", &style, block(400.0, true, TextAlign::Start))
+            .elided(7, 18);
+        assert_eq!(clipped.hit_test(Point::new(399.0, 5.0)), 18);
+        assert!(clipped.selection_rects(10, 15).is_empty());
+    }
+
+    /// A start-aligned block gives the carets the plain layout gives: what a field and an
+    /// unaligned text are measured with is unchanged.
+    #[test]
+    fn a_start_aligned_block_is_the_plain_layout() {
+        let style = ResolvedTextStyle::exact(16.0);
+        let text = "Bonjour le monde, encore une fois";
+        let plain = TextLayout::resolved(text, &style, Some(120.0));
+        let boxed = TextLayout::in_block(text, &style, block(120.0, true, TextAlign::Start));
+        for i in 0..=text.chars().count() {
+            assert_eq!(plain.caret_rect(i), boxed.caret_rect(i), "boundary {i}");
+        }
     }
 }
