@@ -1657,7 +1657,7 @@ dependencies = [
  "web-sys",
  "web-time",
  "windows",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
  "winit",
  "zbus 6.2.1",
 ]
@@ -3572,7 +3572,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
