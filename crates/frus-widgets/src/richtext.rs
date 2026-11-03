@@ -113,9 +113,9 @@ impl RichText {
     /// # let _ = note;
     /// ```
     ///
-    /// **Limits** are a selectable text's: what is selected is laid out from the start of each
-    /// line, so a centred or end-aligned paragraph, or one a line limit cuts short, is
-    /// highlighted as if it were not.
+    /// What is highlighted, hit and given handles is what is drawn, as for a selectable
+    /// text: an aligned or right-to-left line where its glyphs are, and a paragraph a line
+    /// limit cuts short only as far as it is drawn, while Copy takes the whole selected words.
     pub fn selectable(mut self) -> Self {
         self.selection_mut().on = true;
         self
@@ -153,14 +153,35 @@ impl RichText {
     /// paint wraps them, under the reader's setting they were painted with: what a hit, a
     /// highlight, a handle or the bar's anchor is worked out from. For any paragraph: a
     /// [`SelectionArea`](crate::SelectionArea) selects in paragraphs that never asked to be.
+    ///
+    /// The runs are laid out **as they were drawn**: in the box the paint hands the renderer,
+    /// aligned as it aligns them, and, for a paragraph a line limit cut short, only what was
+    /// kept — with its indices still the whole plain text's (see [`TextLayout::elided`]).
     fn text_layout(&self, width: f32) -> TextLayout {
         frus_core::with_text_scale(self.scale.get(), || {
-            TextLayout::of_runs(
-                &self.runs(Color::WHITE, 1.0),
-                self.wrap.then_some(width),
-                self.wrap,
-            )
+            let (drawn, cut) = self.fitted(self.runs(Color::WHITE, 1.0), width);
+            let layout = TextLayout::of_runs_in(&drawn, self.block(width));
+            if !cut {
+                return layout;
+            }
+            // What was kept is a prefix of the plain text, an ellipsis perhaps after it.
+            let visible = drawn
+                .iter()
+                .flat_map(|run| run.text.chars())
+                .zip(self.plain.chars())
+                .take_while(|(a, b)| a == b)
+                .count();
+            layout.elided(visible, self.len())
         })
+    }
+
+    /// The box the runs are drawn in at `width`.
+    fn block(&self, width: f32) -> TextBlock {
+        TextBlock {
+            width: (self.wrap || self.align != TextAlign::Start).then_some(width),
+            soft_wrap: self.wrap,
+            align: self.align,
+        }
     }
 
     /// [`text_layout`](Self::text_layout), for a paragraph that is selectable on its own.
@@ -256,6 +277,33 @@ impl RichText {
                     .color(last.color);
                 let style = if last.italic { style.italic() } else { style };
                 last.text = crate::text::ellipsise(&last.text, &style.resolved(), width);
+            }
+            // The last run was ellipsised to the width on its own, but it shares its line
+            // with the runs before it: with them, it may still not fit and wrap onto a line
+            // past the limit. Shortened a character at a time until the kept runs fit.
+            let ellipsis = crate::text::ELLIPSIS;
+            while frus_text::runs_cut_at(&kept, Some(width), self.wrap, max).is_some() {
+                let Some(last) = kept.last_mut() else {
+                    break;
+                };
+                let mut body = last
+                    .text
+                    .strip_suffix(ellipsis)
+                    .unwrap_or(&last.text)
+                    .to_string();
+                if body.is_empty() {
+                    // Only the ellipsis is left of this run: the one before it ends in it.
+                    if kept.len() < 2 {
+                        break;
+                    }
+                    kept.pop();
+                    if let Some(previous) = kept.last_mut() {
+                        previous.text.push_str(ellipsis);
+                    }
+                    continue;
+                }
+                body.pop();
+                last.text = format!("{}{ellipsis}", body.trim_end());
             }
         }
         (kept, true)
@@ -414,26 +462,23 @@ impl<Msg: Clone + 'static> Widget<Msg> for RichText {
         self.scale.set(frus_core::text_scale());
         // The highlight below the words: a selection area's whatever the focus, the
         // paragraph's own while it is focused.
-        paint_highlight(
-            || self.text_layout(bounds.width),
-            self.len(),
-            self.selecting().is_some(),
-            bounds,
-            &status,
-            theme,
-            scene,
-        );
         let runs = self.runs(theme.on_surface, status.opacity);
         let natural = frus_text::measure_runs(&runs).width;
         let (runs, too_tall) = self.fitted(runs, bounds.width);
         // A paragraph that wraps has no line wider than its box; one that does not may.
         let too_wide = !self.wrap && natural > bounds.width + 0.5;
         let over = too_tall || too_wide;
-        let block = TextBlock {
-            width: (self.wrap || self.align != TextAlign::Start).then_some(bounds.width),
-            soft_wrap: self.wrap,
-            align: self.align,
-        };
+        let block = self.block(bounds.width);
+        paint_highlight(
+            || self.text_layout(bounds.width),
+            self.len(),
+            self.selecting().is_some(),
+            bounds,
+            over && self.overflow != TextOverflow::Visible,
+            &status,
+            theme,
+            scene,
+        );
         let at = Point::new(bounds.x, bounds.y);
         let draw = |scene: &mut Scene| {
             scene.rich_text_block(at, runs.clone(), block);
@@ -954,5 +999,87 @@ mod tests {
         });
         let x = frus_core::with_text_scale(2.0, || width("abc", TextStyle::new(16.0)));
         assert_eq!(Widget::<()>::selection_hit(&rich, x, 10.0, 300.0), Some(3));
+    }
+    /// **A centred paragraph is highlighted and hit where its runs are drawn** (milestone
+    /// 742): the bold run's box is the bold word's, half the room left over in from the edge.
+    #[test]
+    fn a_centred_paragraph_is_selected_where_it_is_drawn() {
+        let rich = mixed().align(TextAlign::Center);
+        let plain = TextStyle::new(16.0);
+        let bold = plain.weight(FontWeight::Bold);
+        let natural = width("plain ", plain) + width("bold", bold) + width(" tail", plain);
+        let left = (300.0 - natural) / 2.0;
+        let status = Status {
+            region: Some((6, 10)),
+            ..Status::default()
+        };
+        let rects = highlights(&paint_with(&rich, status));
+        assert_eq!(rects.len(), 1, "{rects:?}");
+        let start = 10.0 + left + width("plain ", plain);
+        assert!((rects[0].x - start).abs() < 1.5, "{rects:?} from {start}");
+        assert!((rects[0].width - width("bold", bold)).abs() < 1.5);
+        // A press on the "o" of "bold" lands in it.
+        let x = left + width("plain ", plain) + width("b", bold) + 1.0;
+        assert_eq!(Widget::<()>::selection_hit(&rich, x, 10.0, 300.0), Some(7));
+        // The handles hang from where the word is.
+        let handle = Widget::<()>::selection_grip(&rich, 300.0, 6, true).expect("a handle");
+        assert!(
+            (handle.line_center.x - (left + width("plain ", plain))).abs() < 1.5,
+            "{handle:?}"
+        );
+    }
+
+    /// An **end-aligned** paragraph's last run is highlighted against the right edge.
+    #[test]
+    fn an_end_aligned_paragraph_ends_at_the_edge() {
+        let rich = mixed().align(TextAlign::End);
+        let status = Status {
+            region: Some((10, 15)),
+            ..Status::default()
+        };
+        let rects = highlights(&paint_with(&rich, status));
+        assert_eq!(rects.len(), 1, "{rects:?}");
+        assert!(
+            (rects[0].x + rects[0].width - 310.0).abs() < 1.0,
+            "{rects:?}"
+        );
+        assert_eq!(
+            Widget::<()>::selection_hit(&rich, 299.0, 10.0, 300.0),
+            Some(15)
+        );
+    }
+
+    /// **A paragraph a line limit cuts short** is highlighted only on the line drawn, a hit
+    /// below it is the end of its words, and its own selection copies all of them.
+    #[test]
+    fn a_cut_paragraph_is_highlighted_as_drawn_and_copied_whole() {
+        let words = "one two three four five six seven eight nine ten eleven twelve";
+        let rich =
+            RichText::new(TextSpan::new("one two ").child(TextSpan::new(&words[8..]).bold()))
+                .base_style(TextStyle::new(16.0))
+                .max_lines(1)
+                .overflow(TextOverflow::Ellipsis)
+                .selectable();
+        let len = words.chars().count();
+        let status = Status {
+            region: Some((0, len)),
+            ..Status::default()
+        };
+        let rects = highlights(&paint_with(&rich, status));
+        assert_eq!(rects.len(), 1, "one line drawn: {rects:?}");
+        assert!(rects[0].x + rects[0].width <= 310.0 + 0.5, "{rects:?}");
+        assert_eq!(
+            Widget::<()>::selection_hit(&rich, 5.0, 200.0, 300.0),
+            Some(len)
+        );
+        let edit = Edit {
+            cursor: len,
+            anchor: Some(0),
+            composing: None,
+        };
+        assert_eq!(
+            Widget::<()>::selected_text(&rich, &edit).as_deref(),
+            Some(words)
+        );
     }
 }

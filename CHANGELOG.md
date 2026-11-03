@@ -8,11 +8,21 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 740 so far, each documenting the objective, the alternatives
+> record — one per step, 742 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Aligned and cut texts are selected where they are drawn** (J742): a selectable `Text` or
+  `RichText`, or one inside a `SelectionArea`, that was centred, end-aligned, justified, written
+  right to left or cut by a line limit was highlighted, hit and given handles as if it were
+  start-aligned and whole. The highlight, the caret, the handles and a press, a double click or a
+  drag now follow the glyphs as drawn. A text cut short is highlighted only as far as it is drawn
+  (a selection reaching into the cut covers the ellipsis), a drag past its end selects to the end
+  of its words, and Copy takes all the selected words, the hidden ones included. A `RichText`
+  cut with an ellipsis no longer spills a line past its limit when its last run shares the line
+  with others. `frus-text`
+  gained `TextLayout::in_block`, `TextLayout::of_runs_in` and `TextLayout::elided`.
 - **A clip path's transformed shapes are placed once** (J740): in an `SvgPicture`, a shape in a
   `<clipPath>` with a `transform` of its own, or reached through a `<use>` with one, was
   transformed twice, so the clip showed the picture in the wrong place or not at all. Each
