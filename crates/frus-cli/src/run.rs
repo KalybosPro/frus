@@ -426,7 +426,9 @@ fn start_desktop(
     if let Ok(entries) = std::fs::read_dir(runs) {
         for entry in entries.filter_map(Result::ok) {
             let dll = entry.path().extension().is_some_and(|e| e == "dll");
-            if Some(entry.path().as_path()) != states && !dll {
+            if entry.path().extension().is_some_and(|e| e == "app") {
+                let _ = std::fs::remove_dir_all(entry.path());
+            } else if Some(entry.path().as_path()) != states && !dll {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
@@ -445,7 +447,17 @@ fn start_desktop(
         Some(ext) => format!("{name}-{generation}.{}", ext.to_string_lossy()),
         None => format!("{name}-{generation}"),
     });
-    std::fs::copy(built, &copy).map_err(|e| format!("could not copy the program to run: {e}"))?;
+    // On a Mac the copy is a bundle's program: macOS reads the usage strings from the bundle of
+    // what runs, and ends an application that asks without them (milestone 744).
+    let copy = if cfg!(target_os = "macos") {
+        let declared = project.permissions()?;
+        let bundle = format!("{name}-{generation}");
+        crate::bundle::make_app(runs, &bundle, built, project, &declared)?
+    } else {
+        std::fs::copy(built, &copy)
+            .map_err(|e| format!("could not copy the program to run: {e}"))?;
+        copy
+    };
 
     let mut command = Command::new(&copy);
     command

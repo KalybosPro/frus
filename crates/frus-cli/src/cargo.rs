@@ -31,6 +31,8 @@ impl Mode {
 
 /// The desktop program, built: the path of the executable.
 pub(crate) fn build_desktop(project: &Project, mode: Mode) -> Result<PathBuf, String> {
+    // A declaration macOS would end the application over is said before anything is built.
+    project.permissions()?;
     let mut command = Command::new("cargo");
     command
         .args(["build", "--message-format=json-render-diagnostics"])
@@ -75,6 +77,7 @@ pub(crate) fn executable_of(message: &str) -> Option<String> {
 /// The web build: the library compiled to wasm, and wasm-bindgen's JavaScript written into
 /// `web/pkg/`. Returns the directory to serve.
 pub(crate) fn build_web(project: &Project, mode: Mode) -> Result<PathBuf, String> {
+    project.permissions()?;
     let web = project.web_dir();
     if !web.join("index.html").is_file() {
         return Err(format!(
@@ -172,6 +175,8 @@ pub(crate) fn build_apk(
         }
     }
     setup::cargo_tool("cargo-apk", "--help", "cargo-apk", None)?;
+    // The permissions declared once, in the tables cargo-apk writes the manifest from.
+    crate::permissions::write_android(&project.root, &project.permissions()?)?;
 
     let started = SystemTime::now();
     let mut command = Command::new("cargo");

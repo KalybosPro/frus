@@ -8,11 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 741 so far, each documenting the objective, the alternatives
+> record — one per step, 744 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Permissions declared once** (J744): `[package.metadata.frus.permissions]` in an
+  application's `Cargo.toml` names what it asks for (`camera`, `microphone`, `location`,
+  `notifications`) with the reason the person is shown. `frus build` and `frus run` stop with a
+  clear error when a reason is missing, make a `.app` on macOS whose `Info.plist` holds the usage
+  strings (XML-escaped), and add the matching `[[package.metadata.android.uses_permission]]`
+  tables for Android. The `frus create` template shows the table.
 - **A selection over a list built on demand** (J741): a `SelectionArea` around a
   `ListView::builder`, a `GridView::builder` or any list that builds only the rows in view now
   selects in its rows: a press begins a selection, a drag selects across rows, a drag held past
