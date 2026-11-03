@@ -10,6 +10,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::permissions::{self, Declared};
+
 /// An application's package, as far as running and building it goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Project {
@@ -33,6 +35,11 @@ pub(crate) struct Project {
     /// The devices the project describes, each a table of `[[package.metadata.frus.devices]]`
     /// written as `key=value;…`, the way the shell reads one (milestone 727).
     pub devices: Vec<String>,
+    /// `[package] version`, when written as a string.
+    pub version: Option<String>,
+    /// The lines of `[package.metadata.frus.permissions]`, `(key, value as written)`: read by
+    /// [`Project::permissions`] (milestone 744).
+    pub permission_lines: Vec<(String, String)>,
 }
 
 impl Project {
@@ -81,6 +88,8 @@ impl Project {
         let mut android_targets = None;
         let mut android_target_sdk = None;
         let mut devices: Vec<Vec<String>> = Vec::new();
+        let mut version = None;
+        let mut permission_lines = Vec::new();
         for line in text.lines() {
             let line = line.trim();
             if let Some(header) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
@@ -109,6 +118,9 @@ impl Project {
                         device.push(format!("{key}={value}"));
                     }
                 }
+                (permissions::SECTION, _) => {
+                    permission_lines.push((key.to_string(), value.to_string()));
+                }
                 ("package.metadata.android.sdk", "target_sdk_version") => {
                     android_target_sdk = value.split('#').next().unwrap_or("").trim().parse().ok();
                 }
@@ -118,6 +130,7 @@ impl Project {
             match (section.as_str(), key, value) {
                 ("package", "name", Some(value)) => package = Some(value),
                 ("lib", "name", Some(value)) => lib_name = Some(value),
+                ("package", "version", Some(value)) => version = Some(value),
                 ("package.metadata.android", "package", Some(value)) => {
                     android_package = Some(value)
                 }
@@ -140,7 +153,30 @@ impl Project {
                 .unwrap_or_else(|| vec!["aarch64-linux-android".to_string()]),
             android_target_sdk: android_target_sdk.unwrap_or(34),
             devices: devices.into_iter().map(|pairs| pairs.join(";")).collect(),
+            version,
+            permission_lines,
         })
+    }
+
+    /// The permissions the application declares, or what is wrong with the declaration.
+    pub(crate) fn permissions(&self) -> Result<Vec<Declared>, String> {
+        permissions::parse(&self.permission_lines)
+            .map_err(|error| format!("{error} (in {})", self.root.join("Cargo.toml").display()))
+    }
+
+    /// The application's identity on Apple's systems: its Android one, the only one a manifest
+    /// names, with what a bundle identifier cannot hold made `-`.
+    pub(crate) fn bundle_identifier(&self) -> String {
+        self.android_package
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect()
     }
 
     /// The directory the web build is served from: `web/`, with its `index.html`.
@@ -356,6 +392,10 @@ platform = "ios"
 width = 800
 height = 1280
 ratio = 2  # the second table
+
+[package.metadata.frus.permissions]
+camera = "Scans = codes"  # why
+notifications = true
 "#;
 
     #[test]
@@ -371,6 +411,25 @@ ratio = 2  # the second table
             ["aarch64-linux-android", "x86_64-linux-android"]
         );
         assert_eq!(project.android_target_sdk, 33);
+        assert_eq!(project.version.as_deref(), Some("0.1.0"));
+        assert_eq!(project.bundle_identifier(), "com.acme.my-app");
+    }
+
+    /// **The permissions table is read whole**, each line's value as written, for
+    /// `permissions` to parse (milestone 744).
+    #[test]
+    fn the_declared_permissions_are_read() {
+        let project = Project::from_manifest(Path::new("app"), MANIFEST).unwrap();
+        let declared = project.permissions().unwrap();
+        assert_eq!(declared.len(), 2);
+        assert_eq!(declared[0].reason.as_deref(), Some("Scans = codes"));
+        let broken = MANIFEST.replace("notifications = true", "microphone = true");
+        let error = Project::from_manifest(Path::new("app"), &broken)
+            .unwrap()
+            .permissions()
+            .unwrap_err();
+        assert!(error.contains("`microphone` needs the reason"), "{error}");
+        assert!(error.contains("Cargo.toml"), "{error}");
     }
 
     /// **A project's own devices are read**, one description a table, as the shell reads them:

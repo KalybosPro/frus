@@ -69,6 +69,19 @@ pub(crate) fn build(target: Target, mode: Mode) -> Result<ExitCode, String> {
         Target::Desktop => {
             let exe = cargo::build_desktop(&project, mode)?;
             println!("\nBuilt {} ({}).", exe.display(), size(&exe));
+            // On a Mac the application is a bundle: its Info.plist says why it asks for what it
+            // declares, and macOS ends one that asks without it (milestone 744).
+            if cfg!(target_os = "macos") {
+                let dir = exe.parent().unwrap_or(&project.root);
+                let declared = project.permissions()?;
+                let inside =
+                    crate::bundle::make_app(dir, &project.package, &exe, &project, &declared)?;
+                println!(
+                    "The application: {}.app (open it, or start {}).",
+                    dir.join(&project.package).display(),
+                    inside.display()
+                );
+            }
             // Shipped beside the program, DXC makes it start about half a second faster on
             // Windows (milestone 684); without them it uses Windows' own compiler.
             if cfg!(windows) {

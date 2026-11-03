@@ -8,11 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 740 so far, each documenting the objective, the alternatives
+> record — one per step, 744 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Permissions declared once** (J744): `[package.metadata.frus.permissions]` in an
+  application's `Cargo.toml` names what it asks for (`camera`, `microphone`, `location`,
+  `notifications`) with the reason the person is shown. `frus build` and `frus run` stop with a
+  clear error when a reason is missing, make a `.app` on macOS whose `Info.plist` holds the usage
+  strings (XML-escaped), and add the matching `[[package.metadata.android.uses_permission]]`
+  tables for Android. The `frus create` template shows the table.
 - **A clip path's transformed shapes are placed once** (J740): in an `SvgPicture`, a shape in a
   `<clipPath>` with a `transform` of its own, or reached through a `<use>` with one, was
   transformed twice, so the clip showed the picture in the wrong place or not at all. Each
