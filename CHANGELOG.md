@@ -13,6 +13,11 @@ any release may break.
 
 ## [Unreleased]
 
+- **Cmd is the key of the shortcuts on a Mac** (J736): Copy, Cut, Paste, Select all, Undo and
+  Redo answered Ctrl alone, so Cmd+C and the rest did nothing in a macOS build or in a browser on
+  a Mac. They now answer the platform's own modifier: Cmd on an Apple keyboard (natively from the
+  build, on the web from the browser), Ctrl elsewhere, and only that one, so Ctrl+C does not copy
+  on a Mac. Option+arrow jumps a word and Cmd+arrow goes to the line's or the field's bound there.
 - **SVG masks and filters** (J737): an `SvgPicture` now draws `<mask>` (luminance and alpha,
   a mask's own region and a masked mask) and the filters `feGaussianBlur`, `feDropShadow`,
   `feOffset`, `feFlood`, `feMerge`, `feComposite` (`over`, `in`, `out`; `atop`, `xor` and
@@ -20,7 +25,6 @@ any release may break.
   matrix gives the same pixels — the shadow graphs design tools export among them. Both are
   built from the scene's layers. A filter with any other primitive is drawn unfiltered and
   still named by `Svg::unsupported`, as patterns and text are.
-
 - **A canvas as small as the screen** (J735): on the web, the minimum of 360 by 280 meant for a
   desktop window held the canvas wider than a small phone's screen or a narrow frame, and what
   was past the edge was cut off. The minimum no longer applies to the web.

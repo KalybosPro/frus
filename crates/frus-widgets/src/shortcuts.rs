@@ -101,13 +101,15 @@ pub enum ShortcutKey {
 pub struct KeyStroke {
     /// The key itself.
     pub key: ShortcutKey,
-    /// Control (or Command on macOS, where the shell maps it here).
+    /// Control, on every keyboard — a Mac's too, where it is not the key of the shortcuts.
     pub ctrl: bool,
     /// Shift.
     pub shift: bool,
     /// Alt / Option.
     pub alt: bool,
-    /// The platform's "logo" key, when it is not already folded into `ctrl`.
+    /// The platform's "logo" key: Windows' key, a Mac's Command. A shortcut meant for the
+    /// key a Mac's hands reach for — Cmd+S where everyone else has Ctrl+S — is bound under
+    /// both strokes.
     pub meta: bool,
 }
 
