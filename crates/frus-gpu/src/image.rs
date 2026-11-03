@@ -8,14 +8,21 @@
 //! [`frus_core::ImageData::id`] and reused from frame to frame. Textures left
 //! unused during a frame are evicted. Drawing issues one instanced quad per image,
 //! with the texture bound in group 1; UV, tint and clip all ride on the instance.
+//!
+//! The sampler follows the draw's [`FilterQuality`] (milestone 743). An image drawn
+//! smaller than its pixels at `Medium` or `High` gets a **mip chain** the first time it
+//! is: its texture is made again with every level, rendered by [`MipGenerator`], and
+//! sampled trilinearly from then on. An image only ever drawn at its size or larger
+//! keeps one level and the memory a chain would cost.
 
 use std::ops::Range;
 
 use crate::batch::{Batch, Kind};
+use crate::mipmap::{self, MipGenerator};
 use std::collections::HashMap;
 
 use bytemuck::{Pod, Zeroable};
-use frus_core::{Primitive, Rect, Scene};
+use frus_core::{FilterQuality, Primitive, Rect, Scene};
 use wgpu::util::DeviceExt;
 
 /// A vertex of the unit quad.
@@ -94,9 +101,24 @@ struct Viewport {
     _pad: [f32; 2],
 }
 
-/// A cached texture, with its bind group ready to draw.
+/// The samplers, one per way of filtering; see [`sampler_index`].
+const SAMPLERS: usize = 3;
+
+/// Which of the painter's samplers a [`FilterQuality`] reads through.
+fn sampler_index(quality: FilterQuality) -> usize {
+    match quality {
+        FilterQuality::None => 0,
+        FilterQuality::Low => 1,
+        FilterQuality::Medium | FilterQuality::High => 2,
+    }
+}
+
+/// A cached texture, with a bind group per sampler made the first time it is drawn so.
 struct CachedTexture {
-    bind_group: wgpu::BindGroup,
+    view: wgpu::TextureView,
+    /// How many mip levels it holds: one, or the full chain.
+    levels: u32,
+    bind_groups: [Option<wgpu::BindGroup>; SAMPLERS],
     /// A use marker for the current frame, which drives eviction.
     used: bool,
 }
@@ -109,7 +131,10 @@ pub(crate) struct ImagePainter {
     viewport_buffer: wgpu::Buffer,
     viewport_bind_group: wgpu::BindGroup,
     texture_layout: wgpu::BindGroupLayout,
-    sampler: wgpu::Sampler,
+    /// Nearest, bilinear on the first level, trilinear: see [`sampler_index`].
+    samplers: [wgpu::Sampler; SAMPLERS],
+    /// Made the first time an image needs a chain.
+    mipmaps: Option<MipGenerator>,
     quad_vertex_buffer: wgpu::Buffer,
     instance_buffer: wgpu::Buffer,
     instance_capacity: usize,
@@ -117,9 +142,9 @@ pub(crate) struct ImagePainter {
     cache: HashMap<u64, CachedTexture>,
     /// The CPU-side instance buffer, reused across frames.
     instances: Vec<Instance>,
-    /// Each instance's image id, in order, so the right texture is bound at draw
-    /// time.
-    frame_ids: Vec<u64>,
+    /// Each instance's image id and sampler, in order, so the right texture is bound
+    /// at draw time.
+    frame_ids: Vec<(u64, usize)>,
 }
 
 impl ImagePainter {
@@ -188,16 +213,42 @@ impl ImagePainter {
             ],
         });
 
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("frus.image.sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-            ..Default::default()
-        });
+        let sampler = |label, filter, mipmap_filter, lod_max_clamp| {
+            device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some(label),
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: filter,
+                min_filter: filter,
+                mipmap_filter,
+                lod_min_clamp: 0.0,
+                lod_max_clamp,
+                ..Default::default()
+            })
+        };
+        // `None` and `Low` never leave the first level, even of a texture that a
+        // `Medium` draw gave a chain.
+        let samplers = [
+            sampler(
+                "frus.image.sampler.nearest",
+                wgpu::FilterMode::Nearest,
+                wgpu::MipmapFilterMode::Nearest,
+                0.0,
+            ),
+            sampler(
+                "frus.image.sampler.linear",
+                wgpu::FilterMode::Linear,
+                wgpu::MipmapFilterMode::Nearest,
+                0.0,
+            ),
+            sampler(
+                "frus.image.sampler.trilinear",
+                wgpu::FilterMode::Linear,
+                wgpu::MipmapFilterMode::Linear,
+                32.0,
+            ),
+        ];
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("frus.image.pipeline_layout"),
@@ -257,7 +308,8 @@ impl ImagePainter {
             viewport_buffer,
             viewport_bind_group,
             texture_layout,
-            sampler,
+            samplers,
+            mipmaps: None,
             quad_vertex_buffer,
             instance_buffer,
             instance_capacity: INITIAL_INSTANCE_CAPACITY,
@@ -276,8 +328,11 @@ impl ImagePainter {
         queue.write_buffer(&self.viewport_buffer, 0, bytemuck::bytes_of(&viewport));
     }
 
-    /// Uploads any new textures, builds the instances and evicts unused textures.
-    /// Returns the number of instances to draw.
+    /// Uploads any new textures and builds the instances. Returns each batch's range of
+    /// instances to draw.
+    ///
+    /// Eviction waits for [`ImagePainter::end_frame`]: layers prepare their own images
+    /// first, several times a frame, and must not evict each other's.
     pub(crate) fn prepare_frame(
         &mut self,
         device: &wgpu::Device,
@@ -285,9 +340,6 @@ impl ImagePainter {
         scene: &Scene,
         batches: &[Batch],
     ) -> Vec<Range<u32>> {
-        for cached in self.cache.values_mut() {
-            cached.used = false;
-        }
         self.instances.clear();
         self.frame_ids.clear();
 
@@ -307,14 +359,15 @@ impl ImagePainter {
                     tint,
                     clip,
                     strict,
+                    filter_quality,
                     ..
                 } = &scene.primitives()[member]
                 {
                     let id = image.id();
-                    self.ensure_texture(device, queue, image);
-                    if let Some(cached) = self.cache.get_mut(&id) {
-                        cached.used = true;
-                    }
+                    let chain = filter_quality.uses_mipmaps()
+                        && mipmap::minifies(*rect, *uv, image.width(), image.height());
+                    let sampler = sampler_index(*filter_quality);
+                    self.ensure_texture(device, queue, image, chain, sampler);
                     self.instances.push(Instance {
                         rect: rect.to_array(),
                         uv: uv.to_array(),
@@ -322,14 +375,11 @@ impl ImagePainter {
                         clip: clip.to_array(),
                         region: region(*uv, *strict),
                     });
-                    self.frame_ids.push(id);
+                    self.frame_ids.push((id, sampler));
                 }
             }
             ranges.push(start..self.instances.len() as u32);
         }
-
-        // Evict the textures unused during this frame.
-        self.cache.retain(|_, c| c.used);
 
         let count = self.instances.len();
         if count == 0 {
@@ -353,18 +403,94 @@ impl ImagePainter {
         ranges
     }
 
-    /// Uploads an image's texture unless it is already cached.
+    /// Ends a frame: evicts the textures no draw of the frame used. Called once a frame,
+    /// after the frame's last `prepare_frame`.
+    pub(crate) fn end_frame(&mut self) {
+        self.cache.retain(|_, c| c.used);
+        for cached in self.cache.values_mut() {
+            cached.used = false;
+        }
+    }
+
+    /// Makes sure an image's texture is cached, with its mip chain when `chain` asks for
+    /// one, and has a bind group for `sampler`; marks it used.
     fn ensure_texture(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         image: &frus_core::ImageHandle,
+        chain: bool,
+        sampler: usize,
     ) {
         let id = image.id();
-        if self.cache.contains_key(&id) {
-            return;
+        let levels = if chain {
+            mipmap::level_count(image.width(), image.height())
+        } else {
+            1
+        };
+        // A texture with fewer levels than asked for is made again: the chain needs
+        // every level allocated up front.
+        let stale = self.cache.get(&id).is_none_or(|c| c.levels < levels);
+        // The samplers to bind it with: this draw's, and those earlier draws of the frame
+        // bound the texture being replaced with, which they still look up by id.
+        let mut wanted = [false; SAMPLERS];
+        wanted[sampler] = true;
+        if stale {
+            if let Some(old) = self.cache.get(&id) {
+                for (want, bound) in wanted.iter_mut().zip(&old.bind_groups) {
+                    *want |= bound.is_some();
+                }
+            }
+            let view = self.upload(device, queue, image, levels);
+            self.cache.insert(
+                id,
+                CachedTexture {
+                    view,
+                    levels,
+                    bind_groups: [None, None, None],
+                    used: true,
+                },
+            );
         }
+        let cached = self.cache.get_mut(&id).expect("cached above");
+        cached.used = true;
+        for (index, want) in wanted.into_iter().enumerate() {
+            if !want || cached.bind_groups[index].is_some() {
+                continue;
+            }
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("frus.image.texture.bind_group"),
+                layout: &self.texture_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&cached.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.samplers[index]),
+                    },
+                ],
+            });
+            cached.bind_groups[index] = Some(bind_group);
+        }
+    }
+
+    /// Uploads an image into a new texture of `levels` mip levels, renders the levels
+    /// past the first, and answers the view the draws sample.
+    fn upload(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        image: &frus_core::ImageHandle,
+        levels: u32,
+    ) -> wgpu::TextureView {
         let (w, h) = (image.width(), image.height());
+        let mut usage = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST;
+        if levels > 1 {
+            // The levels past the first are rendered into.
+            usage |= wgpu::TextureUsages::RENDER_ATTACHMENT;
+        }
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("frus.image.texture"),
             size: wgpu::Extent3d {
@@ -372,11 +498,11 @@ impl ImagePainter {
                 height: h,
                 depth_or_array_layers: 1,
             },
-            mip_level_count: 1,
+            mip_level_count: levels,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            format: mipmap::FORMAT,
+            usage,
             view_formats: &[],
         });
         queue.write_texture(
@@ -398,28 +524,12 @@ impl ImagePainter {
                 depth_or_array_layers: 1,
             },
         );
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("frus.image.texture.bind_group"),
-            layout: &self.texture_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        });
-        self.cache.insert(
-            id,
-            CachedTexture {
-                bind_group,
-                used: true,
-            },
-        );
+        if levels > 1 {
+            self.mipmaps
+                .get_or_insert_with(|| MipGenerator::new(device))
+                .generate(device, queue, &texture, levels);
+        }
+        texture.create_view(&wgpu::TextureViewDescriptor::default())
     }
 
     /// Draws the images: one instanced quad each, with the texture bound per draw.
@@ -433,8 +543,13 @@ impl ImagePainter {
         pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         // One call per image even inside a batch: each carries its own texture.
         for inst in range {
-            if let Some(cached) = self.cache.get(&self.frame_ids[inst as usize]) {
-                pass.set_bind_group(1, &cached.bind_group, &[]);
+            let (id, sampler) = self.frame_ids[inst as usize];
+            let bind_group = self
+                .cache
+                .get(&id)
+                .and_then(|c| c.bind_groups[sampler].as_ref());
+            if let Some(bind_group) = bind_group {
+                pass.set_bind_group(1, bind_group, &[]);
                 pass.draw(0..QUAD_VERTEX_COUNT, inst..inst + 1);
             }
         }

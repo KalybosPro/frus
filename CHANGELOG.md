@@ -19,6 +19,13 @@ any release may break.
   clear error when a reason is missing, make a `.app` on macOS whose `Info.plist` holds the usage
   strings (XML-escaped), and add the matching `[[package.metadata.android.uses_permission]]`
   tables for Android. The `frus create` template shows the table.
+- **Images drawn small are averaged** (J743): an image drawn much smaller than its pixels
+  shimmered, its fine patterns and thin lines aliased, because a texture had a single level. The
+  first time an image is drawn smaller than its pixels it now gets a mip chain, made on the GPU in
+  linear light and weighted by alpha, and is sampled trilinearly; an image shown at its size or
+  larger keeps one level and the memory. `FilterQuality` (`None`, `Low`, `Medium` by default,
+  `High`) picks the filter, through `Image::filter_quality`, `DecorationImage::filter_quality`
+  or `Scene::draw_image_with`, and rides on `Primitive::Image` as `filter_quality`.
 - **A selection over a list built on demand** (J741): a `SelectionArea` around a
   `ListView::builder`, a `GridView::builder` or any list that builds only the rows in view now
   selects in its rows: a press begins a selection, a drag selects across rows, a drag held past

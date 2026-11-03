@@ -557,9 +557,9 @@ pub use frus_core::{install_text_scale, TextScaleGuard};
 pub use frus_core::{
     Affine, Alignment, AlignmentDirectional, AlignmentGeometry, Backdrop, BlendMode, Border,
     BorderRadius, BoxDecoration, BoxFit, BoxShadow, ClipShape, Color, ColorFilter, Colors,
-    FontFamily, FontWeight, FractionalMask, ImageData, ImageFilter, ImageHandle, Insets,
-    InsetsDirectional, InsetsGeometry, LinearGradient, MaterialColor, Orientation, Path, PathVerb,
-    Point, Primitive, Rect, Role, Scene, SemanticsProperties, Size, SizeClass, StrokeCap,
+    FilterQuality, FontFamily, FontWeight, FractionalMask, ImageData, ImageFilter, ImageHandle,
+    Insets, InsetsDirectional, InsetsGeometry, LinearGradient, MaterialColor, Orientation, Path,
+    PathVerb, Point, Primitive, Rect, Role, Scene, SemanticsProperties, Size, SizeClass, StrokeCap,
     TextAlign, TextDecoration, TextDirection, TextOverflow, TextSpan, TextStyle, Toggled,
     WindowInsets,
 };

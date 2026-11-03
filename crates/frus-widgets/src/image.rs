@@ -18,7 +18,8 @@
 use std::cell::OnceCell;
 
 use frus_core::{
-    Alignment, AlignmentGeometry, BoxFit, Color, Curve, DecodeSize, ImageHandle, Rect, Scene,
+    Alignment, AlignmentGeometry, BoxFit, Color, Curve, DecodeSize, FilterQuality, ImageHandle,
+    Rect, Scene,
 };
 use frus_layout::{Dimension, Style};
 
@@ -193,6 +194,9 @@ pub struct Image {
     tint: Option<Color>,
     opacity: f32,
     alignment: AlignmentGeometry,
+    /// How the pixels are filtered when drawn at another size; see
+    /// [`Image::filter_quality`].
+    filter_quality: FilterQuality,
     /// What a screen reader is told this picture is; see [`Image::semantic_label`].
     semantic_label: Option<String>,
     /// Whether to leave it out of the tree a screen reader walks.
@@ -404,6 +408,7 @@ impl Image {
             tint: None,
             opacity: 1.0,
             alignment: AlignmentGeometry::Physical(Alignment::CENTER),
+            filter_quality: FilterQuality::Medium,
             semantic_label: None,
             exclude_from_semantics: false,
             match_text_direction: false,
@@ -495,6 +500,16 @@ impl Image {
     /// is the answer a photograph of a person wants in both cases.
     pub fn alignment(mut self, alignment: impl Into<AlignmentGeometry>) -> Self {
         self.alignment = alignment.into();
+        self
+    }
+
+    /// How the pixels are filtered when the picture is drawn at another size than its
+    /// own: [`FilterQuality::Medium`] by default, smooth even far smaller than its pixels.
+    /// [`FilterQuality::None`] keeps pixel art blocky when enlarged; [`FilterQuality::Low`]
+    /// saves the GPU memory of the shrunk copies for a picture never drawn below half
+    /// its size.
+    pub fn filter_quality(mut self, quality: FilterQuality) -> Self {
+        self.filter_quality = quality;
         self
     }
 
@@ -754,7 +769,7 @@ impl Image {
             .or(self.tint)
             .unwrap_or(Color::WHITE)
             .fade(status.opacity * self.opacity * across);
-        scene.draw_image(image, dst, uv, tint);
+        scene.draw_image_with(image, dst, uv, tint, false, self.filter_quality);
     }
 }
 
