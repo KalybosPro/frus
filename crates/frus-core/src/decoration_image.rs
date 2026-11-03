@@ -10,8 +10,8 @@
 //! whether it repeats, which part of it stretches, and whether it is mirrored.
 
 use crate::{
-    AlignmentGeometry, BlendMode, BoxFit, Color, ColorFilter, ImageHandle, LayerFilter, Primitive,
-    Rect, Scene, Size, TextDirection,
+    AlignmentGeometry, BlendMode, BoxFit, Color, ColorFilter, FilterQuality, ImageHandle,
+    LayerFilter, Primitive, Rect, Scene, Size, TextDirection,
 };
 
 /// How a picture fills the room its fit leaves: once, or repeated across, down, or both
@@ -154,6 +154,8 @@ pub struct DecorationImage {
     pub opacity: f32,
     /// Whether the picture's colours are inverted, after the colour filter.
     pub invert_colors: bool,
+    /// How the pixels are filtered when drawn at another size than their own.
+    pub filter_quality: FilterQuality,
     /// Two pictures mid-transition, painted one over the other.
     crossfade: Option<Box<Crossfade>>,
 }
@@ -180,8 +182,15 @@ impl DecorationImage {
             scale: 1.0,
             opacity: 1.0,
             invert_colors: false,
+            filter_quality: FilterQuality::Medium,
             crossfade: None,
         }
+    }
+
+    /// Sets how the pixels are filtered when drawn at another size than their own.
+    pub fn filter_quality(mut self, quality: FilterQuality) -> Self {
+        self.filter_quality = quality;
+        self
     }
 
     /// Sets the colour filter.
@@ -408,11 +417,14 @@ impl DecorationImage {
         }
         let tint = Color::WHITE.fade(alpha);
         for piece in pieces {
-            if piece.strict {
-                scene.draw_image_strict(image, piece.dst, piece.uv, tint);
-            } else {
-                scene.draw_image(image, piece.dst, piece.uv, tint);
-            }
+            scene.draw_image_with(
+                image,
+                piece.dst,
+                piece.uv,
+                tint,
+                piece.strict,
+                self.filter_quality,
+            );
         }
         scene.set_clip(outer);
         // The colour filter first, then the inversion over its result, as the

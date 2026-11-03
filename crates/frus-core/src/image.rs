@@ -91,6 +91,36 @@ impl Eq for ImageData {}
 /// inside a [`crate::Primitive::Image`].
 pub type ImageHandle = Arc<ImageData>;
 
+/// **How an image's pixels are filtered** when it is drawn at another size than its own.
+///
+/// The choice matters most when an image is drawn much smaller than its pixels: one
+/// screen pixel then covers many of the image's, and a filter that reads only a few of
+/// them shimmers and loses thin lines, more so while the scale animates.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FilterQuality {
+    /// The nearest pixel, unblended: the fastest, and the crisp blocks pixel art wants
+    /// when enlarged. Shrunk, it skips pixels.
+    None,
+    /// A blend of the four nearest pixels (bilinear). Smooth when enlarged or shrunk to
+    /// no less than half its size; below half it skips pixels as `None` does.
+    Low,
+    /// Bilinear between **pre-shrunk copies** of the image (a mipmap chain, made the
+    /// first time the image is drawn smaller than its pixels): smooth at any size, at the
+    /// cost of a third more GPU memory for such an image. The default.
+    #[default]
+    Medium,
+    /// The best quality available. Shrunk, it filters as `Medium` does; enlarged, as
+    /// `Low` does.
+    High,
+}
+
+impl FilterQuality {
+    /// Whether this quality reads pre-shrunk copies of the image (`Medium` and `High`).
+    pub const fn uses_mipmaps(self) -> bool {
+        matches!(self, FilterQuality::Medium | FilterQuality::High)
+    }
+}
+
 /// **The size an image is decoded at**, in physical pixels: the full size of the file, or
 /// a smaller one that the place it is shown at needs.
 ///

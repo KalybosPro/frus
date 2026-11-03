@@ -13,9 +13,9 @@
 use std::sync::Arc;
 
 use crate::{
-    Affine, BorderRadius, Color, FontWeight, ImageHandle, LayerFilter, Path, PathVerb, Point, Rect,
-    ResolvedTextStyle, ShaderMask, ShapeBorder, Size, Stroke, TextAlign, TextDecoration, TextRun,
-    TileMode,
+    Affine, BorderRadius, Color, FilterQuality, FontWeight, ImageHandle, LayerFilter, Path,
+    PathVerb, Point, Rect, ResolvedTextStyle, ShaderMask, ShapeBorder, Size, Stroke, TextAlign,
+    TextDecoration, TextRun, TileMode,
 };
 
 /// The transform applied to a **layer** ([`Primitive::Layer`]) at compositing time:
@@ -532,6 +532,9 @@ pub enum Primitive {
         /// need it, or each would bleed its neighbours along its edges; a picture drawn
         /// whole or cropped does without, as the reference's does.
         strict: bool,
+        /// How the pixels are filtered when drawn at another size than their own
+        /// (milestone 743): [`FilterQuality::Medium`] unless the emitter asked otherwise.
+        filter_quality: FilterQuality,
         /// Clip rectangle.
         clip: Rect,
         /// The emitting widget's identity.
@@ -702,6 +705,7 @@ impl Primitive {
                 uv,
                 tint,
                 strict,
+                filter_quality,
                 clip,
                 owner,
             } => Primitive::Image {
@@ -711,6 +715,7 @@ impl Primitive {
                 uv,
                 tint,
                 strict,
+                filter_quality,
                 clip: clip.scale_xy(sx, sy),
                 owner,
             },
@@ -844,6 +849,7 @@ impl Primitive {
                 uv,
                 tint,
                 strict,
+                filter_quality,
                 clip,
                 owner,
             } => Primitive::Image {
@@ -852,6 +858,7 @@ impl Primitive {
                 uv,
                 tint,
                 strict,
+                filter_quality,
                 clip: clip.translate(dx, dy),
                 owner,
             },
@@ -1039,6 +1046,7 @@ impl Primitive {
                 uv,
                 tint,
                 strict,
+                filter_quality,
                 owner,
                 ..
             } => Primitive::Image {
@@ -1047,6 +1055,7 @@ impl Primitive {
                 uv,
                 tint,
                 strict,
+                filter_quality,
                 clip,
                 owner,
             },
@@ -1295,6 +1304,7 @@ impl Scene {
                 uv,
                 tint,
                 strict,
+                filter_quality,
                 clip,
                 owner,
             } => Primitive::Image {
@@ -1303,6 +1313,7 @@ impl Scene {
                 uv,
                 tint: tint.fade(opacity),
                 strict,
+                filter_quality,
                 clip,
                 owner,
             },
@@ -1611,24 +1622,50 @@ impl Scene {
     /// Draws an image into `rect`, sampling the `uv` sub-region (in `0..1`) and
     /// tinting it by `tint` (white = unchanged). Low level: see [`Scene::image`]
     /// for automatic fitting through [`crate::BoxFit`].
+    ///
+    /// It samples at [`FilterQuality::Medium`]: smooth, and even when drawn much smaller
+    /// than its pixels. [`Scene::draw_image_with`] picks another quality.
     pub fn draw_image(&mut self, image: &ImageHandle, rect: Rect, uv: Rect, tint: Color) {
-        self.push_image(image, rect, uv, tint, false);
+        self.push_image(image, rect, uv, tint, false, FilterQuality::Medium);
     }
 
     /// [`Scene::draw_image`], sampled **strictly** inside `uv`: no filtered sample
     /// reaches the texels around it. For one part of a picture stretched apart from the
     /// rest, as a centre slice's are.
     pub fn draw_image_strict(&mut self, image: &ImageHandle, rect: Rect, uv: Rect, tint: Color) {
-        self.push_image(image, rect, uv, tint, true);
+        self.push_image(image, rect, uv, tint, true, FilterQuality::Medium);
     }
 
-    fn push_image(&mut self, image: &ImageHandle, rect: Rect, uv: Rect, tint: Color, strict: bool) {
+    /// [`Scene::draw_image`] with every sampling choice spelled out: `strict` as in
+    /// [`Scene::draw_image_strict`], and the [`FilterQuality`] the pixels are filtered at.
+    pub fn draw_image_with(
+        &mut self,
+        image: &ImageHandle,
+        rect: Rect,
+        uv: Rect,
+        tint: Color,
+        strict: bool,
+        filter_quality: FilterQuality,
+    ) {
+        self.push_image(image, rect, uv, tint, strict, filter_quality);
+    }
+
+    fn push_image(
+        &mut self,
+        image: &ImageHandle,
+        rect: Rect,
+        uv: Rect,
+        tint: Color,
+        strict: bool,
+        filter_quality: FilterQuality,
+    ) {
         self.primitives.push(Primitive::Image {
             image: image.clone(),
             rect,
             uv,
             tint,
             strict,
+            filter_quality,
             clip: self.current_clip,
             owner: self.current_owner,
         });
