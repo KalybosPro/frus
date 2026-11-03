@@ -77,21 +77,177 @@ pub struct Text {
 }
 
 /// One bar per [`ToolbarContext`], each an `Option<Box<dyn Widget<Msg>>>` behind `dyn Any`.
-type AreaBars = [OnceCell<Box<dyn Any>>; ToolbarContext::VARIANTS as usize];
+pub(crate) type AreaBars = [OnceCell<Box<dyn Any>>; ToolbarContext::VARIANTS as usize];
 
-/// The state of a text that can be selected and copied.
-struct Selection {
+/// The state of a text that can be selected and copied — a [`Text`]'s, and a
+/// [`RichText`](crate::RichText)'s, which answers the same questions over other shaping.
+pub(crate) struct Selection {
     /// Whether the text is selectable at all. [`Text::selection_toolbar`] may have made
     /// the state before [`Text::selectable`] is called, in either order.
-    on: bool,
+    pub(crate) on: bool,
     /// The application's say over the bar shown above a selection: a
     /// [`ToolbarBuild`] of the application's message type, kept as `dyn Any` because a
     /// `Text` is not generic over it.
-    toolbar_build: Option<Box<dyn Any>>,
+    pub(crate) toolbar_build: Option<Box<dyn Any>>,
     /// The bar for each context, built the first time it is asked for and kept: the walk
     /// borrows it for a frame, so it must live as long as the text does. Each holds an
     /// `Option<Box<dyn Widget<Msg>>>`.
-    toolbars: [OnceCell<Box<dyn Any>>; ToolbarContext::VARIANTS as usize],
+    pub(crate) toolbars: [OnceCell<Box<dyn Any>>; ToolbarContext::VARIANTS as usize],
+}
+
+impl Selection {
+    /// A selection state that is not switched on yet.
+    pub(crate) fn new() -> Self {
+        Self {
+            on: false,
+            toolbar_build: None,
+            toolbars: Default::default(),
+        }
+    }
+
+    /// Takes the application's say over the bar, dropping whatever was built for the old
+    /// answer.
+    pub(crate) fn set_toolbar<Msg: 'static>(&mut self, build: ToolbarBuild<Msg>) {
+        self.toolbar_build = Some(Box::new(build));
+        self.toolbars = Default::default();
+    }
+
+    /// The bar over this text's own selection for `context`: Copy when something is
+    /// selected, Select all unless everything is, then the application's say over that list.
+    /// Built the first time it is asked for and kept: the walk borrows it for a frame.
+    pub(crate) fn toolbar<Msg: Clone + 'static>(
+        &self,
+        context: ToolbarContext,
+    ) -> Option<&dyn Widget<Msg>> {
+        self.toolbars[usize::from(context.variant())]
+            .get_or_init(|| {
+                let items = default_items(&context);
+                let build = self
+                    .toolbar_build
+                    .as_ref()
+                    .and_then(|build| build.downcast_ref::<ToolbarBuild<Msg>>());
+                let items = match build {
+                    Some(build) => build(&context, items),
+                    None => items,
+                };
+                let bar: Option<Box<dyn Widget<Msg>>> = (!items.is_empty())
+                    .then(|| Box::new(SelectionToolbar::new(items)) as Box<dyn Widget<Msg>>);
+                Box::new(bar) as Box<dyn Any>
+            })
+            .downcast_ref::<Option<Box<dyn Widget<Msg>>>>()?
+            .as_deref()
+    }
+}
+
+/// What a bar over words that cannot be typed into offers: Copy when something is selected,
+/// and Select all unless everything is. Nothing can be cut from or pasted into them.
+fn default_items<Msg: Clone + 'static>(context: &ToolbarContext) -> Vec<ToolbarItem<Msg>> {
+    let mut items = Vec::new();
+    if context.has_selection {
+        items.push(ToolbarItem::copy());
+    }
+    if !context.all_selected {
+        items.push(ToolbarItem::select_all());
+    }
+    items
+}
+
+/// The bar a text shows against a [`SelectionArea`](crate::SelectionArea)'s selection for
+/// `context`, built in `bars` the first time it is asked for.
+pub(crate) fn area_bar<Msg: Clone + 'static>(
+    bars: &OnceCell<Box<AreaBars>>,
+    context: ToolbarContext,
+) -> Option<&dyn Widget<Msg>> {
+    let bars = bars.get_or_init(Box::default);
+    bars[usize::from(context.variant())]
+        .get_or_init(|| {
+            let items = default_items::<Msg>(&context);
+            let bar: Option<Box<dyn Widget<Msg>>> = (!items.is_empty())
+                .then(|| Box::new(SelectionToolbar::new(items)) as Box<dyn Widget<Msg>>);
+            Box::new(bar) as Box<dyn Any>
+        })
+        .downcast_ref::<Option<Box<dyn Widget<Msg>>>>()?
+        .as_deref()
+}
+
+/// The highlight under the selected words of a text drawn at `bounds` with `layout`: a
+/// selection area's range, whatever the focus, or the text's own selection while it is
+/// focused and `selectable`. Painted before the words, so that they sit on it.
+pub(crate) fn paint_highlight(
+    layout: impl FnOnce() -> TextLayout,
+    len: usize,
+    selectable: bool,
+    bounds: Rect,
+    status: &Status,
+    theme: &Theme,
+    scene: &mut Scene,
+) {
+    let own = status.selection.filter(|_| status.focused && selectable);
+    let Some((start, end)) = status.region.or(own) else {
+        return;
+    };
+    let highlight = theme
+        .widgets
+        .text_selection
+        .selection_color_in(theme)
+        .fade(status.opacity);
+    for rect in layout().selection_rects(start.min(len), end.min(len)) {
+        scene.fill_rect(
+            Rect::new(
+                bounds.x + rect.x,
+                bounds.y + rect.y,
+                rect.width,
+                rect.height,
+            ),
+            highlight,
+        );
+    }
+}
+
+/// The handles of a touch selection that hang from a text drawn at `bounds` with `layout`,
+/// painted over its words and outside its clip, since they hang past its last line: a
+/// selection area's that end in it, and its own while it is focused and `selectable`.
+pub(crate) fn paint_grips(
+    layout: impl Fn() -> TextLayout,
+    len: usize,
+    selectable: bool,
+    bounds: Rect,
+    status: &Status,
+    theme: &Theme,
+    scene: &mut Scene,
+) {
+    let color = theme
+        .widgets
+        .text_selection
+        .handle_color_in(theme)
+        .fade(status.opacity);
+    let offset = Point::new(bounds.x, bounds.y);
+    let origin = Point::new(0.0, 0.0);
+    // The handles of a selection area's touch selection that hang from this text.
+    let (start, end) = status.region_grips;
+    if start.is_some() || end.is_some() {
+        let layout = layout();
+        for (index, is_start) in [(start, true), (end, false)] {
+            if let Some(index) = index {
+                let handle = handle_at(&layout, origin, index, is_start);
+                paint_handle(scene, handle, offset, color, is_start);
+            }
+        }
+    }
+    if !(status.focused && status.handles && selectable) {
+        return;
+    }
+    let Some((start, end)) = status.selection else {
+        return;
+    };
+    let edit = Edit {
+        cursor: end,
+        anchor: Some(start),
+        composing: None,
+    };
+    if let Some(handles) = handles_in(&layout(), origin, len, &edit) {
+        paint_handles(scene, handles, offset, color);
+    }
 }
 
 /// What a selection is measured against: the typography a text resolved, and whether it
@@ -280,23 +436,14 @@ impl Text {
         mut self,
         build: impl Fn(&ToolbarContext, Vec<ToolbarItem<Msg>>) -> Vec<ToolbarItem<Msg>> + 'static,
     ) -> Self {
-        let build: ToolbarBuild<Msg> = Box::new(build);
-        let selection = self.selection_mut();
-        selection.toolbar_build = Some(Box::new(build));
-        // Whatever was built for the old answer is not the answer any more.
-        selection.toolbars = Default::default();
+        self.selection_mut().set_toolbar::<Msg>(Box::new(build));
         self
     }
 
     /// The state of the selection, made when first asked for.
     fn selection_mut(&mut self) -> &mut Selection {
-        self.selection.get_or_insert_with(|| {
-            Box::new(Selection {
-                on: false,
-                toolbar_build: None,
-                toolbars: Default::default(),
-            })
-        })
+        self.selection
+            .get_or_insert_with(|| Box::new(Selection::new()))
     }
 
     /// The selection state, if this text is selectable.
@@ -606,47 +753,15 @@ impl Text {
     /// The two handles of a touch selection, hanging below their ends of it. Drawn last,
     /// over the words, and outside the text's own clip: they hang past its last line.
     fn paint_grips(&self, bounds: Rect, status: &Status, theme: &Theme, scene: &mut Scene) {
-        // The handles of a selection area's touch selection that hang from this text.
-        let (start, end) = status.region_grips;
-        if start.is_some() || end.is_some() {
-            let layout = self.text_layout(bounds.width);
-            let color = theme
-                .widgets
-                .text_selection
-                .handle_color_in(theme)
-                .fade(status.opacity);
-            let offset = Point::new(bounds.x, bounds.y);
-            let origin = Point::new(0.0, 0.0);
-            for (index, is_start) in [(start, true), (end, false)] {
-                if let Some(index) = index {
-                    let handle = handle_at(&layout, origin, index, is_start);
-                    paint_handle(scene, handle, offset, color, is_start);
-                }
-            }
-        }
-        if !(status.focused && status.handles) {
-            return;
-        }
-        let Some((start, end)) = status.selection else {
-            return;
-        };
-        let Some(layout) = self.selection_layout(bounds.width) else {
-            return;
-        };
-        let edit = Edit {
-            cursor: end,
-            anchor: Some(start),
-            composing: None,
-        };
-        let len = self.content.chars().count();
-        if let Some(handles) = handles_in(&layout, Point::new(0.0, 0.0), len, &edit) {
-            let color = theme
-                .widgets
-                .text_selection
-                .handle_color_in(theme)
-                .fade(status.opacity);
-            paint_handles(scene, handles, Point::new(bounds.x, bounds.y), color);
-        }
+        paint_grips(
+            || self.text_layout(bounds.width),
+            self.content.chars().count(),
+            self.selecting().is_some(),
+            bounds,
+            status,
+            theme,
+            scene,
+        );
     }
 
     fn fade(bounds: Rect, horizontal: bool, r: &Resolved) -> ShaderMask {
@@ -858,31 +973,15 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
         // The selection: the highlight below the words (the handles of a touch selection are
         // drawn after them). A selection area's covers this text whether or not it is focused;
         // a selectable text's own only while it is.
-        let own = status
-            .selection
-            .filter(|_| status.focused && self.selecting().is_some());
-        if let Some((start, end)) = status.region.or(own) {
-            let highlight = theme
-                .widgets
-                .text_selection
-                .selection_color_in(theme)
-                .fade(status.opacity);
-            {
-                let layout = self.text_layout(bounds.width);
-                let len = self.content.chars().count();
-                for rect in layout.selection_rects(start.min(len), end.min(len)) {
-                    scene.fill_rect(
-                        Rect::new(
-                            bounds.x + rect.x,
-                            bounds.y + rect.y,
-                            rect.width,
-                            rect.height,
-                        ),
-                        highlight,
-                    );
-                }
-            }
-        }
+        paint_highlight(
+            || self.text_layout(bounds.width),
+            self.content.chars().count(),
+            self.selecting().is_some(),
+            bounds,
+            &status,
+            theme,
+            scene,
+        );
         let block = TextBlock {
             // A width is handed over only when something is going to use it. Giving the
             // renderer one it did not have changes where right-to-left text lands, which
@@ -968,22 +1067,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
             composing: None,
         };
         let anchor = selection_box_in(&layout, Point::new(0.0, 0.0), len, &edit);
-        let bars = self.area_bars.get_or_init(Box::default);
-        let bar = bars[usize::from(context.variant())]
-            .get_or_init(|| {
-                let mut items: Vec<ToolbarItem<Msg>> = Vec::new();
-                if context.has_selection {
-                    items.push(ToolbarItem::copy());
-                }
-                if !context.all_selected {
-                    items.push(ToolbarItem::select_all());
-                }
-                let bar: Option<Box<dyn Widget<Msg>>> = (!items.is_empty())
-                    .then(|| Box::new(SelectionToolbar::new(items)) as Box<dyn Widget<Msg>>);
-                Box::new(bar) as Box<dyn Any>
-            })
-            .downcast_ref::<Option<Box<dyn Widget<Msg>>>>()?
-            .as_deref()?;
+        let bar = area_bar(&self.area_bars, context)?;
         Some((anchor, bar))
     }
 
@@ -1073,30 +1157,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
     /// Copy, when something is selected, and Select all, unless everything is: a text
     /// cannot be cut from or pasted into, so those are not offered.
     fn selection_toolbar(&self, context: ToolbarContext) -> Option<&dyn Widget<Msg>> {
-        let selection = self.selecting()?;
-        selection.toolbars[usize::from(context.variant())]
-            .get_or_init(|| {
-                let mut items = Vec::new();
-                if context.has_selection {
-                    items.push(ToolbarItem::copy());
-                }
-                if !context.all_selected {
-                    items.push(ToolbarItem::select_all());
-                }
-                let build = selection
-                    .toolbar_build
-                    .as_ref()
-                    .and_then(|build| build.downcast_ref::<ToolbarBuild<Msg>>());
-                let items = match build {
-                    Some(build) => build(&context, items),
-                    None => items,
-                };
-                let bar: Option<Box<dyn Widget<Msg>>> = (!items.is_empty())
-                    .then(|| Box::new(SelectionToolbar::new(items)) as Box<dyn Widget<Msg>>);
-                Box::new(bar) as Box<dyn Any>
-            })
-            .downcast_ref::<Option<Box<dyn Widget<Msg>>>>()?
-            .as_deref()
+        self.selecting()?.toolbar(context)
     }
 
     fn semantics(&self) -> Option<frus_core::SemanticsProperties> {

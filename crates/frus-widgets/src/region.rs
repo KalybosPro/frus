@@ -645,6 +645,75 @@ mod tests {
             assert_eq!(paths.iter().filter(|c| **c == primary).count(), 2);
         }
 
+        /// **A rich paragraph takes part as a text does** (milestone 738): it is registered in
+        /// its place among the area's texts, and a selection that passes through it highlights
+        /// every one of its runs.
+        #[test]
+        fn a_rich_paragraph_is_one_of_the_areas_texts() {
+            use crate::{RichText, TextSpan};
+            let tree = SelectionArea::around(
+                Flex::column()
+                    .width(300.0)
+                    .child(Text::new("alpha").no_wrap())
+                    .child(
+                        RichText::new(
+                            TextSpan::new("rich ")
+                                .child(TextSpan::new("bold").bold())
+                                .child(TextSpan::new(" big").size(28.0)),
+                        )
+                        .no_wrap(),
+                    )
+                    .child(Text::new("omega").no_wrap()),
+            );
+            let mut rt = Runtime::default();
+            let theme = Theme::default();
+            let size = Size::new(300.0, 200.0);
+            let bare = build_ui::<()>(&tree, size, &rt, &theme);
+            let stops: Vec<TextStop> = bare.text_stops().to_vec();
+            assert_eq!(stops.len(), 3, "alpha, the paragraph, omega: {stops:?}");
+            assert!(stops[0].rect.y < stops[1].rect.y && stops[1].rect.y < stops[2].rect.y);
+            let rich = stops[1];
+
+            let lengths = [(stops[0].id, 5), (rich.id, 14), (stops[2].id, 5)];
+            let from = RegionPoint {
+                text: stops[0].id,
+                index: 2,
+            };
+            let to = RegionPoint {
+                text: stops[2].id,
+                index: 3,
+            };
+            rt.region = Some(RegionSelection::new(rich.area, from, to, &lengths));
+            let selected = build_ui::<()>(&tree, size, &rt, &theme);
+            let highlights: Vec<Rect> = selected
+                .scene()
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    crate::Primitive::Rect { rect, color, .. } if *color == theme.selection => {
+                        Some(*rect)
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(highlights.len(), 3, "one per text: {highlights:?}");
+            let middle = highlights[1];
+            assert!(
+                (middle.x - rich.rect.x).abs() < 0.5,
+                "from the paragraph's start: {middle:?} in {rich:?}"
+            );
+            assert!(
+                (middle.width - rich.rect.width).abs() < 2.0,
+                "across all of its runs: {middle:?} in {rich:?}"
+            );
+            assert!(
+                middle.height > 28.0,
+                "as tall as its largest run: {middle:?}"
+            );
+            let point = Point::new(rich.rect.x + 2.0, rich.rect.y + 4.0);
+            assert_eq!(selected.text_stop_at(point).map(|s| s.id), Some(rich.id));
+        }
+
         /// **What the application says about the bar is the area's answer**, through any wrapper
         /// around it — nothing said, it says nothing and the texts offer theirs.
         #[test]

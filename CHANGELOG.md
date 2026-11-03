@@ -8,11 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 737 so far, each documenting the objective, the alternatives
+> record — one per step, 738 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **A rich paragraph in a selection** (J738): a `RichText` inside a `SelectionArea` now takes
+  part as a `Text` does: a selection can begin, end or pass through it, the highlight covers the
+  glyphs selected in whatever run they are in, and Copy takes its plain text in order.
+  `RichText::selectable()` and `RichText::selection_toolbar` make one selectable on its own.
+  `frus-text` gained `TextLayout::of_runs`. `Widget<Msg> for RichText` now asks
+  `Msg: Clone + 'static`, as `Text`'s does.
 - **Cmd is the key of the shortcuts on a Mac** (J736): Copy, Cut, Paste, Select all, Undo and
   Redo answered Ctrl alone, so Cmd+C and the rest did nothing in a macOS build or in a browser on
   a Mac. They now answer the platform's own modifier: Cmd on an Apple keyboard (natively from the
