@@ -285,8 +285,8 @@ macro_rules! forward_transparent {
                 self.inner.takes_typing()
             }
 
-            fn selection_text(&self) -> Option<&str> {
-                self.inner.selection_text()
+            fn selectable_text(&self) -> Option<std::rc::Rc<dyn $crate::SelectableText>> {
+                self.inner.selectable_text()
             }
 
             fn region_toolbar(
@@ -296,19 +296,6 @@ macro_rules! forward_transparent {
                 range: (usize, usize),
             ) -> Option<($crate::Rect, &dyn $crate::Widget<Msg>)> {
                 self.inner.region_toolbar(context, width, range)
-            }
-
-            fn selection_grip(
-                &self,
-                width: f32,
-                index: usize,
-                start: bool,
-            ) -> Option<$crate::SelectionHandle> {
-                self.inner.selection_grip(width, index, start)
-            }
-
-            fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
-                self.inner.selection_hit(local_x, local_y, width)
             }
 
             fn replace_value(&self, value: String) -> Option<Msg> {

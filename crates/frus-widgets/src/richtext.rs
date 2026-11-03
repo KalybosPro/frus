@@ -31,7 +31,7 @@ use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
 use crate::selectiontoolbar::{ToolbarContext, ToolbarItem};
 use crate::text::{area_bar, paint_grips, paint_highlight, AreaBars, Selection};
-use crate::textinput::{handle_at, handles_in, move_caret, selection_box_in, word_range};
+use crate::textinput::{handles_in, move_caret, selection_box_in, word_range};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -484,9 +484,23 @@ impl<Msg: Clone + 'static> Widget<Msg> for RichText {
         false
     }
 
-    /// The plain text, for a selection that spans texts: any paragraph with words in it.
-    fn selection_text(&self) -> Option<&str> {
-        (!self.plain.is_empty()).then_some(self.plain.as_str())
+    /// The plain text and how its runs are laid out, for a selection that spans texts: any
+    /// paragraph with words in it.
+    fn selectable_text(&self) -> Option<std::rc::Rc<dyn crate::SelectableText>> {
+        if self.plain.is_empty() {
+            return None;
+        }
+        let scale = self.scale.get();
+        let runs = frus_core::with_text_scale(scale, || self.runs(Color::WHITE, 1.0));
+        let wrap = self.wrap;
+        Some(std::rc::Rc::new(crate::region::LaidWords::new(
+            self.plain.as_str().into(),
+            move |width| {
+                frus_core::with_text_scale(scale, || {
+                    TextLayout::of_runs(&runs, wrap.then_some(width), wrap)
+                })
+            },
+        )))
     }
 
     fn region_toolbar(
@@ -508,30 +522,6 @@ impl<Msg: Clone + 'static> Widget<Msg> for RichText {
         );
         let bar = area_bar(&self.area_bars, context)?;
         Some((anchor, bar))
-    }
-
-    fn selection_grip(
-        &self,
-        width: f32,
-        index: usize,
-        start: bool,
-    ) -> Option<crate::SelectionHandle> {
-        Some(handle_at(
-            &self.text_layout(width),
-            Point::new(0.0, 0.0),
-            index.min(self.len()),
-            start,
-        ))
-    }
-
-    fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
-        if self.plain.is_empty() {
-            return None;
-        }
-        Some(
-            self.text_layout(width)
-                .hit_test(Point::new(local_x, local_y)),
-        )
     }
 
     fn cursor_at(
@@ -604,6 +594,13 @@ mod tests {
     use super::*;
     use crate::interaction::Status;
     use frus_core::{FontWeight, Primitive};
+
+    /// The boundary of `rich`'s words nearest a point, as its area finds it: through what the
+    /// paragraph registers, laid out 300 px wide.
+    fn hit(rich: &RichText, x: f32, y: f32) -> Option<usize> {
+        let words = Widget::<()>::selectable_text(rich)?;
+        Some(words.hit(Point::new(x, y), 300.0))
+    }
 
     #[test]
     fn paints_resolved_runs_with_theme_colour() {
@@ -825,15 +822,16 @@ mod tests {
     fn a_paragraph_offers_its_plain_text_to_a_selection() {
         let plain = mixed();
         assert_eq!(
-            Widget::<()>::selection_text(&plain),
+            Widget::<()>::selectable_text(&plain)
+                .as_deref()
+                .map(|text| text.words()),
             Some("plain bold tail")
         );
         assert!(!Widget::<()>::focusable(&plain), "read, not selected alone");
         assert_eq!(Widget::<()>::text_value(&plain), None);
         let empty = RichText::new(TextSpan::new(""));
-        assert_eq!(
-            Widget::<()>::selection_text(&empty),
-            None,
+        assert!(
+            Widget::<()>::selectable_text(&empty).is_none(),
             "nothing to select"
         );
 
@@ -858,12 +856,9 @@ mod tests {
         )
         .base_style(TextStyle::new(16.0));
         let x = width("ab", TextStyle::new(16.0)) + width("C", TextStyle::new(40.0)) + 1.0;
-        assert_eq!(Widget::<()>::selection_hit(&rich, x, 20.0, 300.0), Some(3));
+        assert_eq!(hit(&rich, x, 20.0), Some(3));
         let far = width("ab", TextStyle::new(16.0)) + width("CD", TextStyle::new(40.0)) + 1.0;
-        assert_eq!(
-            Widget::<()>::selection_hit(&rich, far, 20.0, 300.0),
-            Some(4)
-        );
+        assert_eq!(hit(&rich, far, 20.0), Some(4));
     }
 
     /// **The highlight covers the glyphs selected, in the style they are drawn in**: the bold
@@ -941,7 +936,9 @@ mod tests {
             ..Status::default()
         };
         assert_eq!(paths(grips), 2);
-        assert!(Widget::<()>::selection_grip(&mixed(), 300.0, 6, true).is_some());
+        let words = Widget::<()>::selectable_text(&mixed()).expect("a paragraph with words");
+        let handle = words.handle(300.0, 6, true);
+        assert!(handle.rect.height > 0.0, "{handle:?}");
     }
 
     /// **A hit follows the reader's font setting the paragraph was painted under**, though it
@@ -953,6 +950,6 @@ mod tests {
             paint_with(&rich, Status::default());
         });
         let x = frus_core::with_text_scale(2.0, || width("abc", TextStyle::new(16.0)));
-        assert_eq!(Widget::<()>::selection_hit(&rich, x, 10.0, 300.0), Some(3));
+        assert_eq!(hit(&rich, x, 10.0), Some(3));
     }
 }

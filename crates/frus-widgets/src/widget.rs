@@ -518,31 +518,16 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
-    /// The words this widget shows, **if it takes part in a
-    /// [`SelectionArea`](crate::SelectionArea)**: a [`Text`](crate::Text), and nothing that is
-    /// not made of words. The walk registers such a widget as a text stop when it is inside an
-    /// area, so that a selection can begin, end and pass through it.
-    fn selection_text(&self) -> Option<&str> {
-        None
-    }
-
-    /// The character boundary of [`selection_text`](Self::selection_text) nearest a local
-    /// position (px from the widget's top-left corner) in a box `width` wide — the layout the
-    /// widget was **drawn** with, which is what a press is hit against.
-    fn selection_hit(&self, _local_x: f32, _local_y: f32, _width: f32) -> Option<usize> {
-        None
-    }
-
-    /// The handle that hangs from character boundary `index` of this widget's words — the
-    /// start handle when `start`, the end handle otherwise — in local coordinates, for a widget
-    /// `width` wide: where it is painted, and so where a finger takes it. `None` for anything
-    /// that is not a text.
-    fn selection_grip(
-        &self,
-        _width: f32,
-        _index: usize,
-        _start: bool,
-    ) -> Option<crate::SelectionHandle> {
+    /// What this widget answers for a selection, **if it takes part in a
+    /// [`SelectionArea`](crate::SelectionArea)**: a [`Text`](crate::Text) with words in it, and
+    /// nothing that is not made of words. The walk asks a widget inside an area as it paints it
+    /// and registers the answer as a text stop ([`TextStop`](crate::TextStop)), so that a
+    /// selection can begin, end and pass through it.
+    ///
+    /// The answer is kept apart from the widget: it holds the words and what lays them out, so
+    /// that it still answers after the frame has let the widget go — a row of a list that
+    /// builds only the rows in view. Asked once a frame, of the texts that show.
+    fn selectable_text(&self) -> Option<std::rc::Rc<dyn crate::SelectableText>> {
         None
     }
 
@@ -2113,8 +2098,8 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn takes_typing(&self) -> bool {
         (**self).takes_typing()
     }
-    fn selection_text(&self) -> Option<&str> {
-        (**self).selection_text()
+    fn selectable_text(&self) -> Option<std::rc::Rc<dyn crate::SelectableText>> {
+        (**self).selectable_text()
     }
     fn region_toolbar(
         &self,
@@ -2124,19 +2109,8 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     ) -> Option<(Rect, &dyn Widget<Msg>)> {
         (**self).region_toolbar(context, width, range)
     }
-    fn selection_grip(
-        &self,
-        width: f32,
-        index: usize,
-        start: bool,
-    ) -> Option<crate::SelectionHandle> {
-        (**self).selection_grip(width, index, start)
-    }
     fn area_toolbar(&self, context: crate::ToolbarContext) -> Option<Option<&dyn Widget<Msg>>> {
         (**self).area_toolbar(context)
-    }
-    fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
-        (**self).selection_hit(local_x, local_y, width)
     }
     fn replace_value(&self, value: String) -> Option<Msg> {
         (**self).replace_value(value)

@@ -8,11 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 740 so far, each documenting the objective, the alternatives
+> record — one per step, 741 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **A selection over a list built on demand** (J741): a `SelectionArea` around a
+  `ListView::builder`, a `GridView::builder` or any list that builds only the rows in view now
+  selects in its rows: a press begins a selection, a drag selects across rows, a drag held past
+  the edge scrolls the list and takes the rows built as they come in, and a selection keeps, and
+  Copy copies, the rows recycled out of view. Before, a press on a row began nothing. Each text
+  now registers what a selection asks of it with its area: `frus-widgets` gained the
+  `SelectableText` trait, `TextStop::text` and the hook `Widget::selectable_text`, which replaces
+  `selection_text`, `selection_hit` and `selection_grip`; `TextStop` is no longer `Copy`.
 - **A clip path's transformed shapes are placed once** (J740): in an `SvgPicture`, a shape in a
   `<clipPath>` with a `transform` of its own, or reached through a `<use>` with one, was
   transformed twice, so the clip showed the picture in the wrong place or not at all. Each
