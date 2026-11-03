@@ -12,14 +12,26 @@
 //!         .child(TextSpan::new(" and portable.").italic()),
 //! )
 //! ```
+//!
+//! Inside a [`SelectionArea`](crate::SelectionArea) a rich paragraph takes part in the
+//! selection as a [`Text`](crate::Text) does, and [`RichText::selectable`] makes one
+//! selectable on its own. Either way what is selected, highlighted and copied is its **plain
+//! text** — the runs' words in order — whatever styles they are drawn in.
+
+use std::cell::{Cell, OnceCell};
 
 use frus_core::{
     Color, MaskShader, Point, Rect, Scene, ShaderMask, TextAlign, TextBlock, TextOverflow, TextRun,
     TextSpan, TextStyle,
 };
 use frus_layout::{Dimension, Style};
+use frus_text::TextLayout;
 
-use crate::interaction::Status;
+use crate::interaction::{Key, Status};
+use crate::runtime::Edit;
+use crate::selectiontoolbar::{ToolbarContext, ToolbarItem};
+use crate::text::{area_bar, paint_grips, paint_highlight, AreaBars, Selection};
+use crate::textinput::{handle_at, handles_in, move_caret, selection_box_in, word_range};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -46,11 +58,32 @@ pub struct RichText {
     /// Whether this paragraph is willing to be given less than it asked for. See
     /// [`crate::Text`], where the same distinction is drawn for the same reason.
     shrinkable: bool,
+    /// The paragraph's **plain text**: every run's words, in reading order. What a selection
+    /// counts its characters in, and what Copy takes — the styles are the drawing's and not
+    /// the words'.
+    plain: String,
+    /// What makes the paragraph **selectable** on its own — see [`RichText::selectable`].
+    /// Boxed and absent unless asked for, as a [`crate::Text`]'s is.
+    selection: Option<Box<Selection>>,
+    /// The reader's font-size setting the paragraph was **last painted** under (at first, the
+    /// one in force when it was built). A hit or a highlight is asked for outside a frame,
+    /// where no setting is in force, and has to be measured against the runs as they were
+    /// drawn.
+    scale: Cell<f32>,
+    /// The bars this paragraph shows when a [`SelectionArea`](crate::SelectionArea)'s
+    /// selection is placed against it, one per context, built the first time each is asked
+    /// for.
+    area_bars: OnceCell<Box<AreaBars>>,
 }
 
 impl RichText {
     /// Creates a paragraph (base: 16 px, regular weight, the theme's color).
     pub fn new(span: TextSpan) -> Self {
+        let plain = span
+            .flatten(TextStyle::NONE)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect();
         Self {
             span,
             base: TextStyle::new(16.0),
@@ -59,7 +92,81 @@ impl RichText {
             max_lines: None,
             align: TextAlign::Start,
             shrinkable: false,
+            plain,
+            selection: None,
+            scale: Cell::new(frus_core::text_scale()),
+            area_bars: OnceCell::new(),
         }
+    }
+
+    /// Makes this paragraph **selectable**, as [`Text::selectable`](crate::Text::selectable)
+    /// makes a text: a press, a drag, a double click or a long press selects words in it,
+    /// across its runs whatever their styles, and Ctrl+C, or the bar that opens over the
+    /// selection, copies them as plain text. It takes focus and does not open the software
+    /// keyboard.
+    ///
+    /// ```
+    /// use frus_widgets::{RichText, TextSpan};
+    ///
+    /// let note = RichText::new(TextSpan::new("Order ").child(TextSpan::new("4417").bold()))
+    ///     .selectable();
+    /// # let _ = note;
+    /// ```
+    ///
+    /// **Limits** are a selectable text's: what is selected is laid out from the start of each
+    /// line, so a centred or end-aligned paragraph, or one a line limit cuts short, is
+    /// highlighted as if it were not.
+    pub fn selectable(mut self) -> Self {
+        self.selection_mut().on = true;
+        self
+    }
+
+    /// Changes what the bar over a selectable paragraph's selection offers — see
+    /// [`Text::selection_toolbar`](crate::Text::selection_toolbar), which this is for a
+    /// paragraph of mixed styles. Only for a paragraph that is
+    /// [`selectable`](Self::selectable).
+    pub fn selection_toolbar<Msg: 'static>(
+        mut self,
+        build: impl Fn(&ToolbarContext, Vec<ToolbarItem<Msg>>) -> Vec<ToolbarItem<Msg>> + 'static,
+    ) -> Self {
+        self.selection_mut().set_toolbar::<Msg>(Box::new(build));
+        self
+    }
+
+    /// The state of the selection, made when first asked for.
+    fn selection_mut(&mut self) -> &mut Selection {
+        self.selection
+            .get_or_insert_with(|| Box::new(Selection::new()))
+    }
+
+    /// The selection state, if this paragraph is selectable.
+    fn selecting(&self) -> Option<&Selection> {
+        self.selection.as_deref().filter(|selection| selection.on)
+    }
+
+    /// How many characters the plain text has: the last boundary a selection can end on.
+    fn len(&self) -> usize {
+        self.plain.chars().count()
+    }
+
+    /// The layout of the runs as they were drawn in a box `width` wide — wrapped as the
+    /// paint wraps them, under the reader's setting they were painted with: what a hit, a
+    /// highlight, a handle or the bar's anchor is worked out from. For any paragraph: a
+    /// [`SelectionArea`](crate::SelectionArea) selects in paragraphs that never asked to be.
+    fn text_layout(&self, width: f32) -> TextLayout {
+        frus_core::with_text_scale(self.scale.get(), || {
+            TextLayout::of_runs(
+                &self.runs(Color::WHITE, 1.0),
+                self.wrap.then_some(width),
+                self.wrap,
+            )
+        })
+    }
+
+    /// [`text_layout`](Self::text_layout), for a paragraph that is selectable on its own.
+    fn selection_layout(&self, width: f32) -> Option<TextLayout> {
+        self.selecting()?;
+        Some(self.text_layout(width))
     }
 
     /// Overrides the base style (the root of the cascade) — typically one step of
@@ -215,7 +322,7 @@ impl RichText {
     }
 }
 
-impl<Msg> Widget<Msg> for RichText {
+impl<Msg: Clone + 'static> Widget<Msg> for RichText {
     fn style(&self) -> Style {
         let min_width = if self.shrinkable {
             Dimension::Length(0.0)
@@ -303,6 +410,19 @@ impl<Msg> Widget<Msg> for RichText {
     }
 
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
+        // What every later question about the selection is measured against.
+        self.scale.set(frus_core::text_scale());
+        // The highlight below the words: a selection area's whatever the focus, the
+        // paragraph's own while it is focused.
+        paint_highlight(
+            || self.text_layout(bounds.width),
+            self.len(),
+            self.selecting().is_some(),
+            bounds,
+            &status,
+            theme,
+            scene,
+        );
         let runs = self.runs(theme.on_surface, status.opacity);
         let natural = frus_text::measure_runs(&runs).width;
         let (runs, too_tall) = self.fitted(runs, bounds.width);
@@ -323,19 +443,159 @@ impl<Msg> Widget<Msg> for RichText {
             || self.overflow == TextOverflow::Ellipsis
         {
             draw(scene);
-            return;
+        } else {
+            let outer = scene.current_clip();
+            scene.set_clip(outer.intersect(bounds));
+            match self.overflow {
+                TextOverflow::Fade => scene.masked(self.fade(bounds, too_wide && !too_tall), draw),
+                _ => draw(scene),
+            }
+            scene.set_clip(outer);
         }
-        let outer = scene.current_clip();
-        scene.set_clip(outer.intersect(bounds));
-        match self.overflow {
-            TextOverflow::Fade => scene.masked(self.fade(bounds, too_wide && !too_tall), draw),
-            _ => draw(scene),
-        }
-        scene.set_clip(outer);
+        // The handles of a touch selection, over the words and outside the clip.
+        paint_grips(
+            || self.text_layout(bounds.width),
+            self.len(),
+            self.selecting().is_some(),
+            bounds,
+            &status,
+            theme,
+            scene,
+        );
     }
 
     fn on_click(&self) -> Option<Msg> {
         None
+    }
+
+    // What follows is how a paragraph takes part in a selection: a selection area's, for any
+    // paragraph, and its own, for a selectable one — the hooks a `Text` answers, over the
+    // plain text and the layout of the runs.
+
+    fn focusable(&self) -> bool {
+        self.selecting().is_some()
+    }
+
+    fn text_value(&self) -> Option<&str> {
+        self.selecting().map(|_| self.plain.as_str())
+    }
+
+    fn takes_typing(&self) -> bool {
+        false
+    }
+
+    /// The plain text, for a selection that spans texts: any paragraph with words in it.
+    fn selection_text(&self) -> Option<&str> {
+        (!self.plain.is_empty()).then_some(self.plain.as_str())
+    }
+
+    fn region_toolbar(
+        &self,
+        context: ToolbarContext,
+        width: f32,
+        range: (usize, usize),
+    ) -> Option<(Rect, &dyn Widget<Msg>)> {
+        let edit = Edit {
+            cursor: range.1,
+            anchor: Some(range.0),
+            composing: None,
+        };
+        let anchor = selection_box_in(
+            &self.text_layout(width),
+            Point::new(0.0, 0.0),
+            self.len(),
+            &edit,
+        );
+        let bar = area_bar(&self.area_bars, context)?;
+        Some((anchor, bar))
+    }
+
+    fn selection_grip(
+        &self,
+        width: f32,
+        index: usize,
+        start: bool,
+    ) -> Option<crate::SelectionHandle> {
+        Some(handle_at(
+            &self.text_layout(width),
+            Point::new(0.0, 0.0),
+            index.min(self.len()),
+            start,
+        ))
+    }
+
+    fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
+        if self.plain.is_empty() {
+            return None;
+        }
+        Some(
+            self.text_layout(width)
+                .hit_test(Point::new(local_x, local_y)),
+        )
+    }
+
+    fn cursor_at(
+        &self,
+        local_x: f32,
+        local_y: f32,
+        width: f32,
+        _scroll_cursor: usize,
+    ) -> Option<usize> {
+        let layout = self.selection_layout(width)?;
+        Some(layout.hit_test(Point::new(local_x, local_y)))
+    }
+
+    fn word_at(&self, index: usize) -> Option<(usize, usize)> {
+        self.selecting()?;
+        let chars: Vec<char> = self.plain.chars().collect();
+        word_range(&chars, index)
+    }
+
+    fn selected_text(&self, edit: &Edit) -> Option<String> {
+        self.selecting()?;
+        let chars: Vec<char> = self.plain.chars().collect();
+        let len = chars.len();
+        let (start, end) = edit.selection_range()?;
+        let (start, end) = (start.min(len), end.min(len));
+        (start < end).then(|| chars[start..end].iter().collect())
+    }
+
+    /// The caret's keys and nothing else, as a selectable [`crate::Text`]'s.
+    fn on_edit(&self, edit: &mut Edit, key: &Key) -> Option<Msg> {
+        self.selecting()?;
+        let chars: Vec<char> = self.plain.chars().collect();
+        let len = chars.len();
+        let mut cursor = edit.cursor.min(len);
+        let mut anchor = edit.anchor.map(|anchor| anchor.min(len));
+        if move_caret(&chars, &mut cursor, &mut anchor, key) {
+            edit.cursor = cursor;
+            edit.anchor = anchor;
+        }
+        None
+    }
+
+    fn selection_handles(
+        &self,
+        width: f32,
+        edit: &Edit,
+        _scroll_y: f32,
+    ) -> Option<[crate::SelectionHandle; 2]> {
+        let layout = self.selection_layout(width)?;
+        handles_in(&layout, Point::new(0.0, 0.0), self.len(), edit)
+    }
+
+    fn selection_anchor(&self, width: f32, edit: &Edit, _scroll_y: f32) -> Option<Rect> {
+        let layout = self.selection_layout(width)?;
+        Some(selection_box_in(
+            &layout,
+            Point::new(0.0, 0.0),
+            self.len(),
+            edit,
+        ))
+    }
+
+    fn selection_toolbar(&self, context: ToolbarContext) -> Option<&dyn Widget<Msg>> {
+        self.selecting()?.toolbar(context)
     }
 }
 
@@ -518,5 +778,181 @@ mod tests {
             TextSpan::new("plain").child(TextSpan::new("BIG").size(28.0)),
         ));
         assert!(tall > small, "the large run must grow the line");
+    }
+
+    // What follows is a paragraph's part in a selection (milestone 738).
+
+    /// "plain " in the base style, "bold" bold, " tail" plain again: three runs, one text.
+    fn mixed() -> RichText {
+        RichText::new(
+            TextSpan::new("plain ")
+                .child(TextSpan::new("bold").bold())
+                .child(TextSpan::new(" tail")),
+        )
+        .base_style(TextStyle::new(16.0))
+    }
+
+    fn width(text: &str, style: TextStyle) -> f32 {
+        frus_text::measure_resolved(text, &style.resolved()).width
+    }
+
+    fn paint_with(rich: &RichText, status: Status) -> Vec<Primitive> {
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            rich,
+            Rect::new(10.0, 20.0, 300.0, 40.0),
+            status,
+            &Theme::default(),
+            &mut scene,
+        );
+        scene.primitives().to_vec()
+    }
+
+    fn highlights(primitives: &[Primitive]) -> Vec<Rect> {
+        let selection = Theme::default().selection;
+        primitives
+            .iter()
+            .filter_map(|p| match p {
+                Primitive::Rect { rect, color, .. } if *color == selection => Some(*rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// **A paragraph offers its plain text to a selection**, whatever its runs are drawn in —
+    /// and only one made [`selectable`](RichText::selectable) takes focus; none takes typing.
+    #[test]
+    fn a_paragraph_offers_its_plain_text_to_a_selection() {
+        let plain = mixed();
+        assert_eq!(
+            Widget::<()>::selection_text(&plain),
+            Some("plain bold tail")
+        );
+        assert!(!Widget::<()>::focusable(&plain), "read, not selected alone");
+        assert_eq!(Widget::<()>::text_value(&plain), None);
+        let empty = RichText::new(TextSpan::new(""));
+        assert_eq!(
+            Widget::<()>::selection_text(&empty),
+            None,
+            "nothing to select"
+        );
+
+        let selectable = mixed().selectable();
+        assert!(Widget::<()>::focusable(&selectable));
+        assert!(!Widget::<()>::takes_typing(&selectable));
+        assert_eq!(
+            Widget::<()>::text_value(&selectable),
+            Some("plain bold tail")
+        );
+    }
+
+    /// **A press lands between the letters it is over, across runs of different sizes**: the
+    /// layout is the runs', not the base style's. Past a 40-px letter, a layout at 16 px
+    /// would find a character three or four further on.
+    #[test]
+    fn a_press_lands_where_the_runs_are_drawn() {
+        let rich = RichText::new(
+            TextSpan::new("ab")
+                .child(TextSpan::new("CD").size(40.0))
+                .child(TextSpan::new("ef")),
+        )
+        .base_style(TextStyle::new(16.0));
+        let x = width("ab", TextStyle::new(16.0)) + width("C", TextStyle::new(40.0)) + 1.0;
+        assert_eq!(Widget::<()>::selection_hit(&rich, x, 20.0, 300.0), Some(3));
+        let far = width("ab", TextStyle::new(16.0)) + width("CD", TextStyle::new(40.0)) + 1.0;
+        assert_eq!(
+            Widget::<()>::selection_hit(&rich, far, 20.0, 300.0),
+            Some(4)
+        );
+    }
+
+    /// **The highlight covers the glyphs selected, in the style they are drawn in**: the bold
+    /// run's box starts after the plain run and is as wide as the bold word.
+    #[test]
+    fn a_selection_over_a_bold_run_is_highlighted_under_it() {
+        let status = Status {
+            region: Some((6, 10)),
+            ..Status::default()
+        };
+        let rects = highlights(&paint_with(&mixed(), status));
+        assert_eq!(rects.len(), 1, "one line: {rects:?}");
+        let start = 10.0 + width("plain ", TextStyle::new(16.0));
+        let bold = width("bold", TextStyle::new(16.0).weight(FontWeight::Bold));
+        assert!((rects[0].x - start).abs() < 1.5, "{rects:?} from {start}");
+        assert!((rects[0].width - bold).abs() < 1.5, "{rects:?} {bold} wide");
+        // The highlight is under the words, not over them.
+        let primitives = paint_with(&mixed(), status);
+        let rect = primitives
+            .iter()
+            .position(|p| matches!(p, Primitive::Rect { .. }));
+        let words = primitives
+            .iter()
+            .position(|p| matches!(p, Primitive::RichText { .. }));
+        assert!(rect < words, "{primitives:?}");
+        // No selection, no highlight.
+        assert!(highlights(&paint_with(&mixed(), Status::default())).is_empty());
+    }
+
+    /// **A selection that crosses the runs reads their plain text**, a double click takes the
+    /// word inside a run, and its own selection is highlighted only while it has the focus.
+    #[test]
+    fn a_selectable_paragraph_selects_across_its_runs() {
+        let rich = mixed().selectable();
+        let edit = Edit {
+            cursor: 8,
+            anchor: Some(3),
+            composing: None,
+        };
+        assert_eq!(
+            Widget::<()>::selected_text(&rich, &edit).as_deref(),
+            Some("in bo")
+        );
+        assert_eq!(Widget::<()>::word_at(&rich, 7), Some((6, 10)), "bold");
+        assert_eq!(Widget::<()>::word_at(&mixed(), 7), None, "not alone");
+
+        let own = Status {
+            selection: Some((3, 8)),
+            ..Status::default()
+        };
+        assert!(highlights(&paint_with(&rich, own)).is_empty(), "unfocused");
+        let focused = Status {
+            focused: true,
+            ..own
+        };
+        assert_eq!(highlights(&paint_with(&rich, focused)).len(), 1);
+        // The same status on a paragraph that is not selectable draws nothing.
+        assert!(highlights(&paint_with(&mixed(), focused)).is_empty());
+    }
+
+    /// **A touch selection's handles hang from the paragraph**: a selection area's two ends,
+    /// painted after the words.
+    #[test]
+    fn the_handles_of_an_area_hang_from_a_paragraph() {
+        let paths = |status: Status| {
+            paint_with(&mixed(), status)
+                .iter()
+                .filter(|p| matches!(p, Primitive::Path { .. }))
+                .count()
+        };
+        assert_eq!(paths(Status::default()), 0);
+        let grips = Status {
+            region: Some((6, 10)),
+            region_grips: (Some(6), Some(10)),
+            ..Status::default()
+        };
+        assert_eq!(paths(grips), 2);
+        assert!(Widget::<()>::selection_grip(&mixed(), 300.0, 6, true).is_some());
+    }
+
+    /// **A hit follows the reader's font setting the paragraph was painted under**, though it
+    /// is asked outside any frame.
+    #[test]
+    fn a_hit_follows_the_setting_it_was_painted_under() {
+        let rich = RichText::new(TextSpan::new("abcdefgh")).base_style(TextStyle::new(16.0));
+        frus_core::with_text_scale(2.0, || {
+            paint_with(&rich, Status::default());
+        });
+        let x = frus_core::with_text_scale(2.0, || width("abc", TextStyle::new(16.0)));
+        assert_eq!(Widget::<()>::selection_hit(&rich, x, 10.0, 300.0), Some(3));
     }
 }

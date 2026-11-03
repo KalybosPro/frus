@@ -1474,11 +1474,75 @@ impl TextLayout {
         family: Option<frus_core::FontFamily>,
         letter_spacing: f32,
     ) -> Self {
+        if text.is_empty() {
+            return Self::from_buffer(text, None, fallback_h);
+        }
+        let mut font_system = font_system().lock().expect("FontSystem lock");
+        let metrics = Metrics::new(size_px, fallback_h);
+        let mut buffer = Buffer::new(&mut font_system, metrics);
+        buffer.set_size(max_width, None);
+        let attrs = spaced(
+            Attrs::new()
+                .family(family_for_style(text, family))
+                .weight(Weight(available_weight(weight)))
+                .style(available_style(italic)),
+            letter_spacing,
+            size_px,
+        );
+        buffer.set_text(text, &attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(&mut font_system, false);
+        Self::from_buffer(text, Some(&buffer), fallback_h)
+    }
+
+    /// The layout of a **rich text** — resolved runs of mixed styles, shaped together as the
+    /// renderer shapes them: the largest run's metrics as the base, each run's own size and
+    /// line height on its glyphs, wrapped at `max_width` when `soft_wrap` and kept to its
+    /// explicit lines otherwise.
+    ///
+    /// Indices are in characters of the **concatenation** of the runs' texts, the one
+    /// coordinate the runs and the lines share: where one style ends and the next begins is
+    /// not a boundary here. For a rich paragraph that has to be hit, highlighted and given
+    /// handles where it is drawn.
+    pub fn of_runs(runs: &[TextRun], max_width: Option<f32>, soft_wrap: bool) -> Self {
+        let text: String = runs.iter().map(|run| run.text.as_str()).collect();
+        let base = runs.iter().map(|r| r.size).fold(0.0_f32, f32::max);
+        if text.is_empty() {
+            return Self::from_buffer(&text, None, line_height(base.max(1.0)));
+        }
+        let mut font_system = font_system().lock().expect("FontSystem lock");
+        let metrics = Metrics::new(base, line_height(base));
+        let mut buffer = Buffer::new(&mut font_system, metrics);
+        if !soft_wrap {
+            buffer.set_wrap(cosmic_text::Wrap::None);
+        }
+        buffer.set_size(max_width, None);
+        let spans = runs.iter().map(|run| {
+            (
+                run.text.as_str(),
+                spaced(
+                    Attrs::new()
+                        .family(family_for(&run.text))
+                        .weight(Weight(available_weight(run.weight)))
+                        .style(available_style(run.italic))
+                        .metrics(Metrics::new(run.size, line_height(run.size))),
+                    run.letter_spacing,
+                    run.size,
+                ),
+            )
+        });
+        buffer.set_rich_text(spans, &Attrs::new(), Shaping::Advanced, None);
+        buffer.shape_until_scroll(&mut font_system, false);
+        Self::from_buffer(&text, Some(&buffer), line_height(base))
+    }
+
+    /// The geometry of `text` as `buffer` shaped it — every visual line's character
+    /// boundaries — or that of an empty text when there is no buffer.
+    fn from_buffer(text: &str, buffer: Option<&Buffer>, fallback_h: f32) -> Self {
         let mut lines: Vec<LayoutLine> = Vec::new();
         let mut width = 0.0_f32;
         let mut height = 0.0_f32;
 
-        if !text.is_empty() {
+        if let Some(buffer) = buffer.filter(|_| !text.is_empty()) {
             // The byte offset of every **hard** line's start (those split by `\n`).
             let hard: Vec<&str> = text.split('\n').collect();
             let mut line_byte_start = Vec::with_capacity(hard.len());
@@ -1489,21 +1553,6 @@ impl TextLayout {
                     b += l.len() + 1; // +1 for the `\n`
                 }
             }
-
-            let mut font_system = font_system().lock().expect("FontSystem lock");
-            let metrics = Metrics::new(size_px, fallback_h);
-            let mut buffer = Buffer::new(&mut font_system, metrics);
-            buffer.set_size(max_width, None);
-            let attrs = spaced(
-                Attrs::new()
-                    .family(family_for_style(text, family))
-                    .weight(Weight(available_weight(weight)))
-                    .style(available_style(italic)),
-                letter_spacing,
-                size_px,
-            );
-            buffer.set_text(text, &attrs, Shaping::Advanced, None);
-            buffer.shape_until_scroll(&mut font_system, false);
 
             // Collect the runs so we can look at the next one, which ends this segment.
             let runs: Vec<_> = buffer.layout_runs().collect();

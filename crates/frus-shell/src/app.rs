@@ -11334,6 +11334,11 @@ pub mod testing {
                         frus_widgets::Primitive::Text { text, .. } => {
                             out.push((text.clone(), p.bounds()))
                         }
+                        // A rich paragraph's words, its runs joined: what a reader sees.
+                        frus_widgets::Primitive::RichText { runs, .. } => out.push((
+                            runs.iter().map(|run| run.text.as_str()).collect(),
+                            p.bounds(),
+                        )),
                         frus_widgets::Primitive::Layer {
                             primitives,
                             opacity,
@@ -11529,6 +11534,12 @@ pub mod testing {
         /// The words a selection area has selected, as Copy would put them on the clipboard.
         pub fn area_selection(&self) -> Option<String> {
             self.shell.region_text()
+        }
+
+        /// What the clipboard holds: the driver's own, in memory, which Copy puts its words on.
+        #[cfg(desktop)]
+        pub fn clipboard(&mut self) -> Option<String> {
+            self.shell.clipboard.get_text()
         }
 
         /// Select all, as the keyboard asks it of a selection area that holds a selection.
@@ -15304,5 +15315,228 @@ mod simulated_keyboard_tests {
             1.0,
             "an unusual size goes back to 1"
         );
+    }
+}
+
+/// A rich paragraph in a selection, driven through the shell (milestone 738): a selection
+/// area's that begins, ends or passes through one, and one made selectable on its own.
+#[cfg(all(test, desktop))]
+mod rich_selection_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{
+        Container, Flex, KeyStroke, Point, RichText, SelectionArea, ShortcutKey, Text, TextSpan,
+        Theme, Widget,
+    };
+
+    const W: f32 = 400.0;
+    const H: f32 = 300.0;
+    const RICH: &str = "rich bold words end";
+
+    /// A text, a paragraph of three runs, a text — in an area, or the paragraph alone and
+    /// selectable.
+    struct Doc {
+        alone: bool,
+    }
+
+    fn paragraph() -> RichText {
+        RichText::new(
+            TextSpan::new("rich ")
+                .child(TextSpan::new("bold words").bold())
+                .child(TextSpan::new(" end").size(22.0)),
+        )
+        .no_wrap()
+    }
+
+    impl Application for Doc {
+        type Message = ();
+
+        fn update(&mut self, _message: ()) -> Command<()> {
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<()>> {
+            let child: Box<dyn Widget<()>> = if self.alone {
+                Box::new(
+                    Flex::column()
+                        .child(Text::new("plain words above").no_wrap())
+                        .child(paragraph().selectable()),
+                )
+            } else {
+                Box::new(SelectionArea::around(
+                    Flex::column()
+                        .child(Text::new("first line of words").no_wrap())
+                        .child(paragraph())
+                        .child(Text::new("last line here").no_wrap()),
+                ))
+            };
+            Box::new(Container::new().width(W).height(H).child(child))
+        }
+    }
+
+    fn driver(alone: bool) -> Driver<Doc> {
+        let mut driver = Driver::new(Doc { alone }, W, H);
+        driver.run(0.2);
+        driver
+    }
+
+    /// A point on the line of `label`, `across` px along it.
+    fn on(driver: &Driver<Doc>, label: &str, across: f32) -> Point {
+        let (_, rect) = driver
+            .texts()
+            .into_iter()
+            .find(|(text, _)| text == label)
+            .unwrap_or_else(|| panic!("{label:?} is on screen: {:?}", driver.texts()));
+        Point::new(rect.x + across, rect.y + 8.0)
+    }
+
+    fn drag(driver: &mut Driver<Doc>, from: Point, to: Point) {
+        driver.press_mouse(from);
+        driver.run(0.05);
+        driver.move_mouse(to);
+        driver.run(0.05);
+        driver.release_mouse(to);
+        driver.run(0.05);
+    }
+
+    fn rects(d: &Driver<Doc>) -> Vec<frus_widgets::Rect> {
+        let (ui, _) = d.frame_parts().expect("a frame");
+        ui.scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_widgets::Primitive::Rect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn copy(driver: &mut Driver<Doc>) -> Option<String> {
+        driver.key(KeyStroke::new(ShortcutKey::Char('c')).ctrl());
+        driver.run(0.05);
+        driver.clipboard()
+    }
+
+    /// The x of the end of `prefix` of the paragraph, measured in the runs it is drawn in.
+    fn into_paragraph(prefix_runs: &[(&str, frus_widgets::TextStyle)]) -> f32 {
+        prefix_runs
+            .iter()
+            .map(|(text, style)| frus_text::measure_resolved(text, &style.resolved()).width)
+            .sum()
+    }
+
+    /// **A drag from a text into a paragraph copies the tail of the one and the head of the
+    /// other**, cut inside the bold run where the pointer let go — one line per text.
+    #[test]
+    fn a_drag_from_a_text_into_a_paragraph_copies_both() {
+        let mut d = driver(false);
+        let bold = frus_widgets::TextStyle::new(16.0).weight(frus_widgets::FontWeight::Bold);
+        // Just past "rich bo", in the bold run.
+        let x = into_paragraph(&[("rich ", frus_widgets::TextStyle::new(16.0)), ("bo", bold)]);
+        let (from, to) = (on(&d, "first line of words", 60.0), on(&d, RICH, x + 1.0));
+        drag(&mut d, from, to);
+        let copied = copy(&mut d).expect("Ctrl+C put the words on the clipboard");
+        let lines: Vec<&str> = copied.lines().collect();
+        assert_eq!(lines.len(), 2, "{copied:?}");
+        assert!(
+            !lines[0].is_empty() && "first line of words".ends_with(lines[0]),
+            "the tail of the text: {copied:?}"
+        );
+        assert_eq!(lines[1], "rich bo", "the head of the paragraph: {copied:?}");
+        assert_eq!(d.area_selection().as_deref(), Some(copied.as_str()));
+    }
+
+    /// **A selection can begin in a paragraph and pass through one**: from inside its large
+    /// run down to the last text, and from the first text to the last with the whole
+    /// paragraph between them.
+    #[test]
+    fn a_selection_begins_in_and_passes_through_a_paragraph() {
+        let mut d = driver(false);
+        let regular = frus_widgets::TextStyle::new(16.0);
+        let bold = regular.weight(frus_widgets::FontWeight::Bold);
+        // Past " e" of the 22-px run.
+        let x = into_paragraph(&[
+            ("rich ", regular),
+            ("bold words", bold),
+            (" e", frus_widgets::TextStyle::new(22.0)),
+        ]);
+        let (from, to) = (on(&d, RICH, x + 1.0), on(&d, "last line here", 30.0));
+        drag(&mut d, from, to);
+        let copied = d.area_selection().expect("a selection");
+        let lines: Vec<&str> = copied.lines().collect();
+        assert_eq!(lines.len(), 2, "{copied:?}");
+        assert_eq!(lines[0], "nd", "the tail of the large run: {copied:?}");
+        assert!("last line here".starts_with(lines[1]), "{copied:?}");
+
+        let (from, to) = (
+            on(&d, "first line of words", 60.0),
+            on(&d, "last line here", 30.0),
+        );
+        drag(&mut d, from, to);
+        let copied = d.area_selection().expect("a selection");
+        let lines: Vec<&str> = copied.lines().collect();
+        assert_eq!(lines.len(), 3, "{copied:?}");
+        assert_eq!(lines[1], RICH, "all of the paragraph, as plain text");
+    }
+
+    /// **A double click in a paragraph selects the word under it**, though the word is in a
+    /// run of its own style; the highlight is painted under it.
+    #[test]
+    fn a_double_click_selects_a_word_of_a_paragraph() {
+        let mut d = driver(false);
+        let regular = frus_widgets::TextStyle::new(16.0);
+        let bold = regular.weight(frus_widgets::FontWeight::Bold);
+        let x = into_paragraph(&[("rich ", regular), ("bo", bold)]);
+        let at = on(&d, RICH, x);
+        let bare = rects(&d);
+        for _ in 0..2 {
+            d.press_mouse(at);
+            d.release_mouse(at);
+            d.run(0.05);
+        }
+        assert_eq!(d.area_selection().as_deref(), Some("bold"));
+        let (_, rich) = d
+            .texts()
+            .into_iter()
+            .find(|(text, _)| text == RICH)
+            .expect("on screen");
+        // What the selection added to the frame: one box, on the paragraph's line.
+        let added: Vec<frus_widgets::Rect> = rects(&d)
+            .into_iter()
+            .filter(|rect| !bare.contains(rect))
+            .collect();
+        assert_eq!(added.len(), 1, "{added:?}");
+        // On the paragraph's line, after "rich ", and as tall as its largest run's line.
+        let before = frus_text::measure_resolved("rich ", &regular.resolved()).width;
+        let word = &added[0];
+        assert!((word.y - rich.y).abs() < 1.0, "{word:?} on {rich:?}");
+        assert!(
+            (word.x - rich.x - before).abs() < 1.5,
+            "{word:?} after {before}"
+        );
+        assert!(word.height > 22.0, "{word:?}");
+    }
+
+    /// **A paragraph made selectable on its own** selects with a drag and copies what is
+    /// selected, across its runs, with Ctrl+C.
+    #[test]
+    fn a_selectable_paragraph_copies_on_its_own() {
+        let mut d = driver(true);
+        let regular = frus_widgets::TextStyle::new(16.0);
+        let bold = regular.weight(frus_widgets::FontWeight::Bold);
+        let from = into_paragraph(&[("ri", regular)]);
+        let to = into_paragraph(&[("rich ", regular), ("bold", bold)]);
+        let (from, to) = (on(&d, RICH, from), on(&d, RICH, to));
+        drag(&mut d, from, to);
+        assert_eq!(copy(&mut d).as_deref(), Some("ch bold"));
+        assert_eq!(d.area_selection(), None, "no area here");
+
+        // The words beside it are not selectable: a drag over them copies nothing new.
+        let (a, b) = (
+            on(&d, "plain words above", 2.0),
+            on(&d, "plain words above", 60.0),
+        );
+        drag(&mut d, a, b);
+        assert_eq!(copy(&mut d).as_deref(), Some("ch bold"));
     }
 }

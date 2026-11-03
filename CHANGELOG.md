@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 733 so far, each documenting the objective, the alternatives
+> record — one per step, 738 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **A rich paragraph in a selection** (J738): a `RichText` inside a `SelectionArea` now takes
+  part as a `Text` does: a selection can begin, end or pass through it, the highlight covers the
+  glyphs selected in whatever run they are in, and Copy takes its plain text in order.
+  `RichText::selectable()` and `RichText::selection_toolbar` make one selectable on its own.
+  `frus-text` gained `TextLayout::of_runs`. `Widget<Msg> for RichText` now asks
+  `Msg: Clone + 'static`, as `Text`'s does.
 
 - **A canvas as small as the screen** (J735): on the web, the minimum of 360 by 280 meant for a
   desktop window held the canvas wider than a small phone's screen or a narrow frame, and what
