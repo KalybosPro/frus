@@ -8,11 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 740 so far, each documenting the objective, the alternatives
+> record — one per step, 743 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Images drawn small are averaged** (J743): an image drawn much smaller than its pixels
+  shimmered, its fine patterns and thin lines aliased, because a texture had a single level. The
+  first time an image is drawn smaller than its pixels it now gets a mip chain, made on the GPU in
+  linear light and weighted by alpha, and is sampled trilinearly; an image shown at its size or
+  larger keeps one level and the memory. `FilterQuality` (`None`, `Low`, `Medium` by default,
+  `High`) picks the filter, through `Image::filter_quality`, `DecorationImage::filter_quality`
+  or `Scene::draw_image_with`, and rides on `Primitive::Image` as `filter_quality`.
 - **A clip path's transformed shapes are placed once** (J740): in an `SvgPicture`, a shape in a
   `<clipPath>` with a `transform` of its own, or reached through a `<use>` with one, was
   transformed twice, so the clip showed the picture in the wrong place or not at all. Each

@@ -27,6 +27,7 @@ mod filter;
 mod gpu_timer;
 mod image;
 mod mesh;
+mod mipmap;
 mod offscreen;
 mod painter;
 mod path;
