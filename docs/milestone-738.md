@@ -66,6 +66,8 @@ it.
   highlight; a paragraph made selectable alone copies `ch bold` across two runs with Ctrl+C.
 - The driver's `texts()` now lists a rich paragraph's words as well (at its position: the
   primitive carries no measured box), and it gained `clipboard()`.
+- The demo's About page test (milestone 575) now copies three lines: the rich line between the
+  title and the paragraph is selected too, as plain text.
 - The widgets example's `SelectionArea` section has a rich paragraph between its texts; the
   example builds (`cargo check`).
 - fmt, clippy `-D warnings` (stable, 1.99.1, and `wasm32` for the widgets and the shell),

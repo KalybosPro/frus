@@ -1725,7 +1725,8 @@ fn the_board_strip_carried_through_the_shell_moves_a_label_and_no_card() {
 }
 
 /// **The About page is a selection area** (milestone 575): a mouse drag from its title to its
-/// paragraph selects across both, and Copy would put the two on the clipboard as two lines.
+/// paragraph selects across both and the rich line between them (milestone 738), and Copy
+/// would put the three on the clipboard as three lines.
 #[test]
 fn the_about_page_selects_across_its_texts() {
     let (app, _router, _) = crate::build();
@@ -1755,13 +1756,17 @@ fn the_about_page_selects_across_its_texts() {
     let lines: Vec<&str> = copied.lines().collect();
     assert_eq!(
         lines.len(),
-        2,
-        "the title's tail and the paragraph's head: {copied:?}"
+        3,
+        "the title's tail, the rich line and the paragraph's head: {copied:?}"
     );
     assert!("About frus".ends_with(lines[0]), "{copied:?}");
+    assert_eq!(
+        lines[1], "A fast, portable Rust UI framework — no GC.",
+        "the rich line, as plain text"
+    );
     assert!(
         "Layout, painting, typography and animation are engine-level foundations shared by every widget in this gallery."
-            .starts_with(lines[1]),
+            .starts_with(lines[2]),
         "{copied:?}"
     );
 }
