@@ -375,3 +375,109 @@ fn a_design_tool_shadow_graph() {
         </svg>"##,
     );
 }
+
+/// **A clip path's shapes with transforms of their own** (milestone 740): a shape in a
+/// `<clipPath>` carrying a `transform`, or reached through a `<use>` that adds one, is
+/// placed by those transforms once. A clip path holds shapes, text and `<use>` only; the
+/// parser puts each transform on a group around the shape, and frus applied the group's
+/// transform on top of the shape's own, which already included it.
+#[test]
+fn clip_shapes_with_transforms_of_their_own() {
+    matches_the_reference(
+        "clip-shapes",
+        r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+             viewBox="0 0 100 100">
+          <defs>
+            <rect id="tile" width="16" height="16" transform="rotate(45 8 8)"/>
+            <clipPath id="moved">
+              <rect width="30" height="30" transform="translate(15 10)"/>
+            </clipPath>
+            <clipPath id="scaled">
+              <rect x="40" y="5" width="20" height="15" transform="scale(1.5 2)"/>
+            </clipPath>
+            <clipPath id="used">
+              <circle cx="10" cy="10" r="10" transform="translate(10 50) scale(1.5)"/>
+              <use xlink:href="#tile" x="50" y="55" transform="scale(1.2)"/>
+            </clipPath>
+          </defs>
+          <rect width="100" height="100" fill="#e53935" clip-path="url(#moved)"/>
+          <rect width="100" height="100" fill="#1e88e5" clip-path="url(#scaled)"/>
+          <rect width="100" height="100" fill="#43a047" clip-path="url(#used)"/>
+        </svg>"##,
+    );
+}
+
+/// **A clip path's own transform, and the clipped element's**: the clip is drawn in the
+/// clipped element's space, its own `transform` applied first.
+#[test]
+fn clip_and_clipped_transforms() {
+    matches_the_reference(
+        "clip-transforms",
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+          <defs>
+            <clipPath id="turned" transform="rotate(30 25 25)">
+              <rect x="10" y="10" width="30" height="30"/>
+            </clipPath>
+            <clipPath id="band">
+              <rect x="0" y="0" width="40" height="12" transform="translate(0 10)"/>
+            </clipPath>
+          </defs>
+          <rect width="50" height="50" fill="#8e24aa" clip-path="url(#turned)"/>
+          <rect x="0" y="0" width="40" height="40" fill="#fb8c00" clip-path="url(#band)"
+                transform="translate(55 5) rotate(20 20 20)"/>
+          <g transform="translate(10 55) scale(0.9)">
+            <g clip-path="url(#turned)">
+              <rect width="50" height="50" fill="#3949ab"/>
+            </g>
+          </g>
+        </svg>"##,
+    );
+}
+
+/// **`clipPathUnits="objectBoundingBox"`**: the clip's shapes, their transforms and its own
+/// in fractions of the clipped element's box.
+#[test]
+fn clip_in_object_bounding_box_units() {
+    matches_the_reference(
+        "clip-bbox",
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+          <defs>
+            <clipPath id="half" clipPathUnits="objectBoundingBox">
+              <rect width="0.5" height="0.5" transform="translate(0.25 0.1)"/>
+            </clipPath>
+            <clipPath id="disc" clipPathUnits="objectBoundingBox" transform="translate(0.1 0)">
+              <circle cx="0.4" cy="0.5" r="0.4"/>
+            </clipPath>
+          </defs>
+          <rect x="5" y="5" width="60" height="40" fill="#00897b" clip-path="url(#half)"/>
+          <rect x="10" y="50" width="80" height="45" fill="#f4511e" clip-path="url(#disc)"
+                transform="rotate(-10 50 72)"/>
+        </svg>"##,
+    );
+}
+
+/// **A mask's content in transformed groups**, in user and in bounding-box units, on a
+/// transformed element. A mask may hold groups, unlike a clip path.
+#[test]
+fn mask_content_in_transformed_groups() {
+    matches_the_reference_in_linear_light(
+        "mask-groups",
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+          <defs>
+            <mask id="moved">
+              <g transform="translate(10 10)">
+                <g transform="scale(1.5)"><rect width="20" height="20" fill="#fff"/></g>
+              </g>
+            </mask>
+            <mask id="box" maskContentUnits="objectBoundingBox">
+              <g transform="translate(0.5 0)"><rect width="0.5" height="1" fill="#fff"/></g>
+            </mask>
+          </defs>
+          <rect width="50" height="50" fill="#e53935" mask="url(#moved)"/>
+          <rect x="55" y="5" width="40" height="40" fill="#1e88e5" mask="url(#box)"/>
+          <g transform="translate(5 55) rotate(10 20 20)">
+            <rect width="40" height="40" fill="#43a047" mask="url(#moved)"/>
+          </g>
+        </svg>"##,
+    );
+}
