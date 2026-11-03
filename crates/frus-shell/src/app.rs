@@ -180,6 +180,10 @@ fn apple_arrow_jump(logical: &WinitKey, shift: bool) -> Option<Key> {
     }
 }
 
+/// A text of a selection area as it registered itself: its words, and where a point falls
+/// among them (milestone 741).
+type RegionText = std::rc::Rc<dyn frus_widgets::SelectableText>;
+
 /// Whether a key press asks for the **selection bar**: the context-menu key, which a
 /// keyboard may have between Alt Gr and Ctrl, or Shift+F10, which every desktop toolkit reads
 /// the same way (milestone 568). What lets someone with no pointer — and so no hold or
@@ -1150,7 +1154,7 @@ pub struct App<A: Application> {
     /// with their words — kept while texts leave the frame (milestone 739): a selection dragged
     /// down a scrolling area, which scrolls under it, would otherwise lose its beginning as
     /// soon as that scrolled out of sight. The area they belong to comes with them.
-    region_known: Option<(WidgetId, Vec<(WidgetId, String)>)>,
+    region_known: Option<(WidgetId, Vec<(WidgetId, RegionText)>)>,
     /// Whether a selection being dragged scrolled its area this frame: its moving end is then
     /// found again under the pointer once the frame is laid out (milestone 739).
     region_autoscrolled: bool,
@@ -8585,16 +8589,16 @@ impl<A: Application> App<A> {
     /// screen, and among them, where they were, the ones the selection was last worked out
     /// over that have since left it — scrolled out of sight, or out of a list that builds only
     /// what shows (milestone 739).
-    fn region_texts(&self, area: WidgetId) -> Vec<(WidgetId, String)> {
-        let present: Vec<(WidgetId, String)> = match (self.ui.as_ref(), self.tree.as_ref()) {
-            (Some(ui), Some(tree)) => ui
+    ///
+    /// Each text's words come from what it registered with the area, not from the tree: a
+    /// list's rows are built for the frame and let go (milestone 741).
+    fn region_texts(&self, area: WidgetId) -> Vec<(WidgetId, RegionText)> {
+        let present: Vec<(WidgetId, RegionText)> = match self.ui.as_ref() {
+            Some(ui) => ui
                 .text_stops_in(area)
-                .filter_map(|stop| {
-                    let text = find_widget(tree.as_ref(), stop.id)?.selection_text()?;
-                    Some((stop.id, text.to_owned()))
-                })
+                .map(|stop| (stop.id, std::rc::Rc::clone(&stop.text)))
                 .collect(),
-            _ => Vec::new(),
+            None => Vec::new(),
         };
         match &self.region_known {
             Some((known_area, known)) if *known_area == area => {
@@ -8611,7 +8615,7 @@ impl<A: Application> App<A> {
         let texts = self.region_texts(area);
         let stops = texts
             .iter()
-            .map(|(id, text)| (*id, text.chars().count()))
+            .map(|(id, text)| (*id, text.words().chars().count()))
             .collect();
         self.region_known = Some((area, texts));
         stops
@@ -8638,10 +8642,9 @@ impl<A: Application> App<A> {
     }
 
     /// The character boundary of `stop`'s text nearest `at`, by the layout it was drawn with.
-    fn region_index(&self, stop: &TextStop, at: Point) -> Option<usize> {
-        find_widget(self.tree.as_ref()?.as_ref(), stop.id)?.selection_hit(
-            at.x - stop.rect.x,
-            at.y - stop.rect.y,
+    fn region_index(&self, stop: &TextStop, at: Point) -> usize {
+        stop.text.hit(
+            Point::new(at.x - stop.rect.x, at.y - stop.rect.y),
             stop.rect.width,
         )
     }
@@ -8653,9 +8656,7 @@ impl<A: Application> App<A> {
         let Some(stop) = self.region_press_target() else {
             return;
         };
-        let Some(index) = self.region_index(&stop, self.cursor) else {
-            return;
-        };
+        let index = self.region_index(&stop, self.cursor);
         let now = Instant::now();
         let here = self.cursor;
         let double = self.last_region_click.is_some_and(|(then, there)| {
@@ -8665,13 +8666,7 @@ impl<A: Application> App<A> {
         self.last_region_click = Some((now, here));
         // A new selection is worked out over the texts on screen, not the last one's.
         self.region_known = None;
-        let word = double
-            .then(|| {
-                let tree = self.tree.as_ref()?;
-                let text = find_widget(tree.as_ref(), stop.id)?.selection_text()?;
-                Some(frus_widgets::word_bounds(text, index))
-            })
-            .flatten();
+        let word = double.then(|| frus_widgets::word_bounds(stop.text.words(), index));
         let (anchor, extent) = match word {
             Some((start, end)) => (
                 RegionPoint {
@@ -8721,19 +8716,11 @@ impl<A: Application> App<A> {
         let Some(stop) = self.ui.as_ref().and_then(|ui| ui.text_stop_at(self.cursor)) else {
             return false;
         };
-        let Some(index) = self.region_index(&stop, self.cursor) else {
+        let index = self.region_index(&stop, self.cursor);
+        let (start, end) = frus_widgets::word_bounds(stop.text.words(), index);
+        if start >= end {
             return false;
-        };
-        let word = self
-            .tree
-            .as_ref()
-            .and_then(|tree| find_widget(tree.as_ref(), stop.id))
-            .and_then(|widget| widget.selection_text())
-            .map(|text| frus_widgets::word_bounds(text, index))
-            .filter(|(start, end)| start < end);
-        let Some((start, end)) = word else {
-            return false;
-        };
+        }
         self.region_known = None;
         let anchor = RegionPoint {
             text: stop.id,
@@ -8765,16 +8752,12 @@ impl<A: Application> App<A> {
         &self,
     ) -> Option<(WidgetId, [Option<frus_widgets::SelectionHandle>; 2])> {
         let selection = self.runtime.region.as_ref().filter(|s| s.handles)?;
-        let (ui, tree) = (self.ui.as_ref()?, self.tree.as_ref()?);
+        let ui = self.ui.as_ref()?;
         let at = |point: RegionPoint, start: bool| {
             let stop = ui
                 .text_stops_in(selection.area)
                 .find(|s| s.id == point.text)?;
-            let handle = find_widget(tree.as_ref(), point.text)?.selection_grip(
-                stop.rect.width,
-                point.index,
-                start,
-            )?;
+            let handle = stop.text.handle(stop.rect.width, point.index, start);
             let (dx, dy) = (stop.rect.x, stop.rect.y);
             Some(frus_widgets::SelectionHandle {
                 rect: handle.rect.translate(dx, dy),
@@ -8827,9 +8810,7 @@ impl<A: Application> App<A> {
         else {
             return;
         };
-        let Some(index) = self.region_index(&stop, target) else {
-            return;
-        };
+        let index = self.region_index(&stop, target);
         let moved = RegionPoint {
             text: stop.id,
             index,
@@ -8879,9 +8860,7 @@ impl<A: Application> App<A> {
         else {
             return;
         };
-        let Some(index) = self.region_index(&stop, self.cursor) else {
-            return;
-        };
+        let index = self.region_index(&stop, self.cursor);
         let extent = RegionPoint {
             text: stop.id,
             index,
@@ -8958,10 +8937,8 @@ impl<A: Application> App<A> {
         // The texts that scrolled away are copied too: a selection is the words selected,
         // not the ones that happen to show.
         let owned = self.region_texts(region.area);
-        let texts: Vec<(WidgetId, &str)> = owned
-            .iter()
-            .map(|(id, text)| (*id, text.as_str()))
-            .collect();
+        let texts: Vec<(WidgetId, &str)> =
+            owned.iter().map(|(id, text)| (*id, text.words())).collect();
         let copied = frus_widgets::region_copy(&texts, &region.ranges);
         (!copied.is_empty()).then_some(copied)
     }
@@ -16315,5 +16292,252 @@ mod selection_autoscroll_tests {
         d.release_mouse(Point::new(60.0, view.y + view.height - 4.0));
         d.run(0.05);
         assert!(d.area_selection().is_some());
+    }
+}
+
+/// A selection area over a virtualised list (milestone 741): the rows are built for each frame
+/// and let go, and a selection still begins in them, scrolls the list, and keeps the rows that
+/// leave.
+#[cfg(all(test, desktop))]
+mod listview_selection_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{
+        Container, Flex, GridView, KeyStroke, ListView, Point, Rect, SelectionArea, ShortcutKey,
+        Text, Theme, Widget,
+    };
+
+    const W: f32 = 400.0;
+    const H: f32 = 320.0;
+    /// The room above the list, so that a pointer can be held above it inside the window.
+    const ABOVE: f32 = 60.0;
+    /// The list's height: far less than its fifty rows.
+    const VIEW_H: f32 = 200.0;
+    const ROWS: usize = 50;
+
+    /// Fifty rows built on demand, in a selection area, below some room — or, with `grid`,
+    /// sixty cells in two columns built a row at a time.
+    struct Rows {
+        grid: bool,
+    }
+
+    impl Application for Rows {
+        type Message = ();
+
+        fn update(&mut self, _message: ()) -> Command<()> {
+            Command::none()
+        }
+
+        fn theme(&self) -> Theme {
+            Theme::default().with_platform(frus_widgets::TargetPlatform::Android)
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<()>> {
+            let content: Box<dyn Widget<()>> = if self.grid {
+                Box::new(
+                    GridView::builder(2, 60, |i| Text::new(format!("cell {i:02}")).no_wrap())
+                        .tile_height(30.0)
+                        .width(W)
+                        .height(VIEW_H),
+                )
+            } else {
+                Box::new(
+                    ListView::builder(ROWS, |i| Text::new(format!("item {i:02}")).no_wrap())
+                        .estimated_extent(20.0)
+                        .width(W)
+                        .height(VIEW_H),
+                )
+            };
+            Box::new(
+                Container::new().width(W).height(H).child(
+                    Flex::column()
+                        .child(Container::new().width(W).height(ABOVE))
+                        .child(SelectionArea::around(content)),
+                ),
+            )
+        }
+    }
+
+    fn driver(grid: bool) -> Driver<Rows> {
+        let mut d = Driver::new(Rows { grid }, W, H);
+        d.run(0.2);
+        d
+    }
+
+    /// The list's viewport and its offset down.
+    fn scroll(d: &Driver<Rows>) -> (Rect, f32) {
+        let (view, offset) = d.offsets().into_iter().next().expect("one scrolling area");
+        (view, offset.1)
+    }
+
+    /// Where the row reading `label` is drawn, if it is.
+    fn drawn(d: &Driver<Rows>, label: &str) -> Option<Rect> {
+        d.texts()
+            .into_iter()
+            .find(|(text, _)| text == label)
+            .map(|(_, rect)| rect)
+    }
+
+    /// A point on the row reading `label`, `across` pixels into it.
+    fn on(d: &Driver<Rows>, label: &str, across: f32) -> Point {
+        let rect = drawn(d, label).unwrap_or_else(|| panic!("{label:?} is drawn"));
+        Point::new(rect.x + across, rect.y + rect.height / 2.0)
+    }
+
+    /// Ctrl+C, and what it put on the clipboard.
+    fn copy(d: &mut Driver<Rows>) -> Option<String> {
+        d.key(KeyStroke::new(ShortcutKey::Char('c')).ctrl());
+        d.clipboard()
+    }
+
+    /// **A press and a drag select across the rows of a list built on demand**, and Copy gives
+    /// their words, one row a line. Before, a press on a row began nothing: the row was looked
+    /// for in the tree, and a list's rows are not kept there.
+    #[test]
+    fn a_drag_selects_across_the_rows_of_a_built_list() {
+        let mut d = driver(false);
+        let from = on(&d, "item 01", 0.5);
+        d.press_mouse(from);
+        d.run(0.05);
+        assert!(
+            d.area_selection().is_none(),
+            "a press alone selects nothing"
+        );
+        let to = on(&d, "item 03", W - 20.0);
+        d.move_mouse(Point::new(from.x + 30.0, (from.y + to.y) / 2.0));
+        d.run(0.05);
+        d.move_mouse(to);
+        d.run(0.05);
+        d.release_mouse(to);
+        d.run(0.05);
+        assert_eq!(scroll(&d).1, 0.0, "a drag inside scrolls nothing");
+        assert_eq!(
+            copy(&mut d).as_deref(),
+            Some("item 01\nitem 02\nitem 03"),
+            "the three rows, whole"
+        );
+    }
+
+    /// **A double click selects a word of a row**, which asks the row's words too.
+    #[test]
+    fn a_double_click_selects_a_word_of_a_row() {
+        let mut d = driver(false);
+        let at = on(&d, "item 02", 3.0);
+        for _ in 0..2 {
+            d.press_mouse(at);
+            d.run(0.02);
+            d.release_mouse(at);
+            d.run(0.02);
+        }
+        assert_eq!(d.area_selection().as_deref(), Some("item"));
+    }
+
+    /// **Held past the bottom, the list scrolls and the selection takes the rows it builds** —
+    /// rows that did not exist when the drag began — down to the last; and the row it began
+    /// in, recycled long since, is still where it begins.
+    #[test]
+    fn a_drag_held_below_scrolls_the_list_to_its_end() {
+        let mut d = driver(false);
+        let (view, start) = scroll(&d);
+        assert_eq!(start, 0.0);
+        assert!(
+            drawn(&d, "item 49").is_none(),
+            "the last row is not built yet"
+        );
+        let from = on(&d, "item 00", 0.5);
+        d.press_mouse(from);
+        d.run(0.05);
+        let below = Point::new(W - 10.0, view.y + view.height + 40.0);
+        d.move_mouse(below);
+        d.run(0.05);
+        let (_, a) = scroll(&d);
+        d.run(0.3);
+        let (_, b) = scroll(&d);
+        assert!(
+            (b - a - 20.0 * 30.0 * 0.3).abs() < 1.0,
+            "at the selection's speed: {}",
+            b - a
+        );
+        // On to the end, and no further.
+        d.run(3.0);
+        let (_, end) = scroll(&d);
+        d.run(0.5);
+        assert_eq!(scroll(&d).1, end, "it stops at the end of the list");
+        assert!(drawn(&d, "item 49").is_some(), "the last row shows");
+        assert!(drawn(&d, "item 00").is_none(), "the first was recycled");
+        d.release_mouse(below);
+        d.run(0.05);
+
+        let copied = copy(&mut d).expect("a selection");
+        let got: Vec<&str> = copied.lines().collect();
+        assert_eq!(got.len(), ROWS, "every row from the press: {copied:?}");
+        assert_eq!(got[0], "item 00", "the first, out of sight now");
+        assert_eq!(got[ROWS - 1], "item 49", "the last, built after the press");
+    }
+
+    /// **A selection whose rows were recycled out of view still copies**: begun in a row, carried
+    /// down until that row has left the list, then brought back inside and let go — Copy gives
+    /// the row it began in and every one after it to where it ended.
+    #[test]
+    fn a_selection_begun_in_a_recycled_row_still_copies() {
+        let mut d = driver(false);
+        let (view, _) = scroll(&d);
+        let from = on(&d, "item 02", 0.5);
+        d.press_mouse(from);
+        d.run(0.05);
+        let below = Point::new(W - 10.0, view.y + view.height + 20.0);
+        d.move_mouse(below);
+        d.run(0.6);
+        // Back inside: the list stops, at a row the drag ends on.
+        let inside = Point::new(W - 10.0, view.y + view.height / 2.0);
+        d.move_mouse(inside);
+        d.run(0.1);
+        let (_, settled) = scroll(&d);
+        assert!(settled > 100.0, "it scrolled well past the row: {settled}");
+        assert!(
+            drawn(&d, "item 02").is_none(),
+            "the row it began in is gone"
+        );
+        d.release_mouse(inside);
+        d.run(0.3);
+        assert_eq!(scroll(&d).1, settled, "let go inside, it stays");
+        // The last row selected is the one under the pointer, whole.
+        let last = d
+            .texts()
+            .into_iter()
+            .filter(|(text, rect)| text.starts_with("item ") && rect.y <= inside.y)
+            .max_by(|a, b| a.1.y.total_cmp(&b.1.y))
+            .map(|(text, _)| text)
+            .expect("a row under the pointer");
+        let copied = copy(&mut d).expect("a selection");
+        let got: Vec<&str> = copied.lines().collect();
+        assert_eq!(got[0], "item 02", "{copied:?}");
+        assert_eq!(got.last().copied(), Some(last.as_str()), "{copied:?}");
+        let expected: Vec<String> = (2..)
+            .map(|i| format!("item {i:02}"))
+            .take(got.len())
+            .collect();
+        assert_eq!(got, expected, "every row between, in order");
+    }
+
+    /// **A grid built a row at a time takes part the same way**: a drag from the first cell to
+    /// the fourth selects four cells in reading order.
+    #[test]
+    fn a_drag_selects_across_the_cells_of_a_built_grid() {
+        let mut d = driver(true);
+        let from = on(&d, "cell 00", 0.5);
+        let to = on(&d, "cell 03", 60.0);
+        d.press_mouse(from);
+        d.run(0.05);
+        d.move_mouse(Point::new(from.x + 30.0, (from.y + to.y) / 2.0));
+        d.run(0.05);
+        d.move_mouse(to);
+        d.run(0.05);
+        d.release_mouse(to);
+        d.run(0.05);
+        assert_eq!(
+            copy(&mut d).as_deref(),
+            Some("cell 00\ncell 01\ncell 02\ncell 03")
+        );
     }
 }

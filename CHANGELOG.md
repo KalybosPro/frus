@@ -26,6 +26,14 @@ any release may break.
   larger keeps one level and the memory. `FilterQuality` (`None`, `Low`, `Medium` by default,
   `High`) picks the filter, through `Image::filter_quality`, `DecorationImage::filter_quality`
   or `Scene::draw_image_with`, and rides on `Primitive::Image` as `filter_quality`.
+- **A selection over a list built on demand** (J741): a `SelectionArea` around a
+  `ListView::builder`, a `GridView::builder` or any list that builds only the rows in view now
+  selects in its rows: a press begins a selection, a drag selects across rows, a drag held past
+  the edge scrolls the list and takes the rows built as they come in, and a selection keeps, and
+  Copy copies, the rows recycled out of view. Before, a press on a row began nothing. Each text
+  now registers what a selection asks of it with its area: `frus-widgets` gained the
+  `SelectableText` trait, `TextStop::text` and the hook `Widget::selectable_text`, which replaces
+  `selection_text`, `selection_hit` and `selection_grip`; `TextStop` is no longer `Copy`.
 - **A clip path's transformed shapes are placed once** (J740): in an `SvgPicture`, a shape in a
   `<clipPath>` with a `transform` of its own, or reached through a `<use>` with one, was
   transformed twice, so the clip showed the picture in the wrong place or not at all. Each

@@ -462,14 +462,20 @@ impl Text {
     /// The layout of this text as it was drawn, at `width` — for any text, selectable or
     /// not: a [`SelectionArea`](crate::SelectionArea) selects in texts that never asked to be.
     fn text_layout(&self, width: f32) -> TextLayout {
-        let shaping = self.shaping.get().unwrap_or_else(|| {
+        let shaping = self.shaping();
+        TextLayout::resolved(&self.content, &shaping.style, shaping.wrap.then_some(width))
+    }
+
+    /// What this text was shaped with: as it resolved when it was painted, or as it resolves
+    /// now if it has not been.
+    fn shaping(&self) -> Shaping {
+        self.shaping.get().unwrap_or_else(|| {
             let resolved = frus_core::with_text_scale(self.scale, || self.resolved(None));
             Shaping {
                 style: resolved.style,
                 wrap: resolved.wrap,
             }
-        });
-        TextLayout::resolved(&self.content, &shaping.style, shaping.wrap.then_some(width))
+        })
     }
 
     /// Writes down what this text resolved, for the questions a selection is asked later.
@@ -1046,9 +1052,19 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
         false
     }
 
-    /// The words, for a selection that spans texts: any text with something to select.
-    fn selection_text(&self) -> Option<&str> {
-        (!self.content.is_empty()).then_some(self.content.as_str())
+    /// The words and how they are laid out, for a selection that spans texts: any text with
+    /// something to select.
+    fn selectable_text(&self) -> Option<std::rc::Rc<dyn crate::SelectableText>> {
+        if self.content.is_empty() {
+            return None;
+        }
+        let shaping = self.shaping();
+        let words: std::rc::Rc<str> = self.content.as_str().into();
+        let laid = std::rc::Rc::clone(&words);
+        Some(std::rc::Rc::new(crate::region::LaidWords::new(
+            words,
+            move |width| TextLayout::resolved(&laid, &shaping.style, shaping.wrap.then_some(width)),
+        )))
     }
 
     /// Copy, and Select all unless everything is selected — against the box of the part of the
@@ -1069,31 +1085,6 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
         let anchor = selection_box_in(&layout, Point::new(0.0, 0.0), len, &edit);
         let bar = area_bar(&self.area_bars, context)?;
         Some((anchor, bar))
-    }
-
-    fn selection_grip(
-        &self,
-        width: f32,
-        index: usize,
-        start: bool,
-    ) -> Option<crate::SelectionHandle> {
-        let len = self.content.chars().count();
-        Some(handle_at(
-            &self.text_layout(width),
-            Point::new(0.0, 0.0),
-            index.min(len),
-            start,
-        ))
-    }
-
-    fn selection_hit(&self, local_x: f32, local_y: f32, width: f32) -> Option<usize> {
-        if self.content.is_empty() {
-            return None;
-        }
-        Some(
-            self.text_layout(width)
-                .hit_test(Point::new(local_x, local_y)),
-        )
     }
 
     fn cursor_at(
