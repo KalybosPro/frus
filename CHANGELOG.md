@@ -13,6 +13,9 @@ any release may break.
 
 ## [Unreleased]
 
+- **Plain open-source notices**: `NOTICE` keeps only the copyright, the two licenses and the
+  contribution terms; the paragraph warning redistributors is gone. `TRADEMARKS.md` is removed,
+  and the READMEs no longer point to it. frus stays MIT OR Apache-2.0.
 - **Permissions declared once** (J744): `[package.metadata.frus.permissions]` in an
   application's `Cargo.toml` names what it asks for (`camera`, `microphone`, `location`,
   `notifications`) with the reason the person is shown. `frus build` and `frus run` stop with a
