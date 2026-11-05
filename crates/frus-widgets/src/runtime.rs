@@ -810,6 +810,9 @@ pub struct Runtime {
     /// What each list of items of any extent has measured of them (milestone 716).
     /// Interior mutability: an item is measured while the tree is walked.
     pub(crate) item_extents: RefCell<HashMap<WidgetId, crate::list::ItemExtents>>,
+    /// The rows each list built on demand keeps alive out of view, by list (milestone 748).
+    /// Interior mutability: a list decides while the tree is walked.
+    pub(crate) kept_rows: RefCell<HashMap<WidgetId, Vec<crate::list::KeptRow>>>,
     /// What the layout moved a region's offset by, to keep the reader's place when content
     /// above the window changed size (milestone 717): taken by the shell at its next frame
     /// with [`Runtime::apply_scroll_corrections`]. Interior mutability: it is found while
