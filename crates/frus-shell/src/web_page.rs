@@ -164,6 +164,7 @@ const PROBE_STYLE: &str = "position: fixed; left: 0; top: 0; width: 0; height: 0
 /// The answer is kept for the window's size: a notch moves from the top to a side only with
 /// a rotation, and a rotation resizes the window.
 #[cfg(web)]
+#[inline(never)]
 pub(crate) fn safe_area() -> SafeArea {
     use std::cell::RefCell;
     use wasm_bindgen::JsCast;
