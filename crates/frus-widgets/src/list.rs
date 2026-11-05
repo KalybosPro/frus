@@ -8,10 +8,10 @@
 //! Contract: a **fixed** item extent along the axis the list runs — down the screen by
 //! default, across it with [`ListView::axis`] — or, with [`ListView::builder`], rows of
 //! **any** extent, each measured as it comes into view (milestone 716). Items are built
-//! on demand by an `index → widget` closure, so they have **no retained state**
-//! and take no keyboard focus (you cannot retain the state of an item that does
-//! not exist off screen) — perfect for display (logs, tables, long lists), and
-//! still clickable and hoverable while visible.
+//! on demand by an `index → widget` closure: a row out of view is not built, and what
+//! its components keep is let go unless the row asks to be kept
+//! ([`ListView::keep_alive`], milestone 748). A row is identified by its index, or by its
+//! key when it has one, so that its state follows it when items move.
 
 use frus_core::{Insets, Rect, Scene};
 use frus_layout::{Dimension, Style};
@@ -36,6 +36,21 @@ pub struct VirtualList<'a, Msg = crate::callback::Callback> {
     /// Whether each item is as long as it needs to be, rather than `item_extent` long.
     /// `item_extent` is then only the guess for the items nobody has measured yet.
     pub variable: bool,
+    /// Whether a row out of view keeps its state unless it says otherwise; see
+    /// [`ListView::keep_alive`].
+    pub keep_alive: bool,
+    /// Where the row with a key is now, if it is still in the list; see
+    /// [`ListView::find_child_index`].
+    pub find_child_index: Option<&'a dyn Fn(crate::ChildKey) -> Option<usize>>,
+}
+
+/// A row a list keeps alive while it is out of view (milestone 748): its identity, the key
+/// it was built with, and the index it was last at.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct KeptRow {
+    pub(crate) row: crate::interaction::WidgetId,
+    pub(crate) key: Option<u64>,
+    pub(crate) index: usize,
 }
 
 /// What the frame that laid a list out knows of its shape: enough to say where item `n`
@@ -185,6 +200,10 @@ pub struct ListView<Msg = crate::callback::Callback> {
     build: Box<dyn Fn(usize) -> Box<dyn Widget<Msg>>>,
     /// Each item as long as it needs; `item_extent` the guess for those not seen yet.
     variable: bool,
+    /// Whether rows out of view keep their state by default; see [`ListView::keep_alive`].
+    keep_alive: bool,
+    /// See [`ListView::find_child_index`].
+    find_child_index: Option<Box<dyn Fn(crate::ChildKey) -> Option<usize>>>,
 }
 
 impl<Msg> ListView<Msg> {
@@ -215,6 +234,8 @@ impl<Msg> ListView<Msg> {
             grain: 0.0,
             build: Box::new(move |index| Box::new(build(index)) as Box<dyn Widget<Msg>>),
             variable: false,
+            keep_alive: false,
+            find_child_index: None,
         }
     }
 
@@ -376,6 +397,56 @@ impl<Msg> ListView<Msg> {
         self
     }
 
+    /// **Whether a row scrolled out of view keeps its state** by default (milestone 748).
+    ///
+    /// Only the rows in view are built. What the components of a row keep — a
+    /// [`State`](crate::State), the hooks of a function component — is let go when the row
+    /// leaves the view, and the row comes back new: the default, `false`, which is what a
+    /// long list wants, since its memory then follows the rows in view rather than every
+    /// row ever seen. With `true` every row keeps its state until it is removed from the
+    /// list, as the children of a plain column would.
+    ///
+    /// Either way a row decides for itself: [`KeepAlive`](crate::KeepAlive) around it, or
+    /// [`BuildContext::keep_alive`](crate::BuildContext::keep_alive) in a component inside
+    /// it, asks for it to be kept; `KeepAlive::new(..).keep(false)` declines.
+    ///
+    /// A row is the row at its index unless it has a key: give the rows of a list whose
+    /// items move ([`Keyed`](crate::Keyed), `keyed(..)`) a key, and a
+    /// [`ListView::find_child_index`], so that a kept row is found where its item went.
+    pub fn keep_alive(mut self, keep: bool) -> Self {
+        self.keep_alive = keep;
+        self
+    }
+
+    /// **Where a row with a key is now** (milestone 748): the index of the item with that
+    /// key, or `None` when it has been removed.
+    ///
+    /// A row built with a key ([`Keyed`](crate::Keyed), `keyed(..)`,
+    /// [`Component::with_key`](crate::Component::with_key)) is identified by its key rather
+    /// than its index: its state, a selection in its text, what it holds, all follow it when
+    /// items are inserted or removed before it. In view, the list finds it by building it.
+    /// Out of view and kept alive, it asks this: the row is kept at the index found, and let
+    /// go when it is `None`. Without it, a kept row out of view is assumed to be where it
+    /// was, and is let go only when the list becomes shorter than that.
+    ///
+    /// ```
+    /// use frus_widgets::{keyed, ChildKey, ListView, Text};
+    ///
+    /// let ids = vec!["mail-3".to_string(), "mail-8".to_string()];
+    /// let rows = ids.clone();
+    /// let inbox: ListView = ListView::builder(ids.len(), move |i| keyed(&rows[i], Text::new(rows[i].clone())))
+    ///     .keep_alive(true)
+    ///     .find_child_index(move |key: ChildKey| ids.iter().position(|id| key.is(id)));
+    /// # let _ = inbox;
+    /// ```
+    pub fn find_child_index(
+        mut self,
+        find: impl Fn(crate::ChildKey) -> Option<usize> + 'static,
+    ) -> Self {
+        self.find_child_index = Some(Box::new(find));
+        self
+    }
+
     /// Reports no more often than every `px` of movement — and **always** reports where
     /// it comes to rest, however short the last step was.
     pub fn notify_every(mut self, px: f32) -> Self {
@@ -432,6 +503,8 @@ impl<Msg> Widget<Msg> for ListView<Msg> {
             axis: self.axis,
             build: &*self.build,
             variable: self.variable,
+            keep_alive: self.keep_alive,
+            find_child_index: self.find_child_index.as_deref(),
         })
     }
 
@@ -1039,5 +1112,338 @@ mod primary_tests {
             Widget::<()>::scroll_physics(&never),
             Some(ScrollPhysics::NEVER)
         );
+    }
+}
+
+/// Rows that keep their state (milestone 748): by key when items move, and out of view when
+/// a row or the list asks.
+#[cfg(test)]
+mod keep_tests {
+    use super::*;
+    use crate::interaction::WidgetId;
+    use crate::{
+        build_ui, component, keyed, BuildContext, ChildKey, KeepAlive, Runtime, Size, State,
+        StateContext, StatefulWidget, Text,
+    };
+    use std::cell::{Cell, RefCell};
+    use std::collections::HashMap;
+    use std::rc::Rc;
+
+    /// What the rows report: for each row built, the label it shows and the number its state
+    /// was made with; and the numbers of the states let go.
+    #[derive(Default)]
+    struct Log {
+        made: Cell<u32>,
+        built: RefCell<Vec<(String, u32)>>,
+        disposed: RefCell<Vec<u32>>,
+    }
+
+    impl Log {
+        fn next(&self) -> u32 {
+            self.made.set(self.made.get() + 1);
+            self.made.get()
+        }
+
+        /// The state each row built since the last call showed, by label.
+        fn take(&self) -> HashMap<String, u32> {
+            self.built.borrow_mut().drain(..).collect()
+        }
+    }
+
+    /// A row whose hooks remember the number they were made with; `keep` is what it asks
+    /// of its list with `BuildContext::keep_alive`, if anything.
+    fn hook_row(log: &Rc<Log>, label: String, keep: Option<bool>) -> crate::Component {
+        let log = log.clone();
+        component(move |cx: &BuildContext| {
+            let made = {
+                let log = log.clone();
+                cx.use_ref(move || log.next())
+            };
+            let number = made.get();
+            {
+                let log = log.clone();
+                cx.use_effect((), move || move || log.disposed.borrow_mut().push(number));
+            }
+            if let Some(keep) = keep {
+                cx.keep_alive(keep);
+            }
+            log.built.borrow_mut().push((label.clone(), number));
+            Box::new(Text::new(label.clone()))
+        })
+    }
+
+    /// A stateful row: its `State` is made with a number and says when it is disposed.
+    struct Counter {
+        label: String,
+        log: Rc<Log>,
+    }
+
+    struct CounterState {
+        number: u32,
+        log: Rc<Log>,
+    }
+
+    impl StatefulWidget for Counter {
+        type State = CounterState;
+        fn create_state(&self) -> CounterState {
+            CounterState {
+                number: self.log.next(),
+                log: self.log.clone(),
+            }
+        }
+    }
+
+    impl State for CounterState {
+        type Widget = Counter;
+        fn dispose(&mut self) {
+            self.log.disposed.borrow_mut().push(self.number);
+        }
+        fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
+            let label = cx.widget().label.clone();
+            self.log
+                .built
+                .borrow_mut()
+                .push((label.clone(), self.number));
+            Box::new(Text::new(label))
+        }
+    }
+
+    /// One rebuild of `list`, scrolled `offset` down, as the shell makes it: the states the
+    /// build did not reach are let go once it is laid out.
+    fn frame(runtime: &mut Runtime, list: &ListView, offset: f32) {
+        runtime.scroll.insert(WidgetId::ROOT, (0.0, offset));
+        runtime.states.begin_build();
+        let _ui = build_ui(list, Size::new(200.0, 200.0), runtime, &Theme::default());
+        runtime.states.end_frame();
+    }
+
+    type Items = Rc<RefCell<Vec<String>>>;
+
+    /// Rows of 40 in a window of 200: five in view.
+    fn rows(items: &Items, row: impl Fn(&str) -> Box<dyn Widget> + 'static) -> ListView {
+        let shown = items.clone();
+        let found = items.clone();
+        ListView::new(items.borrow().len(), 40.0, move |i| row(&shown.borrow()[i]))
+            .find_child_index(move |key: ChildKey| {
+                found.borrow().iter().position(|item| key.is(item))
+            })
+            .width(200.0)
+            .height(200.0)
+    }
+
+    fn labels(names: &[&str]) -> Items {
+        Rc::new(RefCell::new(names.iter().map(|n| n.to_string()).collect()))
+    }
+
+    /// **An item inserted above a keyed row leaves the row its state**: each row's hooks are
+    /// the ones it had, at its new index, and the new row starts afresh. Before, a row was
+    /// its index, and every state below the insertion moved to the row after it.
+    #[test]
+    fn a_keyed_row_keeps_its_hooks_when_an_item_is_inserted_above() {
+        let log = Rc::new(Log::default());
+        let items = labels(&["ant", "bee", "cat"]);
+        let mut runtime = Runtime::default();
+        let make = |items: &Items| {
+            let log = log.clone();
+            rows(items, move |name| {
+                Box::new(keyed(
+                    name.to_string(),
+                    hook_row(&log, name.to_string(), None),
+                ))
+            })
+        };
+        frame(&mut runtime, &make(&items), 0.0);
+        let before = log.take();
+        items.borrow_mut().insert(0, "eel".to_string());
+        frame(&mut runtime, &make(&items), 0.0);
+        let after = log.take();
+        for name in ["ant", "bee", "cat"] {
+            assert_eq!(after[name], before[name], "{name} kept its state");
+        }
+        assert!(!before.values().any(|n| *n == after["eel"]), "eel is new");
+        assert!(log.disposed.borrow().is_empty(), "nothing was let go");
+    }
+
+    /// The same for a `StatefulWidget` keyed by its own key, and for one taken away: its
+    /// state is disposed, and only its.
+    #[test]
+    fn a_keyed_stateful_row_follows_its_item_and_goes_with_it() {
+        let log = Rc::new(Log::default());
+        let items = labels(&["ant", "bee", "cat", "dog"]);
+        let mut runtime = Runtime::default();
+        let make = |items: &Items| {
+            let log = log.clone();
+            rows(items, move |name| {
+                Box::new(
+                    Counter {
+                        label: name.to_string(),
+                        log: log.clone(),
+                    }
+                    .into_widget()
+                    .with_key(name.to_string()),
+                )
+            })
+        };
+        frame(&mut runtime, &make(&items), 0.0);
+        let before = log.take();
+        items.borrow_mut().remove(1);
+        items.borrow_mut().insert(0, "eel".to_string());
+        frame(&mut runtime, &make(&items), 0.0);
+        let after = log.take();
+        for name in ["ant", "cat", "dog"] {
+            assert_eq!(after[name], before[name], "{name} kept its state");
+        }
+        assert_eq!(*log.disposed.borrow(), vec![before["bee"]], "bee's went");
+    }
+
+    /// Fifty rows named by their index.
+    fn fifty() -> Items {
+        Rc::new(RefCell::new((0..50).map(|i| format!("row {i}")).collect()))
+    }
+
+    /// Scrolls `list` from the top to far below and back, rebuilding at each; what the rows
+    /// showed at the top, the first time and the second.
+    fn away_and_back(
+        runtime: &mut Runtime,
+        log: &Log,
+        list: &ListView,
+    ) -> [HashMap<String, u32>; 2] {
+        frame(runtime, list, 0.0);
+        let first = log.take();
+        frame(runtime, list, 1000.0);
+        assert!(!log.take().contains_key("row 0"), "row 0 is not built");
+        frame(runtime, list, 0.0);
+        [first, log.take()]
+    }
+
+    /// **A row that asks to be kept alive keeps its state out of view**, and a row that does
+    /// not is let go and comes back new. Before, every row came back new.
+    #[test]
+    fn a_row_that_asks_keeps_its_state_out_of_view() {
+        let log = Rc::new(Log::default());
+        let items = fifty();
+        let mut runtime = Runtime::default();
+        let maker = log.clone();
+        let list = rows(&items, move |name| {
+            let keep = (name == "row 0").then_some(true);
+            Box::new(hook_row(&maker, name.to_string(), keep))
+        });
+        let [first, back] = away_and_back(&mut runtime, &log, &list);
+        assert_eq!(back["row 0"], first["row 0"], "row 0 asked, and was kept");
+        assert_ne!(back["row 1"], first["row 1"], "row 1 did not, and is new");
+        let disposed = log.disposed.borrow();
+        assert!(
+            disposed.contains(&first["row 1"]),
+            "row 1's state was let go"
+        );
+        assert!(!disposed.contains(&first["row 0"]), "row 0's was not");
+    }
+
+    /// **The list's default**: kept, every row keeps its state, but a row that declines with
+    /// `KeepAlive::keep(false)` is let go; dropped (the default), a row wrapped in
+    /// `KeepAlive` is kept.
+    #[test]
+    fn the_list_keeps_by_default_and_a_row_overrides_it() {
+        let log = Rc::new(Log::default());
+        let items = fifty();
+        let mut runtime = Runtime::default();
+        let maker = log.clone();
+        let all = rows(&items, move |name| {
+            let row = hook_row(&maker, name.to_string(), None);
+            Box::new(KeepAlive::new(row).keep(name != "row 1"))
+        })
+        .keep_alive(true);
+        let [first, back] = away_and_back(&mut runtime, &log, &all);
+        assert_eq!(back["row 0"], first["row 0"], "kept by the list");
+        assert_eq!(back["row 2"], first["row 2"], "kept by the list");
+        assert_ne!(back["row 1"], first["row 1"], "row 1 declined");
+
+        let log = Rc::new(Log::default());
+        let mut runtime = Runtime::default();
+        let maker = log.clone();
+        let some = rows(&items, move |name| {
+            let row = hook_row(&maker, name.to_string(), None);
+            match name {
+                "row 0" => Box::new(KeepAlive::new(row)),
+                _ => Box::new(row),
+            }
+        });
+        let [first, back] = away_and_back(&mut runtime, &log, &some);
+        assert_eq!(back["row 0"], first["row 0"], "row 0 asked");
+        assert_ne!(back["row 2"], first["row 2"], "row 2 did not");
+    }
+
+    /// **A kept row is found where its item went**: inserted above while the row is out of
+    /// view, it comes back at its new index with its state; removed while out of view, its
+    /// state is let go then rather than kept for ever.
+    #[test]
+    fn a_kept_row_out_of_view_follows_its_key() {
+        let log = Rc::new(Log::default());
+        let items = fifty();
+        let mut runtime = Runtime::default();
+        let make = |items: &Items| {
+            let log = log.clone();
+            rows(items, move |name| {
+                Box::new(keyed(
+                    name.to_string(),
+                    hook_row(&log, name.to_string(), None),
+                ))
+            })
+            .keep_alive(true)
+        };
+        frame(&mut runtime, &make(&items), 0.0);
+        let first = log.take();
+        frame(&mut runtime, &make(&items), 1000.0);
+        items.borrow_mut().insert(0, "new".to_string());
+        frame(&mut runtime, &make(&items), 1000.0);
+        frame(&mut runtime, &make(&items), 0.0);
+        let back = log.take();
+        for i in 0..4 {
+            let name = format!("row {i}");
+            assert_eq!(back[&name], first[&name], "{name} kept its state");
+        }
+        assert!(log.disposed.borrow().is_empty());
+
+        frame(&mut runtime, &make(&items), 1000.0);
+        log.take();
+        items.borrow_mut().retain(|name| name != "row 2");
+        frame(&mut runtime, &make(&items), 1000.0);
+        assert_eq!(
+            *log.disposed.borrow(),
+            vec![first["row 2"]],
+            "the removed row's state went as soon as it was gone"
+        );
+    }
+
+    /// A kept row holds the rows of a list inside it: an inner row's state stays while the
+    /// outer row is out of view.
+    #[test]
+    fn a_kept_row_keeps_the_rows_of_a_list_inside_it() {
+        let log = Rc::new(Log::default());
+        let mut runtime = Runtime::default();
+        let maker = log.clone();
+        let list: ListView = ListView::new(50, 40.0, move |i| -> Box<dyn Widget> {
+            if i == 0 {
+                let maker = maker.clone();
+                Box::new(KeepAlive::new(
+                    ListView::new(3, 10.0, move |j| {
+                        hook_row(&maker, format!("inner {j}"), None)
+                    })
+                    .keep_alive(true)
+                    .height(40.0),
+                ))
+            } else {
+                Box::new(Text::new(format!("row {i}")))
+            }
+        })
+        .width(200.0)
+        .height(200.0);
+        frame(&mut runtime, &list, 0.0);
+        let first = log.take();
+        assert_eq!(first.len(), 3);
+        frame(&mut runtime, &list, 1000.0);
+        frame(&mut runtime, &list, 0.0);
+        assert_eq!(log.take(), first, "the inner rows kept their state");
+        assert!(log.disposed.borrow().is_empty());
     }
 }

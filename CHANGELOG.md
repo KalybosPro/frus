@@ -8,10 +8,20 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 744 so far, each documenting the objective, the alternatives
+> record — one per step, 748 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Rows that keep their state** (J748): a row of `ListView::new` or `ListView::builder` with a
+  key (`keyed(..)`, `Keyed::new`, `Component::with_key`) is identified by its key rather than its
+  index, so the state of its components, its hooks and a selection in its words follow it when
+  items are inserted or removed above it. `ListView::keep_alive(bool)` says whether rows scrolled
+  out of view keep their state by default (they do not); a row asks for itself with
+  `KeepAlive::new(..)` (`.keep(false)` declines) or, from a component, `BuildContext::keep_alive`.
+  `ListView::find_child_index` tells the list where a kept row's item went (`ChildKey::is`
+  compares a key with the application's ids), and a kept row whose item is removed is let go.
+  Components inside a list's rows are now built before the row is laid out.
 
 - **Plain open-source notices**: `NOTICE` keeps only the copyright, the two licenses and the
   contribution terms; the paragraph warning redistributors is gone. `TRADEMARKS.md` is removed,
