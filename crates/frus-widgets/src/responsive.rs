@@ -175,6 +175,18 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_tap_outside())
     }
 
+    fn tap_outside(&self, theme: &crate::Theme) -> crate::TapOutside {
+        self.inner
+            .as_ref()
+            .map_or(crate::TapOutside::Unfocus, |w| w.tap_outside(theme))
+    }
+
+    fn keyboard_dismiss_behavior(&self) -> Option<crate::KeyboardDismissBehavior> {
+        self.inner
+            .as_ref()
+            .and_then(|w| w.keyboard_dismiss_behavior())
+    }
+
     fn opaque(&self) -> bool {
         self.inner.as_ref().is_some_and(|w| w.opaque())
     }

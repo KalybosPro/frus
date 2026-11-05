@@ -582,6 +582,9 @@ pub struct TextFieldTheme {
     pub cursor_color: Option<Color>,
     /// The caret while an error shows. Unset, the error colour.
     pub cursor_error_color: Option<Color>,
+    /// What a tap outside a focused field does to the focus (milestone 750). Unset,
+    /// [`TapOutside::Unfocus`](crate::TapOutside::Unfocus).
+    pub tap_outside: Option<crate::TapOutside>,
 }
 
 /// Defaults for [`Button`](crate::Button): a style for each kind of button — the

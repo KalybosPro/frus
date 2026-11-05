@@ -222,6 +222,9 @@ web-sys = { version = "0.3", features = [
     "HtmlTextAreaElement",
     "KeyboardEventInit",
     "CompositionEvent",
+    # A press on the canvas, which winit focuses, must not blur the field being typed into
+    # on a touch screen: the keyboard would go with it (milestone 750).
+    "FocusEvent",
     "DomRect",
     # The browser's console, a method per log level (milestone 604).
     "console",

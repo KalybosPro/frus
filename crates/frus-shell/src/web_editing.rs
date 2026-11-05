@@ -246,8 +246,8 @@ mod web {
     use wasm_bindgen::prelude::*;
     use wasm_bindgen::JsCast;
     use web_sys::{
-        CompositionEvent, Document, Event, HtmlCanvasElement, HtmlElement, HtmlInputElement,
-        HtmlTextAreaElement, KeyboardEvent, KeyboardEventInit,
+        CompositionEvent, Document, Event, FocusEvent, HtmlCanvasElement, HtmlElement,
+        HtmlInputElement, HtmlTextAreaElement, KeyboardEvent, KeyboardEventInit,
     };
     use winit::platform::web::WindowExtWebSys;
     use winit::window::Window;
@@ -550,6 +550,32 @@ mod web {
                         *composing.borrow_mut() = None;
                         if let Some(el) = target(&event) {
                             changed(&el);
+                        }
+                    }),
+                );
+            }
+            // On a touch screen, winit focuses the canvas on every press — a finger that only
+            // means to scroll included — and an element that loses the browser's focus takes
+            // the on-screen keyboard down with it. The element takes the focus straight back,
+            // in the same event, before the browser acts on the change: whether the press
+            // ends the editing is the shell's to say, once it knows it was a tap
+            // (milestone 750), and the shell takes the element away when it does.
+            if self.touch {
+                let canvas = self.canvas.clone();
+                listen(
+                    "blur",
+                    Closure::new(move |event: Event| {
+                        let to_canvas = event
+                            .dyn_ref::<FocusEvent>()
+                            .and_then(FocusEvent::related_target)
+                            .is_some_and(|to| {
+                                to == *AsRef::<web_sys::EventTarget>::as_ref(&canvas)
+                            });
+                        if !to_canvas {
+                            return;
+                        }
+                        if let Some(el) = target(&event).filter(|el| el.is_connected()) {
+                            let _ = el.focus();
                         }
                     }),
                 );

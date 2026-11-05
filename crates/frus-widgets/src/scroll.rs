@@ -54,6 +54,8 @@ pub struct SingleChildScrollView<Msg = crate::callback::Callback> {
     /// Edge and fling behaviour, when this area wants one of its own; `None`
     /// follows the application, which follows the platform.
     physics: Option<ScrollPhysics>,
+    /// What a finger dragging it does to the focus; `None` follows the scroll behaviour.
+    keyboard_dismiss: Option<crate::KeyboardDismissBehavior>,
     /// Whether this area draws a scrollbar, when it wants its own answer; `None`
     /// follows the application, which follows the platform.
     scrollbars: Option<crate::physics::Scrollbars>,
@@ -87,6 +89,7 @@ impl<Msg> SingleChildScrollView<Msg> {
             flex_grow: 0.0,
             axis: Axis::Vertical,
             physics: None,
+            keyboard_dismiss: None,
             scrollbars: None,
             thumb_visibility: None,
             reverse: false,
@@ -128,6 +131,17 @@ impl<Msg> SingleChildScrollView<Msg> {
     /// content wants a particular feel, not for making an app feel native.
     pub fn physics(mut self, physics: ScrollPhysics) -> Self {
         self.physics = Some(physics);
+        self
+    }
+
+    /// What a finger **dragging the area** does to the focus (milestone 750):
+    /// [`KeyboardDismissBehavior::OnDrag`](crate::KeyboardDismissBehavior::OnDrag) lets the
+    /// focused field, and the on-screen keyboard, go as soon as it starts scrolling;
+    /// [`Manual`](crate::KeyboardDismissBehavior::Manual) keeps them. Unset, the
+    /// [`ScrollBehavior`](crate::ScrollBehavior) in force decides — `Manual` unless told
+    /// otherwise.
+    pub fn keyboard_dismiss_behavior(mut self, behavior: crate::KeyboardDismissBehavior) -> Self {
+        self.keyboard_dismiss = Some(behavior);
         self
     }
 
@@ -323,6 +337,10 @@ impl<Msg: Clone> Widget<Msg> for SingleChildScrollView<Msg> {
 
     fn scroll_physics(&self) -> Option<ScrollPhysics> {
         self.physics
+    }
+
+    fn keyboard_dismiss_behavior(&self) -> Option<crate::KeyboardDismissBehavior> {
+        self.keyboard_dismiss
     }
 
     fn scroll_reverse(&self) -> bool {
@@ -540,6 +558,7 @@ mod tests {
             reverse_y: reverse,
             host: None,
             keep_visible: None,
+            keyboard_dismiss: Default::default(),
         };
         // A refusal towards the axis's start (a negative offset).
         assert_eq!(area(false).refused_edge(true, -1.0), crate::GlowEdge::Top);

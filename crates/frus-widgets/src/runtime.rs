@@ -2800,6 +2800,7 @@ mod tests {
             reverse_y: false,
             host: None,
             keep_visible: None,
+            keyboard_dismiss: Default::default(),
         }
     }
 
@@ -2834,6 +2835,7 @@ mod tests {
             reverse_y: false,
             host: None,
             keep_visible: None,
+            keyboard_dismiss: Default::default(),
         }
     }
 

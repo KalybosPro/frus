@@ -219,6 +219,9 @@ pub struct TextField<Msg = crate::callback::Callback> {
     /// Sent for a press outside the field while it is focused; see
     /// [`TextField::on_tap_outside`].
     on_tap_outside: Option<Msg>,
+    /// What a tap outside does to the focus; unset, the theme's — see
+    /// [`TextField::tap_outside`].
+    tap_outside: Option<crate::TapOutside>,
     /// What to tell the screen reader when `on_submit` fires — see [`TextField::announce`].
     announce: Option<String>,
     /// Label displayed above the field.
@@ -668,6 +671,7 @@ impl<Msg> TextField<Msg> {
             on_input: None,
             on_submit: None,
             on_tap_outside: None,
+            tap_outside: None,
             announce: None,
             label: None,
             placeholder: None,
@@ -1250,6 +1254,20 @@ impl<Msg> TextField<Msg> {
     /// saves a draft, or closes a suggestion list, when the user taps away.
     pub fn on_tap_outside(mut self, message: impl Into<Msg>) -> Self {
         self.on_tap_outside = Some(message.into());
+        self
+    }
+
+    /// What a **tap outside the field while it is focused** does to the focus (milestone
+    /// 750): [`TapOutside::Unfocus`](crate::TapOutside::Unfocus), the default, lets the
+    /// focus — and the on-screen keyboard — go; [`TapOutside::Keep`](crate::TapOutside::Keep)
+    /// keeps both. Unset, [`TextFieldTheme::tap_outside`](crate::TextFieldTheme::tap_outside)
+    /// decides.
+    ///
+    /// On a touch screen only a **tap** counts: a press outside that becomes a scroll or a
+    /// fling leaves the field focused and the keyboard up, whatever this says. With a mouse,
+    /// the press is the click.
+    pub fn tap_outside(mut self, behavior: crate::TapOutside) -> Self {
+        self.tap_outside = Some(behavior);
         self
     }
 
@@ -2656,6 +2674,12 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
 
     fn on_tap_outside(&self) -> Option<Msg> {
         self.on_tap_outside.clone()
+    }
+
+    fn tap_outside(&self, theme: &Theme) -> crate::TapOutside {
+        self.tap_outside
+            .or(theme.widgets.text_field.tap_outside)
+            .unwrap_or_default()
     }
 
     fn focusable(&self) -> bool {

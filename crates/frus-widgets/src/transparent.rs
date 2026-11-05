@@ -204,6 +204,14 @@ macro_rules! forward_transparent {
                 self.inner.on_tap_outside()
             }
 
+            fn tap_outside(&self, theme: &$crate::Theme) -> $crate::TapOutside {
+                self.inner.tap_outside(theme)
+            }
+
+            fn keyboard_dismiss_behavior(&self) -> Option<$crate::KeyboardDismissBehavior> {
+                self.inner.keyboard_dismiss_behavior()
+            }
+
             fn paint_over(
                 &self,
                 bounds: frus_core::Rect,

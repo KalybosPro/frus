@@ -8,11 +8,24 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 749 so far, each documenting the objective, the alternatives
+> record — one per step, 750 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Scrolling with the keyboard up keeps it up** (J750): on a touch screen a press outside the
+  focused field took the focus away the moment the finger came down, so any scroll that started
+  outside the field closed the on-screen keyboard, on Android and on the Web. A press outside now
+  moves nothing until it is known to be a tap — lifted within the slop, without having become a
+  scroll, a fling or another drag — and a tap does what the field's new `TextField::tap_outside`
+  says (`TapOutside::Unfocus`, the default, or `TapOutside::Keep`; themed through
+  `TextFieldTheme::tap_outside`). A press on another field still moves the focus at once, and a
+  button tapped with the keyboard up is pressed. Scrollables gain `keyboard_dismiss_behavior`
+  (`SingleChildScrollView`, `ListView`, `GridView`, and `ScrollBehavior::with_keyboard_dismiss_behavior`
+  for a subtree): `Manual`, the default, keeps the keyboard while scrolling, `OnDrag` lets the
+  focus go when a finger starts scrolling. A mouse press outside is still the click it was. On
+  the Web, the editing element takes the browser's focus straight back when winit focuses the
+  canvas on a press, so a scroll no longer blurs it and the keyboard stays.
 - **A caret on the right side of a change of direction** (J747): a caret position now carries an
   affinity (`TextAffinity`, `TextPosition` in `frus-core`, re-exported), so at a boundary drawn in
   two places — a soft wrap, or where Latin meets Hebrew or Arabic, or digits sit inside them — the
