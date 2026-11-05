@@ -89,6 +89,8 @@ pub struct GridView<Msg = crate::callback::Callback> {
     rows: OnceCell<RowAt<Msg>>,
     /// How it behaves at its edges and after a fling; see [`GridView::physics`].
     physics: Option<crate::physics::ScrollPhysics>,
+    /// What a finger dragging it does to the focus; `None` follows the scroll behaviour.
+    keyboard_dismiss: Option<crate::KeyboardDismissBehavior>,
     /// Whether it is the page's primary scroll view; see [`GridView::primary`].
     primary: Option<bool>,
     /// Told where this grid is whenever it moves; see [`GridView::on_scroll`].
@@ -114,6 +116,7 @@ impl<Msg> GridView<Msg> {
             composed: OnceCell::new(),
             rows: OnceCell::new(),
             physics: None,
+            keyboard_dismiss: None,
             primary: None,
             on_scroll: None,
             grain: 0.0,
@@ -170,6 +173,7 @@ impl<Msg> GridView<Msg> {
             composed: OnceCell::new(),
             rows: OnceCell::new(),
             physics: None,
+            keyboard_dismiss: None,
             primary: None,
             on_scroll: None,
             grain: 0.0,
@@ -231,6 +235,7 @@ impl<Msg> GridView<Msg> {
             composed: OnceCell::new(),
             rows: OnceCell::new(),
             physics: None,
+            keyboard_dismiss: None,
             primary: None,
             on_scroll: None,
             grain: 0.0,
@@ -314,6 +319,17 @@ impl<Msg> GridView<Msg> {
     /// [`crate::scroll::SingleChildScrollView::physics`].
     pub fn physics(mut self, physics: crate::physics::ScrollPhysics) -> Self {
         self.physics = Some(physics);
+        self
+    }
+
+    /// What a finger **dragging the grid** does to the focus (milestone 750):
+    /// [`KeyboardDismissBehavior::OnDrag`](crate::KeyboardDismissBehavior::OnDrag) lets the
+    /// focused field, and the on-screen keyboard, go as soon as it starts scrolling;
+    /// [`Manual`](crate::KeyboardDismissBehavior::Manual) keeps them. Unset, the
+    /// [`ScrollBehavior`](crate::ScrollBehavior) in force decides — `Manual` unless told
+    /// otherwise.
+    pub fn keyboard_dismiss_behavior(mut self, behavior: crate::KeyboardDismissBehavior) -> Self {
+        self.keyboard_dismiss = Some(behavior);
         self
     }
 
@@ -499,6 +515,10 @@ impl<Msg: Clone + 'static> Widget<Msg> for GridView<Msg> {
                 .unwrap_or(true)
                 .then_some(crate::physics::ScrollPhysics::ALWAYS)
         })
+    }
+
+    fn keyboard_dismiss_behavior(&self) -> Option<crate::KeyboardDismissBehavior> {
+        self.keyboard_dismiss
     }
 
     fn on_scroll(&self, position: crate::ScrollPosition) -> Option<Msg> {

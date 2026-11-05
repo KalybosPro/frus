@@ -669,6 +669,21 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// What a **tap outside this widget while it holds the focus** does to the focus
+    /// (milestone 750), under `theme`: by default the focus goes where the tap went. A
+    /// field answers from its own setting, then its theme's. See [`crate::TapOutside`].
+    fn tap_outside(&self, _theme: &Theme) -> crate::TapOutside {
+        crate::TapOutside::Unfocus
+    }
+
+    /// What a **drag on this scrollable** does to the focus (milestone 750), when it wants
+    /// its own answer. `None` — the default — follows the
+    /// [`ScrollBehavior`](crate::ScrollBehavior) in force. See
+    /// [`crate::KeyboardDismissBehavior`].
+    fn keyboard_dismiss_behavior(&self) -> Option<crate::KeyboardDismissBehavior> {
+        None
+    }
+
     /// If `true`, a focusable widget **takes the focus when it appears**: a menu's first
     /// row when the menu opens, a field on a screen made to type into (milestone 605). Where
     /// the focus came from is remembered, and it goes back there when this one goes.
@@ -2146,6 +2161,12 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn on_tap_outside(&self) -> Option<Msg> {
         (**self).on_tap_outside()
+    }
+    fn tap_outside(&self, theme: &Theme) -> crate::TapOutside {
+        (**self).tap_outside(theme)
+    }
+    fn keyboard_dismiss_behavior(&self) -> Option<crate::KeyboardDismissBehavior> {
+        (**self).keyboard_dismiss_behavior()
     }
 
     fn shortcut_bindings(&self) -> &[(crate::shortcuts::KeyStroke, crate::shortcuts::Intent)] {

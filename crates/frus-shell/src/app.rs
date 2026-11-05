@@ -1120,6 +1120,11 @@ pub struct App<A: Application> {
     /// A finger came down on words in a selection area: a hold there selects the word under it
     /// and opens the bar (milestone 576).
     pending_region_hold: bool,
+    /// A finger came down outside the focused widget (milestone 750): where the focus goes
+    /// if the press turns out to be a tap — lifted within the slop of where it landed,
+    /// without having become a scroll or any other drag. A press that becomes one leaves
+    /// the focus, and the on-screen keyboard, where they were.
+    pending_tap_focus: Option<PendingFocus>,
     /// The focused field's caret blink (milestone 513).
     caret: crate::caret::CaretBlink,
     /// The form last shown to the platform's autofill service, as it was shown
@@ -1249,6 +1254,13 @@ pub struct App<A: Application> {
     /// the bottom of the screen, and a field under it is a field the reader cannot see
     /// while typing in it.
     reveal_after_keyboard: bool,
+    /// Until when frames keep coming after the on-screen keyboard was asked to open or
+    /// close (milestone 750). The keyboard slides in and out over a few hundred
+    /// milliseconds, and on Android winit drops the content-rect changes that say so: with
+    /// nothing else animating — a field that has just let the focus go has no caret left to
+    /// blink — the window kept the keyboard's inset, the bottom of the screen empty, until
+    /// the next touch.
+    keyboard_settle: Option<Instant>,
     /// What the **platform** last said about the person using it: the font-size slider,
     /// the night setting, the accessibility switches.
     ///
@@ -1383,6 +1395,7 @@ impl<A: Application> App<A> {
             long_press_msg: None,
             pending_word: None,
             pending_region_hold: false,
+            pending_tap_focus: None,
             caret: crate::caret::CaretBlink::new(),
             #[cfg(android)]
             autofill_reported: Vec::new(),
@@ -1433,6 +1446,7 @@ impl<A: Application> App<A> {
             shortcuts_refused: Default::default(),
             window_icon: None,
             reveal_after_keyboard: false,
+            keyboard_settle: None,
             platform: PlatformSettings::default(),
             inset_baseline: None,
             // The app starts out detached; `resumed` will move it to `Resumed`.
@@ -1717,6 +1731,8 @@ impl<A: Application> App<A> {
                 .is_some_and(wants_keyboard);
             if editing != self.soft_input_shown {
                 self.soft_input_shown = editing;
+                self.keyboard_settle = Some(Instant::now() + KEYBOARD_SETTLE);
+                self.request_redraw();
                 self.end_composition();
                 if crate::android_ime::installed() {
                     // The InputConnection bridge: the Java view captures the IME.
@@ -1796,6 +1812,7 @@ impl<A: Application> App<A> {
                 return;
             }
             self.soft_input_shown = true;
+            self.keyboard_settle = Some(Instant::now() + KEYBOARD_SETTLE);
             self.end_composition();
             if crate::android_ime::installed() {
                 if let Some(id) = self.runtime.input.focused {
@@ -2925,6 +2942,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     Some(simulated) => simulated.insets(),
                     None => WindowInsets::from_baseline(baseline, raw),
                 };
+                // A keyboard on its way in or out: the next frame reads the insets again,
+                // nothing else telling the shell when they have moved (milestone 750).
+                if let Some(until) = self.keyboard_settle {
+                    if Instant::now() < until {
+                        self.request_redraw();
+                    } else {
+                        self.keyboard_settle = None;
+                    }
+                }
                 if self.last_insets != insets {
                     if insets.view_insets.bottom > self.last_insets.view_insets.bottom {
                         self.reveal_after_keyboard = true;
@@ -4664,6 +4690,7 @@ impl<A: Application> App<A> {
                 {
                     // The long press evicted the tap, so the release is swallowed.
                     self.drag = None;
+                    self.pending_tap_focus = None;
                     self.runtime.input.pressed = None;
                     self.request_redraw();
                 } else {
@@ -4672,6 +4699,8 @@ impl<A: Application> App<A> {
             }
             PointerKind::Cancel => {
                 self.press.cancel();
+                // A cancelled press was no tap: the focus stays (milestone 750).
+                self.pending_tap_focus = None;
                 self.pending_lift = None;
                 self.pending_reorder = None;
                 self.pending_word = None;
@@ -5051,6 +5080,7 @@ impl<A: Application> App<A> {
     /// scrolling when no other gesture captures the press.
     fn pointer_down(&mut self, touch: bool) {
         self.pointer_touch = touch;
+        self.pending_tap_focus = None;
         // A first tap still waiting for its second is a tap after all if this press is not
         // that second one: somewhere else, or too late.
         self.poll_pending_tap(Instant::now());
@@ -5244,8 +5274,35 @@ impl<A: Application> App<A> {
                 self.dispatch(message);
             }
         }
-        self.runtime.input.focused = focus.map(|(id, _)| id);
-        if let Some((id, rect)) = focus {
+        // Where the press sends the focus (milestone 750). On the focused widget itself, or
+        // on a field — which places its caret now — it goes there at once. Anywhere else the
+        // focused widget's `tap_outside` decides, and a finger is not yet a tap: the decision
+        // waits for the release, so that a scroll begun outside a field keeps the field, and
+        // its keyboard. A mouse press is already the click.
+        let target = focus.map(|(id, _)| id);
+        let decided = match previously_focused {
+            Some(held) if target != Some(held) && !self.takes_caret(focus) => {
+                let policy = self
+                    .ui
+                    .as_ref()
+                    .map_or(frus_widgets::TapOutside::Unfocus, |ui| ui.tap_outside(held));
+                let after = focus_after_tap_outside(held, target, policy);
+                if touch {
+                    self.pending_tap_focus = Some(PendingFocus {
+                        target: after,
+                        at: self.cursor,
+                    });
+                    previously_focused
+                } else {
+                    after
+                }
+            }
+            _ => target,
+        };
+        self.runtime.input.focused = decided;
+        // A press that left the focus where it was places no caret in the widget it hit.
+        let placed = focus.filter(|(id, _)| decided == Some(*id));
+        if let Some((id, rect)) = placed {
             let local_x = self.cursor.x - rect.x;
             // The retained vertical scroll, in a multi-line field, is part of the
             // content coordinate: we add it so the click lands on the right line.
@@ -5490,6 +5547,23 @@ impl<A: Application> App<A> {
         self.request_redraw();
     }
 
+    /// Whether a press on `hit` places a caret there — a field, a selectable text — and so
+    /// takes the focus at once, whatever the focused widget says of a tap outside it.
+    fn takes_caret(&self, hit: Option<(WidgetId, Rect)>) -> bool {
+        let Some((id, rect)) = hit else {
+            return false;
+        };
+        let local_y = self.cursor.y - rect.y + self.runtime.scroll.get(&id).map_or(0.0, |s| s.1);
+        self.tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .is_some_and(|widget| {
+                widget
+                    .cursor_at(self.cursor.x - rect.x, local_y, rect.width, 0)
+                    .is_some()
+            })
+    }
+
     /// A pointer release, mouse or finger: it ends a drag, or commits a click or tap
     /// when the release lands back on the widget that was pressed.
     /// What widget `id` emits for a click at the pointer on one of its sub-regions — see
@@ -5508,6 +5582,16 @@ impl<A: Application> App<A> {
 
     fn pointer_up(&mut self) {
         let ended = self.drag.take();
+        // A finger that came down outside the focused widget and lifted as a tap: the focus
+        // goes where the widget's `tap_outside` said (milestone 750).
+        if let Some(pending) = self.pending_tap_focus.take() {
+            let still =
+                (self.cursor.x - pending.at.x).hypot(self.cursor.y - pending.at.y) <= TOUCH_SLOP;
+            if still && (ended.is_none() || gesture_was_a_tap(ended.as_ref())) {
+                self.runtime.input.focused = pending.target;
+                self.request_redraw();
+            }
+        }
         if let Some(Drag::Back { .. }) = ended {
             // The app decides — commit or cancel — from the velocity, which it wants
             // in **fractions of the screen** per second, not pixels.
@@ -6804,6 +6888,21 @@ impl<A: Application> App<A> {
                         ));
                     } else {
                         *axis = Some(down);
+                    }
+                    // The scroll has begun: an area that puts the keyboard away on a drag
+                    // lets the focus go now (milestone 750).
+                    let on_drag = self
+                        .ui
+                        .as_ref()
+                        .and_then(|ui| ui.scroll_region(*id))
+                        .is_some_and(|area| {
+                            area.keyboard_dismiss == frus_widgets::KeyboardDismissBehavior::OnDrag
+                        });
+                    if on_drag {
+                        self.pending_tap_focus = None;
+                        if self.runtime.input.focused.take().is_some() {
+                            self.request_redraw();
+                        }
                     }
                 }
                 // Only the claimed axis moves. The other delta is not held back for later:
@@ -9352,6 +9451,34 @@ fn mask_pan(axis: frus_widgets::PanAxis, value: Point) -> Point {
     }
 }
 
+/// Where a press outside the focused widget sends the focus, by that widget's
+/// `tap_outside` (milestone 750): where the press went, or nowhere new.
+fn focus_after_tap_outside(
+    held: WidgetId,
+    target: Option<WidgetId>,
+    policy: frus_widgets::TapOutside,
+) -> Option<WidgetId> {
+    match policy {
+        frus_widgets::TapOutside::Unfocus => target,
+        frus_widgets::TapOutside::Keep => Some(held),
+    }
+}
+
+/// A finger's press outside the focused widget, waiting to be known as a tap (milestone
+/// 750).
+#[derive(Clone, Copy, Debug)]
+struct PendingFocus {
+    /// Where the focus goes if it is one.
+    target: Option<WidgetId>,
+    /// Where the finger came down.
+    at: Point,
+}
+
+/// How long frames keep coming after the on-screen keyboard was asked to open or close, for
+/// the insets to be read as it slides (milestone 750): the system's animation, with room.
+#[cfg_attr(not(android), allow(dead_code))]
+const KEYBOARD_SETTLE: std::time::Duration = std::time::Duration::from_millis(1000);
+
 fn gesture_was_a_tap(ended: Option<&Drag>) -> bool {
     matches!(
         ended,
@@ -10677,6 +10804,7 @@ mod tests {
             reverse_y: false,
             host: None,
             keep_visible: None,
+            keyboard_dismiss: Default::default(),
         }
     }
 
@@ -11127,6 +11255,7 @@ mod scroll_request_tests {
             reverse_y: false,
             keep_visible: None,
             host: None,
+            keyboard_dismiss: Default::default(),
         }
     }
 
@@ -16596,5 +16725,222 @@ mod listview_selection_tests {
             copy(&mut d).as_deref(),
             Some("cell 00\ncell 01\ncell 02\ncell 03")
         );
+    }
+}
+
+/// **Scrolling with the keyboard up keeps it up** (milestone 750): a finger that comes down
+/// outside the focused field and scrolls leaves the field focused and the keyboard where it
+/// was; only a tap outside lets them go, as the field's `tap_outside` says; a scrollable
+/// that puts the keyboard away on a drag does so when the drag starts; and a mouse press
+/// outside is the click it always was.
+#[cfg(test)]
+mod keyboard_stays_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{
+        Button, Flex, KeyboardDismissBehavior, Point, SingleChildScrollView, TapOutside, Text,
+        TextField, Theme, Widget,
+    };
+
+    const W: f32 = 393.0;
+    const H: f32 = 852.0;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Typed,
+        Pressed,
+    }
+
+    #[derive(Default)]
+    struct Form {
+        /// The scroll view's answer to a drag, when it has one.
+        dismiss: Option<KeyboardDismissBehavior>,
+        /// The field's answer to a tap outside, when it has one.
+        outside: Option<TapOutside>,
+        pressed: usize,
+    }
+
+    impl Application for Form {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            if message == Msg::Pressed {
+                self.pressed += 1;
+            }
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            let mut field = TextField::new("the field").on_input(|_| Msg::Typed);
+            if let Some(outside) = self.outside {
+                field = field.tap_outside(outside);
+            }
+            let mut column = Flex::column()
+                .child(field)
+                .child(Button::new("the button").on_press(Msg::Pressed));
+            for row in 0..60 {
+                column = column.child(Text::new(format!("row {row:02}")).size(16.0));
+            }
+            let mut scroll = SingleChildScrollView::new()
+                .width(W)
+                .height(H)
+                .child(column);
+            if let Some(dismiss) = self.dismiss {
+                scroll = scroll.keyboard_dismiss_behavior(dismiss);
+            }
+            Box::new(scroll)
+        }
+    }
+
+    fn driver(form: Form) -> Driver<Form> {
+        let mut d = Driver::new(form, W, H);
+        d.simulate("android-phone");
+        d.run(0.2);
+        d
+    }
+
+    /// A point inside the text reading `label`.
+    fn at(d: &Driver<Form>, label: &str) -> Point {
+        let (_, r) = d
+            .texts()
+            .into_iter()
+            .find(|(t, _)| t.contains(label))
+            .unwrap_or_else(|| panic!("{label}: {:?}", d.texts()));
+        Point::new(r.x + 5.0, r.y + r.height * 0.5)
+    }
+
+    fn tap(d: &mut Driver<Form>, at: Point) {
+        d.press(at);
+        d.release(at);
+        d.run(0.1);
+    }
+
+    /// The field focused by a tap, with its keyboard up.
+    fn focus_the_field(d: &mut Driver<Form>) {
+        let field = at(d, "the field");
+        tap(d, field);
+        assert!(d.focused().is_some(), "the tap focused the field");
+        assert!(d.simulated_keyboard(), "and brought the keyboard up");
+    }
+
+    /// The scroll view's offset down.
+    fn offset(d: &Driver<Form>) -> f32 {
+        d.offsets().first().map_or(0.0, |(_, o)| o.1)
+    }
+
+    /// A finger from `from` upwards by `by`, in steps, still down at the end.
+    fn drag_up(d: &mut Driver<Form>, from: Point, by: f32) {
+        d.press(from);
+        d.run(0.02);
+        for step in 1..=10 {
+            d.move_to(Point::new(from.x, from.y - by * step as f32 / 10.0));
+            d.run(0.02);
+        }
+    }
+
+    /// **A scroll begun outside the field keeps the field and its keyboard**, and the page
+    /// moves. Before, the press itself took the focus away, and the keyboard with it.
+    #[test]
+    fn a_scroll_outside_the_field_keeps_the_keyboard() {
+        let mut d = driver(Form::default());
+        focus_the_field(&mut d);
+        let field = d.focused();
+        let from = at(&d, "row 10");
+        drag_up(&mut d, from, 200.0);
+        assert_eq!(d.focused(), field, "still focused while the finger scrolls");
+        let end = Point::new(from.x, from.y - 200.0);
+        d.release(end);
+        d.run(0.3);
+        assert_eq!(d.focused(), field, "still focused after the scroll");
+        assert!(d.simulated_keyboard(), "the keyboard stayed up");
+        assert!(offset(&d) > 100.0, "the page scrolled: {}", offset(&d));
+    }
+
+    /// **A tap outside the field lets it go**, and the keyboard with it, when the finger
+    /// lifts, not when it comes down.
+    #[test]
+    fn a_tap_outside_lets_the_field_go() {
+        let mut d = driver(Form::default());
+        focus_the_field(&mut d);
+        let field = d.focused();
+        let row = at(&d, "row 05");
+        d.press(row);
+        d.run(0.05);
+        assert_eq!(d.focused(), field, "a finger down is not a tap yet");
+        d.release(row);
+        d.run(0.1);
+        assert_eq!(d.focused(), None, "the tap let the field go");
+        assert!(!d.simulated_keyboard(), "and the keyboard");
+    }
+
+    /// **A field that keeps its focus keeps it through a tap outside**, and a tap on a button
+    /// still presses the button.
+    #[test]
+    fn a_field_told_to_keep_the_focus_keeps_it() {
+        let mut d = driver(Form {
+            outside: Some(TapOutside::Keep),
+            ..Form::default()
+        });
+        focus_the_field(&mut d);
+        let field = d.focused();
+        let row = at(&d, "row 05");
+        tap(&mut d, row);
+        assert_eq!(d.focused(), field, "a tap on a row keeps the field");
+        let button = at(&d, "the button");
+        tap(&mut d, button);
+        assert_eq!(d.app().pressed, 1, "the button was pressed");
+        assert_eq!(d.focused(), field, "and the field kept the focus");
+        assert!(d.simulated_keyboard(), "and its keyboard");
+    }
+
+    /// **A button tapped with the keyboard up is pressed**, and the focus goes to it, by the
+    /// default `tap_outside`.
+    #[test]
+    fn a_button_tapped_with_the_keyboard_up_is_pressed() {
+        let mut d = driver(Form::default());
+        focus_the_field(&mut d);
+        let field = d.focused();
+        let button = at(&d, "the button");
+        tap(&mut d, button);
+        assert_eq!(d.app().pressed, 1, "the button was pressed");
+        assert_ne!(d.focused(), field, "the field let the focus go");
+        assert!(!d.simulated_keyboard(), "and the keyboard");
+    }
+
+    /// **A scroll view that puts the keyboard away on a drag** lets the field go as soon as
+    /// the finger starts scrolling, before it lifts.
+    #[test]
+    fn a_scroll_view_told_to_dismiss_on_drag_lets_the_field_go() {
+        let mut d = driver(Form {
+            dismiss: Some(KeyboardDismissBehavior::OnDrag),
+            ..Form::default()
+        });
+        focus_the_field(&mut d);
+        let field = d.focused();
+        let from = at(&d, "row 10");
+        d.press(from);
+        d.run(0.02);
+        assert_eq!(d.focused(), field, "a finger down is not a drag yet");
+        d.release(from);
+        d.run(0.02);
+        focus_the_field(&mut d);
+        drag_up(&mut d, from, 200.0);
+        assert_eq!(d.focused(), None, "the drag let the field go");
+        assert!(!d.simulated_keyboard(), "and the keyboard");
+        d.release(Point::new(from.x, from.y - 200.0));
+        d.run(0.3);
+        assert!(offset(&d) > 100.0, "the page scrolled: {}", offset(&d));
+    }
+
+    /// **A mouse press outside is the click**: the field lets the focus go when the button
+    /// goes down, as on a desktop.
+    #[test]
+    fn a_mouse_press_outside_lets_the_field_go_at_once() {
+        let mut d = driver(Form::default());
+        focus_the_field(&mut d);
+        let row = at(&d, "row 05");
+        d.press_mouse(row);
+        assert_eq!(d.focused(), None, "the press let the field go");
+        d.release_mouse(row);
     }
 }
