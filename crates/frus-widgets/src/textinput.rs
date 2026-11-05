@@ -307,6 +307,9 @@ pub struct TextField<Msg = crate::callback::Callback> {
     /// field does.
     toolbars:
         [std::cell::OnceCell<Option<Box<dyn Widget<Msg>>>>; ToolbarContext::VARIANTS as usize],
+    /// Where the caret and the selection are kept for restoration, and the scroll of a
+    /// multi-line field; see [`TextField::restoration_id`].
+    restoration: Option<Vec<String>>,
 }
 
 /// What an application gives [`TextField::selection_toolbar`]: the context, and the default
@@ -644,7 +647,23 @@ impl<Msg> TextField<Msg> {
             autofill: Vec::new(),
             toolbar_build: None,
             toolbars: Default::default(),
+            restoration: None,
         }
+    }
+
+    /// Keeps the caret and the selection across the end of the process (milestone 753):
+    /// when the application has restoration on, they are kept under `id` — and how far a
+    /// multi-line field is scrolled, under `id` too — and a process the system started again
+    /// puts them back. `id` must be unique within its scope — the page, or a
+    /// [`restoration_scope`](crate::restoration_scope).
+    ///
+    /// The text is the controller's to keep: make it with
+    /// [`BuildContext::use_restorable_text_controller`](crate::BuildContext::use_restorable_text_controller),
+    /// or keep the value the field is given with
+    /// [`BuildContext::use_restorable_state`](crate::BuildContext::use_restorable_state).
+    pub fn restoration_id(mut self, id: &str) -> Self {
+        self.restoration = Some(crate::restoration::path_here(id));
+        self
     }
 
     /// **Outlined**: a box the caller can see all the way round, the floating label
@@ -1646,6 +1665,25 @@ impl<Msg> TextField<Msg> {
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
+    /// Registers the caret, the selection and the scroll under the field's restoration id,
+    /// if it has one (milestone 753).
+    fn build_in(
+        &self,
+        id: crate::interaction::WidgetId,
+        runtime: &crate::runtime::Runtime,
+        theme: &Theme,
+    ) {
+        if let Some(path) = &self.restoration {
+            let mut selection = path.clone();
+            selection.push("selection".to_string());
+            runtime.restoration.register_edit(selection, id);
+            let mut scroll = path.clone();
+            scroll.push("scroll".to_string());
+            runtime.restoration.register_scroll(scroll, id);
+        }
+        self.build_themed(theme)
+    }
+
     /// **All the room on offer** on an axis nobody sized, as the reference's takes
     /// (milestone 590) — unless it was told to grow, which says the same thing already.
     fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {

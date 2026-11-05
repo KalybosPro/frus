@@ -446,6 +446,8 @@ struct Page {
     key: u64,
     node: Option<Rc<Node>>,
     state: Rc<GoRouterState>,
+    /// Whether it was pushed rather than made by a `go`: what restoring the stack replays.
+    pushed: bool,
 }
 
 struct Transition {
@@ -492,6 +494,11 @@ struct Inner {
     transitions: Cell<crate::PageTransitionsBuilder>,
     unique: Cell<u64>,
     refresh: RefCell<Option<Subscription>>,
+    /// Whether the stack restored for this router has been looked for (milestone 753).
+    restoration_checked: Cell<bool>,
+    /// The restoration scope of each page at the last build: a page that left the stack
+    /// takes its scope's values with it.
+    page_scopes: RefCell<Vec<Vec<String>>>,
 }
 
 /// The routes, and the stack of pages showing which of them the person has been through.
@@ -541,6 +548,8 @@ impl GoRouter {
                 replaced: Cell::new(false),
                 unique: Cell::new(0),
                 refresh: RefCell::new(None),
+                restoration_checked: Cell::new(false),
+                page_scopes: RefCell::new(Vec::new()),
             }),
         }
     }
@@ -901,6 +910,7 @@ impl GoRouter {
                                 key: hash_of(("go", prefix.clone(), node.full_path.clone())),
                                 node: Some(node.clone()),
                                 state: Rc::new(page_state),
+                                pushed: false,
                             }
                         })
                         .collect()
@@ -917,6 +927,7 @@ impl GoRouter {
                         key: hash_of(("push", unique)),
                         node: Some(leaf),
                         state: Rc::new(state),
+                        pushed: true,
                     });
                     pages
                 }
@@ -931,6 +942,7 @@ impl GoRouter {
             key: hash_of(("error", unique)),
             node: None,
             state: Rc::new(state),
+            pushed: mode != Mode::Go,
         };
         match mode {
             Mode::Go => vec![page],
@@ -1095,12 +1107,68 @@ impl GoRouter {
         request_rebuild();
     }
 
+    // ---- restoration -------------------------------------------------------------------
+
+    /// At the first build: the stack restored for this router, if the platform handed one
+    /// back, replaces the one it starts with; and from then on the stack is kept
+    /// (milestone 753).
+    fn restore(&self, cx: &BuildContext) {
+        if self.inner.restoration_checked.replace(true) {
+            return;
+        }
+        let restoration = &cx.runtime().restoration;
+        if !restoration.is_enabled() || !restoration.restores_router() {
+            return;
+        }
+        let path = cx.restoration_path("router");
+        if let Some(saved) = restoration.claim(&path) {
+            self.restore_stack(&saved);
+        }
+        let weak = Rc::downgrade(&self.inner);
+        restoration.register(path, move || match weak.upgrade() {
+            Some(inner) => crate::restoration::Reading::Value(write_stack(&inner.stack.borrow())),
+            None => crate::restoration::Reading::Gone,
+        });
+    }
+
+    /// Rebuilds the stack `saved` describes: the pages a `go` made, then each one pushed on
+    /// top. Left as it is when a link opened the application somewhere else since.
+    fn restore_stack(&self, saved: &str) {
+        let entries = read_stack(saved);
+        let Some(top) = entries.last() else {
+            return;
+        };
+        let here = self.location();
+        let initial = self.inner.config.borrow().initial.clone();
+        if here != initial && here != top.1 {
+            return;
+        }
+        let base = entries
+            .iter()
+            .rev()
+            .find(|(pushed, _)| !pushed)
+            .map(|(_, location)| location.clone())
+            .unwrap_or(initial);
+        let mut pages = self.pages_for(&base, None, Mode::Go, &[]);
+        for (_, location) in entries.iter().filter(|(pushed, _)| *pushed) {
+            pages = self.pages_for(location, None, Mode::Push, &pages);
+        }
+        let mut stack = self.inner.stack.borrow_mut();
+        stack.pages = pages;
+        stack.transition = None;
+        stack.back = None;
+        drop(stack);
+        self.inner.replaced.set(false);
+        request_rebuild();
+    }
+
     // ---- building ----------------------------------------------------------------------
 
     /// The widget for the router's pages: what an application whose root is a router
     /// builds. It also makes the router reachable from below, with [`BuildContext::router`].
     pub fn build(&self, cx: &BuildContext) -> Box<dyn Widget> {
         self.start();
+        self.restore(cx);
         self.inner.built.set(true);
         let theme = cx.theme();
         self.inner
@@ -1133,7 +1201,36 @@ impl GoRouter {
                 router.pop();
             })
         };
+        // Every page has a restoration scope of its own, named by where it is in the stack
+        // and where it leads: ids only have to be unique within a page, and a page that
+        // leaves the stack takes its values with it.
+        let scopes: Vec<Vec<String>> = pages
+            .iter()
+            .enumerate()
+            .map(|(at, page)| {
+                crate::restoration::scope_below(
+                    cx.scope(),
+                    &format!("route {at} {}", page.state.location),
+                )
+                .to_vec()
+            })
+            .collect();
+        {
+            let mut before = self.inner.page_scopes.borrow_mut();
+            for gone in before.iter().filter(|scope| !scopes.contains(scope)) {
+                cx.runtime().restoration.forget_scope(gone);
+            }
+            *before = scopes.clone();
+        }
+        let scope_of = |page: &Page| -> crate::restoration::Scope {
+            match pages.iter().position(|p| p.key == page.key) {
+                Some(at) => Rc::from(scopes[at].clone()),
+                // The page leaving, after a pop: its scope is already forgotten.
+                None => crate::restoration::scope_below(cx.scope(), "route leaving"),
+            }
+        };
         let make_page = |page: &Page, entering: f32| -> Box<dyn Widget> {
+            let _scope = crate::restoration::enter_scope(scope_of(page));
             let state = GoRouterState {
                 entering,
                 ..(*page.state).clone()
@@ -1212,6 +1309,38 @@ impl GoRouter {
             }
         }
     }
+}
+
+/// The stack as a restorable value: a line per page, `g` for one a `go` made and `p` for one
+/// pushed, then its location.
+fn write_stack(stack: &Stack) -> String {
+    stack
+        .pages
+        .iter()
+        .map(|page| {
+            format!(
+                "{}{}",
+                if page.pushed { 'p' } else { 'g' },
+                page.state.location
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn read_stack(saved: &str) -> Vec<(bool, String)> {
+    saved
+        .lines()
+        .filter_map(|line| {
+            let mut chars = line.chars();
+            let pushed = match chars.next()? {
+                'p' => true,
+                'g' => false,
+                _ => return None,
+            };
+            Some((pushed, chars.as_str().to_string()))
+        })
+        .collect()
 }
 
 impl BuildContext<'_> {

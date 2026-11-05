@@ -76,6 +76,7 @@ pub struct FrusApp {
     restore: Option<Restore>,
     strategy: LocationStrategy,
     instance: Option<String>,
+    restoration: Option<String>,
 }
 
 impl FrusApp {
@@ -144,6 +145,7 @@ impl FrusApp {
             restore: None,
             strategy: LocationStrategy::Hash,
             instance: None,
+            restoration: None,
         }
     }
 
@@ -205,6 +207,29 @@ impl FrusApp {
     /// [`LocationStrategy`].
     pub fn location_strategy(mut self, strategy: LocationStrategy) -> Self {
         self.strategy = strategy;
+        self
+    }
+
+    /// Turns **state restoration** on (milestone 753), the application's values kept under
+    /// `id`: when the system ends the process in the background — a phone short of memory
+    /// does — the person comes back to the page they left, scrolled where it was, with what
+    /// they had typed. See [`Application::restoration_scope_id`].
+    ///
+    /// ```
+    /// use frus_shell::FrusApp;
+    /// use frus_widgets::{text, GoRoute, GoRouter};
+    ///
+    /// let router = GoRouter::new(vec![GoRoute::new("/", |_, _| text("home"))]);
+    /// let app = FrusApp::router(router).restoration_scope_id("app");
+    /// # let _ = app;
+    /// ```
+    ///
+    /// The router's stack is then kept on its own; what a page keeps is what it registers —
+    /// [`BuildContext::use_restorable_state`](frus_widgets::BuildContext::use_restorable_state),
+    /// [`BuildContext::use_restorable_text_controller`](frus_widgets::BuildContext::use_restorable_text_controller),
+    /// a field's or a list's `restoration_id`.
+    pub fn restoration_scope_id(mut self, id: impl Into<String>) -> Self {
+        self.restoration = Some(id.into());
         self
     }
 
@@ -449,6 +474,10 @@ impl Application for FrusApp {
 
     fn instance_id(&self) -> Option<String> {
         self.instance.clone()
+    }
+
+    fn restoration_scope_id(&self) -> Option<String> {
+        self.restoration.clone()
     }
 
     fn can_go_back(&self) -> bool {

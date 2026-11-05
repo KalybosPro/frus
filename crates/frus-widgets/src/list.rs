@@ -185,6 +185,8 @@ pub struct ListView<Msg = crate::callback::Callback> {
     build: Box<dyn Fn(usize) -> Box<dyn Widget<Msg>>>,
     /// Each item as long as it needs; `item_extent` the guess for those not seen yet.
     variable: bool,
+    /// Where the offset is kept for restoration; see [`ListView::restoration_id`].
+    restoration: Option<Vec<String>>,
 }
 
 impl<Msg> ListView<Msg> {
@@ -215,6 +217,7 @@ impl<Msg> ListView<Msg> {
             grain: 0.0,
             build: Box::new(move |index| Box::new(build(index)) as Box<dyn Widget<Msg>>),
             variable: false,
+            restoration: None,
         }
     }
 
@@ -251,6 +254,15 @@ impl<Msg> ListView<Msg> {
         if self.variable {
             self.item_extent = extent;
         }
+        self
+    }
+
+    /// Keeps how far the list is scrolled across the end of the process (milestone 753):
+    /// when the application has restoration on, the offset is kept under `id` and a process
+    /// the system started again opens the list where it was. `id` must be unique within its
+    /// scope — the page, or a [`restoration_scope`](crate::restoration_scope).
+    pub fn restoration_id(mut self, id: &str) -> Self {
+        self.restoration = Some(crate::restoration::path_here(id));
         self
     }
 
@@ -385,6 +397,19 @@ impl<Msg> ListView<Msg> {
 }
 
 impl<Msg> Widget<Msg> for ListView<Msg> {
+    /// Registers the offset under its restoration id, if it has one (milestone 753).
+    fn build_in(
+        &self,
+        id: crate::interaction::WidgetId,
+        runtime: &crate::runtime::Runtime,
+        theme: &crate::theme::Theme,
+    ) {
+        if let Some(path) = &self.restoration {
+            runtime.restoration.register_scroll(path.clone(), id);
+        }
+        self.build_themed(theme)
+    }
+
     fn style(&self) -> Style {
         Style {
             width: self.width,

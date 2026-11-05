@@ -1720,6 +1720,8 @@ dependencies = [
  "frus-text",
  "log",
  "png 0.17.16",
+ "serde",
+ "serde_json",
  "subsecond",
  "typed-arena",
 ]
