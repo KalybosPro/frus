@@ -99,7 +99,12 @@ screenshots, `dumpsys input_method` and logcat.
 5. **Navigation**: the bottom tabs switch, the drawer opens, a page is pushed and Back pops it;
    Back at the root sends the application to the background, without a crash.
 
-The shadows of milestone 746 are not in this branch's base, and were not checked.
+6. **Shadows** (milestone 746, merged into the base during this step): the branch rebuilt with
+   it and installed again; in the dark and the light theme the floating button's shadow is soft
+   and fades out without an edge or a band, and the card's is a faint drop below it.
+
+After the session the version that was on the phone before (0.2.1) was installed back, the
+rotation settings were as found, and no `adb` forward or reverse mapping was made.
 
 ## How it was tested
 
