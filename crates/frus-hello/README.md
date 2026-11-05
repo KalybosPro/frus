@@ -18,11 +18,13 @@ to one belongs in the other. See
 ## Running it
 
 ```sh
-cargo run -p frus-hello                    # desktop
-cargo apk run -p frus-hello --lib          # Android, with cargo-apk, the SDK and the NDK
+cd crates/frus-hello
+frus run                 # desktop
+frus run -d android      # Android: the connected phone, or an emulator
+frus run -d web          # in the browser
 ```
 
-The web build is described in
+`frus` comes from `cargo install frus-cli`. The web build by hand is described in
 [`web/README.md`](https://github.com/frus-rs/frus/blob/master/crates/frus-hello/web/README.md).
 
 ## Part of frus

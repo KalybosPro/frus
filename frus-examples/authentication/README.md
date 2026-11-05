@@ -20,14 +20,19 @@ The login page shows this account and has a button that fills it in.
 
 ## Run it
 
-    cargo run                      # desktop
-    cargo run -- /profile          # start at /profile: signed out, you land on /login?from=/profile
-    cargo apk run --lib            # Android
-    cargo test                     # the guard, the fake server, the forms, the session
+    frus run                       # desktop
+    frus run -- /profile           # start at /profile: signed out, you land on /login?from=/profile
+    frus run -d android            # Android
+    frus test                      # the guard, the fake server, the forms, the session
 
 ## Web
 
-Once: `rustup target add wasm32-unknown-unknown` and
+```sh
+frus run -d web          # build, serve on http://localhost:8080 and open the browser
+frus build web           # release: web/, with the application compiled into web/pkg/
+```
+
+By hand, once: `rustup target add wasm32-unknown-unknown` and
 `cargo install wasm-bindgen-cli --version 0.2.127` (the version must match `wasm-bindgen` in
 `Cargo.lock`). Then build, generate the JavaScript glue into `web/pkg/`, and serve `web/`:
 

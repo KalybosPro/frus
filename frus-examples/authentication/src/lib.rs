@@ -1,8 +1,8 @@
 //! `authentication` — an application with sign-in: an auth service shared by the pages,
 //! route guards, and a session that survives a restart.
 //!
-//! - Desktop: `cargo run`  (or `cargo run -- /profile` to watch the guard at work)
-//! - Android: `cargo apk run --lib`
+//! - Desktop: `frus run`  (or `frus run -- /profile` to watch the guard at work)
+//! - Android: `frus run -d android`
 //!
 //! What to look at:
 //!

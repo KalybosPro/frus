@@ -1,8 +1,8 @@
 //! `forms` — a real form: input, validation, submission.
 //!
-//! - Desktop: `cargo run`  (`cargo run -- "/?errors"` opens the form with its errors
-//!   showing, `cargo run -- /summary` the page that follows a submit)
-//! - Android: `cargo apk run --lib`
+//! - Desktop: `frus run`  (`frus run -- "/?errors"` opens the form with its errors
+//!   showing, `frus run -- /summary` the page that follows a submit)
+//! - Android: `frus run -d android`
 //!
 //! What to look at:
 //!

@@ -577,9 +577,11 @@ fn report(created: &Created) -> String {
     };
     out.push_str(&format!(
         "\nTo run it:\n\n\
-         {cd}  cargo run                  # desktop\n  \
-         cargo apk run --lib        # Android, on the connected device\n\n\
-         The web, the releases and the setup each platform needs are in README.md.\n\
+         {cd}  frus run                   # on this computer\n  \
+         frus run -d android        # on the connected phone\n  \
+         frus run -d web            # in a browser\n\n\
+         What a platform needs and this machine lacks is installed on the way.\n\
+         Shipping and the releases are in README.md.\n\
          The Android package is {}: settle it before the first release.\n",
         project.android_package()
     ));
@@ -821,7 +823,7 @@ mod tests {
         );
         assert!(out.contains("Initialised a git repository."));
         assert!(
-            out.contains("  cd \"my apps/my_app\"\n  cargo run "),
+            out.contains("  cd \"my apps/my_app\"\n  frus run "),
             "{out}"
         );
         assert!(out.contains("com.acme.my_app"));

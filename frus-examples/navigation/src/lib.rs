@@ -1,7 +1,7 @@
 //! `navigation` — moving between screens: a small shop driven by a router.
 //!
-//! - Desktop: `cargo run`, or `cargo run -- /products/3` to open it at a location
-//! - Android: `cargo apk run --lib`
+//! - Desktop: `frus run`, or `frus run -- /products/3` to open it at a location
+//! - Android: `frus run -d android`
 //!
 //! What to look at:
 //!

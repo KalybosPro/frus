@@ -34,7 +34,7 @@ The first two lines are what shows before "see more".
 > The whole framework is Rust: renderer, layout, widgets, gestures, theming,
 > animation, accessibility. No embedded VM, no second language for app logic.
 >
-> It's cargo-native — no DSL, no codegen, no bespoke CLI. Apps are Elm-shaped, so
+> One command over plain cargo — no DSL, no codegen. Apps are Elm-shaped, so
 > update is pure and ~970 of the tests run headless, with no GPU and no window.
 >
 > Honestly: pre-alpha, the API isn't stable, nothing on crates.io yet. 327 design

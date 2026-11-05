@@ -21,7 +21,7 @@ frus = { path = "../../../../crates/frus", default-features = false, features = 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 
-# --- Android packaging (cargo-apk: `cargo apk run`) ---
+# --- Android packaging (cargo-apk: `frus run -d android`, `frus build apk`) ---
 [package.metadata.android]
 package = "com.example.forge"
 build_targets = ["aarch64-linux-android"]
@@ -44,12 +44,12 @@ target_sdk_version = 34
 
 # --- What you ship ---
 #
-# `cargo apk run` and `cargo run` build in **debug**, and a debug build carries its
-# symbols: on Android that is a ~300 MB `.so` where a release one is a few megabytes.
-# Build with `--release` for anything that leaves your machine:
+# `frus run` builds in **debug**, and a debug build carries its symbols: on Android that
+# is a ~300 MB `.so` where a release one is a few megabytes. `frus build` builds in
+# release: use it for anything that leaves your machine:
 #
-#     cargo apk build --release        # the APK to install or upload
-#     cargo build --release            # the desktop binary
+#     frus build apk                   # the APK to install or upload
+#     frus build desktop               # the desktop binary
 #
 # These settings are what make that release build small without costing frame time.
 [profile.release]

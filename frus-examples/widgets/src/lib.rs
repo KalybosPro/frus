@@ -1,8 +1,8 @@
 //! `widgets` — a gallery of frus widgets: every widget with a live example and the code
 //! that builds it.
 //!
-//! - Desktop: `cargo run`
-//! - Android: `cargo apk run --lib`
+//! - Desktop: `frus run`
+//! - Android: `frus run -d android`
 //!
 //! Each family of widgets is a feature folder (`src/features/<family>/widgets/`), and each
 //! widget is **one file** there: a `pub fn example() -> Box<dyn Widget>` that is

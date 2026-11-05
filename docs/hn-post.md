@@ -78,21 +78,22 @@ $t.Length
 >
 > A counter app is ~30 lines and ends with `frus::main!(App)`, which wires up the
 > desktop, Android and web entry points. The source doesn't change between
-> targets: `cargo run`, `cargo apk run`, or wasm-bindgen.
+> targets: `frus run`, `frus run -d android`, `frus run -d web`.
 >
-> What makes it different: it's cargo-native. No DSL, no codegen, no generated
-> build directory, no bespoke CLI to install and keep in sync — just cargo build,
-> cargo test, cargo apk run. And widgets ship themed defaults rather than
+> What makes it different: one command over plain cargo. No DSL, no codegen, no
+> generated build directory: `frus run`, `frus build` and `frus test` drive cargo,
+> cargo-apk and wasm-bindgen, install whatever the machine lacks, and an app stays
+> an ordinary crate that cargo builds by hand. And widgets ship themed defaults rather than
 > hardcoded ones: if a widget paints it, you can restyle it or swap the slot
 > without forking the library.
 >
-> &nbsp;&nbsp;git clone https://github.com/KalybosPro/frus
-> &nbsp;&nbsp;cd frus
-> &nbsp;&nbsp;cargo run -p frus-demo
+> &nbsp;&nbsp;cargo install frus-cli
+> &nbsp;&nbsp;frus create my_app
+> &nbsp;&nbsp;cd my_app
+> &nbsp;&nbsp;frus run
 >
-> Needs stable Rust and a GPU with Vulkan, Metal or DX12 drivers. There's a
-> cargo-generate template for starting your own app, wired for desktop and
-> Android.
+> Needs stable Rust and a GPU with Vulkan, Metal or DX12 drivers. The app it
+> writes runs on the desktops, Android and the web.
 >
 > https://github.com/KalybosPro/frus
 >
@@ -146,8 +147,8 @@ than the wording of the post, so the answers are drafted in advance.
 The mainstream answer to this problem ships a language runtime inside the app and
 talks to the platform across a serialization boundary. Frus has neither: app logic,
 widgets and renderer are one language with no FFI in the hot path, and the
-toolchain is cargo rather than a bespoke CLI with its own package manager and
-generated build directory. Concede the other side of it in the same breath — those
+toolchain is cargo, driven by one command (`frus`) that adds no package manager or
+generated build directory of its own. Concede the other side of it in the same breath — those
 frameworks are vastly more mature and have an ecosystem, and frus does not.
 Conceding the obvious is what buys credibility for the rest of the reply.
 

@@ -21,9 +21,11 @@ directly rather than through the facade. See
 ## Running it
 
 ```sh
-cargo run -p frus-demo                     # desktop
-cargo apk run -p frus-demo --lib           # Android, with cargo-apk, the SDK and the NDK
-cargo run -p frus-demo --features shots --bin shots -- docs/media
+cd crates/frus-demo
+frus run                                   # desktop
+frus run -d android                        # Android: the connected phone, or an emulator
+frus run -d web                            # in the browser
+cargo run --features shots --bin shots -- ../../docs/media   # the README's pictures
 ```
 
 ## Part of frus

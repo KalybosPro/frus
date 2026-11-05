@@ -2,9 +2,9 @@
 //!
 //! The same code runs on every platform; README.md says how to start it on each one.
 //!
-//! - Desktop: `cargo run`
-//! - Android: `cargo apk run --lib`
-//! - Web: see "Web" in README.md
+//! - Desktop: `frus run`
+//! - Android: `frus run -d android`
+//! - Web: `frus run -d web`
 //!
 //! The application's code lives in modules here, and its tests in `tests/`, beside `src/`.
 

@@ -5,7 +5,7 @@
 //! `frus_shell::main!` in the library. On Android and the web the entry point is
 //! `android_main` or `start` instead.
 //!
-//! `cargo run -p frus-transforms` (add `RUST_LOG=info` for logs).
+//! `frus run` in `crates/frus-transforms` (add `RUST_LOG=info` for logs).
 
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 fn main() -> frus_shell::anyhow::Result<()> {

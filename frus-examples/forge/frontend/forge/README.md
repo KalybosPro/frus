@@ -10,7 +10,7 @@ macOS, Linux, Android and the web.
 | Web | `frus run -d web` | `frus build web` |
 | Every platform at once | | push a `v*` tag: see [Releases](#releases) |
 
-`cargo test` runs the tests in `tests/`. They need no window and no GPU.
+`frus test` runs the tests in `tests/`. They need no window and no GPU.
 
 ## Running it: `frus run`
 
@@ -18,22 +18,31 @@ The `frus` tool (`cargo install frus-cli`) builds the application for a device, 
 shows its log in this terminal, whatever the platform:
 
 ```sh
+frus doctor               # what this machine has for each platform, and what it lacks
 frus devices              # this computer, the connected phones, the browsers
 frus run                  # on this computer
 frus run -d android       # on the connected phone (or an emulator)
 frus run -d web           # in a browser; its console shows here
 frus build apk            # what you ship: apk, web or desktop
+frus test                 # the tests: a summary, each failure at its place
+frus analyze              # clippy and rustfmt, everything to fix listed together
 ```
 
+While it runs, `r` reloads the application with your change and its state kept, `R` restarts it
+afresh, and `frus run --hot` patches each saved change into the running application instead.
+
 What it needs and does not find — a Rust target, wasm-bindgen, cargo-apk, the Android SDK — it
-installs. The sections below are the same steps by hand.
+installs. Underneath it runs cargo, cargo-apk and wasm-bindgen: each section below ends with the
+same steps by hand.
 
 ## Desktop
 
 ```sh
-cargo run              # debug, with the log in the console
-cargo build --release  # target/release/forge(.exe)
+frus run               # debug, with the log in the console
+frus build desktop     # release: target/release/forge(.exe)
 ```
+
+By hand: `cargo run` and `cargo build --release`.
 
 On Linux the build needs the windowing headers:
 
@@ -46,23 +55,21 @@ A release build on Windows opens no console window; a debug build does, and logs
 
 ## Android
 
-Once:
-
 ```sh
-cargo install cargo-apk
-rustup target add aarch64-linux-android
+frus run -d android      # build, install and start on the connected device, logcat here
+frus build apk           # release: target/release/apk/forge.apk
+frus emulators --create  # an emulator, when there is no phone at hand
 ```
 
-and an Android SDK and NDK, with `ANDROID_HOME` and `ANDROID_NDK_ROOT` set.
-
-```sh
-cargo apk run --lib                  # build, install and start on the connected device
-cargo apk build --lib --release      # target/release/apk/forge.apk
-```
-
-`--lib` is required. A debug APK is about 300 MB because it carries every symbol; the release
-one is about 5 MB. A release APK has to be signed with your key: the comment on signing in
+The first run installs what is missing: the Android SDK and NDK, Java, the Rust target and
+cargo-apk. A debug APK is about 300 MB because it carries every symbol; the release one is
+about 5 MB. A release APK has to be signed with your key: the comment on signing in
 `Cargo.toml` says how.
+
+By hand, with cargo-apk installed (`cargo install cargo-apk`), the Rust target added
+(`rustup target add aarch64-linux-android`) and an Android SDK and NDK named by `ANDROID_HOME`
+and `ANDROID_NDK_ROOT`: `cargo apk run --lib` and `cargo apk build --lib --release`. `--lib` is
+required.
 
 - **The icon** is the five `res/mipmap-*/ic_launcher.png` files.
 - **The colour shown while the application opens** is `launch_background` in
@@ -73,7 +80,12 @@ one is about 5 MB. A release APK has to be signed with your key: the comment on 
 
 ## Web
 
-Once:
+```sh
+frus run -d web          # build, serve on http://localhost:8080 and open the browser
+frus build web           # release: web/, with the application compiled into web/pkg/
+```
+
+By hand, once:
 
 ```sh
 rustup target add wasm32-unknown-unknown

@@ -1,8 +1,12 @@
 # Starting a frus application
 
-frus stays **cargo-native**: an application is an ordinary crate, and `cargo run` /
-`cargo test` build and test it. The `frus` command line (`frus create`, `frus run`) adds
-what cargo does not do — a new project, a device, hot reload — and is never required.
+The `frus` command runs a frus application from start to finish: `frus create` writes one,
+`frus run` starts it on this computer, a phone or a browser, `frus build` makes what you ship,
+`frus test` runs its tests, and whatever a command needs and the machine lacks is installed on
+the way. Install it once with `cargo install frus-cli`.
+
+Underneath, an application stays an ordinary crate: `frus` drives cargo, cargo-apk and
+wasm-bindgen and adds no build system of its own, so `cargo build` and `cargo test` still work.
 
 Once your first application runs, [the guide](guide/README.md) takes each topic in turn —
 layout, style, input, lists, navigation, network, animation, testing — with examples.
@@ -29,10 +33,11 @@ fn counter(cx: &BuildContext) -> Box<dyn Widget> {
 frus::main!(FrusApp::from_fn(counter));
 ```
 
-Run it on the desktop:
+Run it on the desktop, from the application's directory:
 
 ```sh
-cargo run -p frus-hello
+cd crates/frus-hello
+frus run
 ```
 
 ## State, in three sizes
@@ -313,7 +318,7 @@ and makes its own releases.
 cargo install frus-cli                # once
 frus create my_app
 cd my_app
-cargo run
+frus run
 ```
 
 The name is the directory's own: lowercase letters, digits, `_` and `-`, starting with a
@@ -419,21 +424,19 @@ impl State for CounterState {
 A command that needs something the machine lacks installs it and carries on: a Rust target,
 cargo-apk, wasm-bindgen at the version the application's `Cargo.lock` holds (in `~/.frus/tools`,
 leaving any other version alone), and the Android SDK and NDK (completed if there is one,
-installed in `~/.frus/android-sdk` if there is none). The sections below are the same steps by
-hand.
+installed in `~/.frus/android-sdk` if there is none).
 
 ## Android
 
 The template includes the `android_main` entry point and the `cargo-apk`
-metadata. From the generated project:
+metadata. From the generated project, with a phone connected (USB debugging on) or an emulator:
 
 ```sh
-cargo install cargo-apk              # once
-cargo apk run --lib                  # build + install + launch on the device
+frus run -d android                  # build + install + launch, with logcat in the terminal
 ```
 
-Android prerequisites: SDK + NDK installed, `ANDROID_HOME`/`ANDROID_NDK_ROOT`
-set, and a device connected (`adb devices`).
+The first run installs what is missing: the SDK and NDK, Java, the Rust target and cargo-apk.
+`frus emulators --create` makes an emulator when there is no phone at hand.
 
 ### The first pixel: your launch background
 
@@ -476,25 +479,27 @@ leaving a wide empty band above its own app bar.
 
 ## Shipping
 
-`cargo run` and `cargo apk run` build in **debug**, and a debug build keeps every
-symbol it ever generated. On Android that is a ~300 MB `.so`. It is not what you
-install on anyone's phone:
+`frus run` builds in **debug**, and a debug build keeps every symbol it ever
+generated. On Android that is a ~300 MB `.so`. It is not what you install on anyone's
+phone. `frus build` builds in release:
 
 ```sh
-cargo apk build --lib --release   # the APK to install or upload
-cargo build --release             # the desktop binary
+frus build apk       # the APK to install or upload
+frus build desktop   # the program for this computer
+frus build web       # the site: web/, with the application in web/pkg/
 ```
 
-`--lib` is not decoration. A frus crate carries **both** a library (the `cdylib`
-Android loads, holding your `android_main`) and a binary (the desktop entry point).
-Asked for both, the packager panics with `Bin is not compatible with Cdylib` — *after*
-it has already written and signed the APK, so the file is sitting there looking
-finished while the command exits non-zero.
+By hand, the APK is `cargo apk build --lib --release`, and `--lib` is not decoration. A
+frus crate carries **both** a library (the `cdylib` Android loads, holding your
+`android_main`) and a binary (the desktop entry point). Asked for both, the packager
+panics with `Bin is not compatible with Cdylib` — *after* it has already written and
+signed the APK, so the file is sitting there looking finished while the command exits
+non-zero. `frus build apk` asks for the library only.
 
 | what you built                       | `.so`   | in the APK |
 | ------------------------------------ | ------- | ---------- |
-| `cargo apk build` (debug)            | 300 MB  | 286 MB     |
-| `cargo apk build --release`          | 10.0 MB | 4.4 MB     |
+| a debug build (`frus run`)           | 300 MB  | 286 MB     |
+| `frus build apk` (release)           | 10.0 MB | 4.4 MB     |
 | …with only the sans face bundled     | 8.0 MB  | 3.5 MB     |
 
 Those are the numbers for a counter app. The whole widget gallery — every screen in
@@ -540,7 +545,7 @@ a device whose ABI is not in it cannot install it.
 | `x86_64`      | `x86_64-linux-android`    | For the emulator on an Intel or AMD machine, and ChromeOS on those chips. |
 | `x86`         | `i686-linux-android`      | No: old 32-bit emulator images.                                   |
 
-List them in the manifest, and add each one's Rust target once:
+List them in the manifest:
 
 ```toml
 [package.metadata.android]
@@ -548,8 +553,7 @@ build_targets = ["aarch64-linux-android", "armv7-linux-androideabi"]
 ```
 
 ```sh
-rustup target add armv7-linux-androideabi   # once, for each target you list
-cargo apk build --lib --release
+frus build apk       # adds the Rust targets the list names, if they are missing
 ```
 
 `cargo-apk` compiles the library once per target and packs every result into **one** APK,
@@ -570,9 +574,11 @@ nothing.
 Signing does not change: it is the APK that is signed, once, with the release key set up
 above, whatever it holds.
 
-To build one ABI without touching the manifest, name its target, which replaces the list:
+To build one ABI without touching the manifest, call cargo-apk by hand and name its target,
+which replaces the list:
 
 ```sh
+rustup target add armv7-linux-androideabi   # once
 cargo apk build --lib --release --target armv7-linux-androideabi
 ```
 
@@ -588,8 +594,9 @@ What `cargo-apk` does **not** do for you:
   applications since August 2021, and makes the per-device APKs from it itself: there, the
   split is the store's job. `cargo-apk` writes APKs only. Producing a bundle for a frus
   application has not been done and checked yet, so this guide does not describe it.
-- **Install the Rust targets.** `rustup target add` is yours to run; the NDK already has a
-  compiler for each ABI.
+- **Install the Rust targets.** `frus build apk` and `frus run` add the ones the manifest
+  lists; by hand, `rustup target add` is yours to run. The NDK already has a compiler for
+  each ABI.
 - **Take a version past 255.** Each part of the crate's version becomes one byte of the
   version code, so `0.1.300` is refused.
 
@@ -745,8 +752,9 @@ What a handler does belongs in a method of the state, and what a form checks in 
 its values: both are plain Rust, tested **without a GPU or a window**:
 
 ```sh
-cargo test
+frus test
 ```
 
+`frus test` runs `cargo test` and says it briefly: the counts, then each failure at its place.
 [The guide's testing page](guide/testing.md) shows how, and how `frus-test` renders a widget
 offscreen to test what the screen looks like.
