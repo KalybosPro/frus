@@ -220,6 +220,7 @@ mod tests {
     /// A caret at `cursor`, nothing selected.
     fn at(cursor: usize) -> Edit {
         Edit {
+            affinity: Default::default(),
             cursor,
             anchor: None,
             composing: None,
@@ -569,6 +570,7 @@ mod field_tests {
         app.runtime.edits.insert(
             app.id,
             Edit {
+                affinity: Default::default(),
                 cursor: 4,
                 anchor: Some(0),
                 composing: None,
@@ -594,6 +596,7 @@ mod field_tests {
         app.runtime.edits.insert(
             app.id,
             Edit {
+                affinity: Default::default(),
                 cursor: 6,
                 anchor: Some(4),
                 composing: None,

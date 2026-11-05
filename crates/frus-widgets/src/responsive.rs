@@ -217,19 +217,29 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().and_then(|w| w.on_edit(edit, key))
     }
 
+    fn caret_key(&self, width: f32, edit: &mut Edit, key: &Key) -> bool {
+        self.inner
+            .as_ref()
+            .is_some_and(|w| w.caret_key(width, edit, key))
+    }
+
     fn cursor_at(
         &self,
         local_x: f32,
         local_y: f32,
         width: f32,
         scroll_cursor: usize,
-    ) -> Option<usize> {
+    ) -> Option<frus_core::TextPosition> {
         self.inner
             .as_ref()
             .and_then(|w| w.cursor_at(local_x, local_y, width, scroll_cursor))
     }
 
-    fn text_metrics(&self, width: f32, cursor: usize) -> Option<(f32, f32, f32, f32)> {
+    fn text_metrics(
+        &self,
+        width: f32,
+        cursor: frus_core::TextPosition,
+    ) -> Option<(f32, f32, f32, f32)> {
         self.inner
             .as_ref()
             .and_then(|w| w.text_metrics(width, cursor))
@@ -242,11 +252,11 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
     fn caret_vertical(
         &self,
         width: f32,
-        cursor: usize,
+        cursor: frus_core::TextPosition,
         down: bool,
         page: bool,
         goal_x: Option<f32>,
-    ) -> Option<(usize, f32)> {
+    ) -> Option<(frus_core::TextPosition, f32)> {
         self.inner
             .as_ref()
             .and_then(|w| w.caret_vertical(width, cursor, down, page, goal_x))
