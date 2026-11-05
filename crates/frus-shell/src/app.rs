@@ -1933,6 +1933,7 @@ impl<A: Application> App<A> {
                         cursor: value.chars().count(),
                         anchor: None,
                         composing: None,
+                        affinity: Default::default(),
                     },
                 );
                 self.dispatch_edit(message);
