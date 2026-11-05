@@ -267,8 +267,7 @@
               },
               "hot": {
                 "type": "boolean",
-                "description": "True hot reload, on the desktop: each saved change is patched into the running application, every state kept (frus run --hot).",
-                "default": false
+                "description": "True hot reload (desktop, web, Android): each saved change is patched into the running application, every state kept. Left out, frus decides: on for a debug build. false restarts to reload instead (frus run --no-hot); true insists, a release build too (frus run --hot)."
               },
               "args": {
                 "type": "array",

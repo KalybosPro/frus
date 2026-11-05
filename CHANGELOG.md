@@ -8,11 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 753 so far, each documenting the objective, the alternatives
+> record — one per step, 754 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Hot reload is how `frus run` runs** (J754): a debug build now patches each saved change into
+  the running application — desktop, web, Android — with every state where it was, instead of
+  rebuilding and restarting it; `--hot` was needed for that before. `frus run --no-hot` restarts
+  to reload as before (`r`, the state of every component that keeps one), and so does a release
+  build unless `--hot` is given. A machine that cannot install the patch engine runs with
+  restarts and says why. In VS Code, the `hot` launch attribute left out lets frus decide;
+  `false` restarts.
 - **The keyboard covers the bottom bar; focus rings follow the input; a swipe on a field
   scrolls** (J752). With the on-screen keyboard up, `Scaffold` held its bottom navigation bar
   and persistent footer *above* the keyboard, so in landscape the page kept about 60 px and the

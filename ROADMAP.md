@@ -381,13 +381,14 @@ Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` a
     platform and brightness, a performance panel with graphs, screenshots). The tool talks to
     the application over a channel of its own on each platform — a loopback socket on the
     desktop, the log and a file on Android, the page's script on the web.
-  - **True hot reload on the desktop**: `frus run --hot` patches each saved change into the
+  - **True hot reload on the desktop**: `frus run` patches each saved change into the
     running application, its state kept (milestones 669, 670). The engine is subsecond, through
     `dx`; frus's thread-locals are reached only through functions compiled once in frus, and a
     shadow package builds the application's library as the program a patch replaces. The crash
     that stopped it in milestone 663 was in the engine's Windows stubs, fixed upstream
-    (DioxusLabs/dioxus#5967) and in the engine frus installs until a release has it.
-  - **True hot reload on the web** (milestone 679, #287): `frus run --hot -d web` serves the
+    (DioxusLabs/dioxus#5967) and in the engine frus installs until a release has it. It is
+    the default of a debug build since milestone 754 (`--hot` before; `--no-hot` restarts).
+  - **True hot reload on the web** (milestone 679, #287): `frus run -d web` serves the
     page with the engine's build in it, and the page links each patch into the running module.
   - **True hot reload on Android** (milestone 680, #286): the engine builds the application
     into its own Android project with a plain native activity, and each patch is loaded into
@@ -398,7 +399,7 @@ Milestone 292 took a release APK from 286 MB to 4.9 MB by building `--release` a
 
   **Left**, each with its issue:
 
-  - 🟡 `frus run --hot` run end to end on Linux and macOS (#288).
+  - 🟡 Hot reload run end to end on Linux and macOS (#288).
   - 🟡 Publishing the VS Code extension (#289).
 
 ---

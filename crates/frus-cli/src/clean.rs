@@ -7,7 +7,7 @@
 //! When the build folder is the application's own (`target/` beside it), all of it goes. When it
 //! is shared — `CARGO_TARGET_DIR`, or a workspace's — only this application's part does, for each
 //! platform it builds for: another application's build in the same folder is left alone. The
-//! web build's generated glue (`web/pkg`) and `frus run --hot`'s shadow package go too.
+//! web build's generated glue (`web/pkg`) and hot reload's shadow package go too.
 
 use std::path::Path;
 use std::process::{Command, ExitCode};

@@ -53,10 +53,11 @@ console. Errors are shown as errors. No `launch.json` is needed.
 
 ### Reload on save, state kept
 
-Saving a Rust file rebuilds the application and brings it back **on the same page, with the
-state of every component that keeps one**. A restart, when you want every state afresh, is one
-key away. With `"hot": true` in a launch configuration, desktop runs use **true hot reload**:
-each save is patched into the running program without restarting it.
+Saving a Rust file patches the change into the **running application, without restarting it**:
+every state stays where it was (desktop, web, Android; the first run installs the patch engine,
+about twenty minutes once). A restart, when you want every state afresh, is one key away. With
+`"hot": false` in a launch configuration, a save rebuilds the application instead and brings it
+back on the same page, with the state of every component that keeps one.
 
 ### The framework's tools, in the palette
 
@@ -95,7 +96,7 @@ To pin a device or pass options, add one to `.vscode/launch.json`:
 }
 ```
 
-`deviceId` pins the device, `hot` turns on true hot reload (desktop), `release` builds
+`deviceId` pins the device, `hot: false` restarts to reload instead of patching, `release` builds
 optimised, and `args` are passed on to `frus run`.
 
 ## Settings
