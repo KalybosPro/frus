@@ -45,9 +45,24 @@ struct VertexOutput {
     @location(12) @interpolate(flat) shade: vec2<f32>,
 };
 
+// **The deviation of a shadow's gaussian, from its blur radius**: the convention every
+// shadow's blur is stated in, 0.57735 (1/sqrt 3) of the radius plus half a pixel.
+fn blur_sigma(blur: f32) -> f32 {
+    return blur * 0.57735 + 0.5;
+}
+
 @vertex
 fn vs_main(vert: VertexInput, inst: InstanceInput) -> VertexOutput {
-    let pos_px = inst.rect.xy + vert.unit_pos * inst.rect.zw;
+    // A shadow's rect reaches `blur` beyond its shape; a gaussian of that blur reaches three
+    // deviations beyond it, further out. The quad grows by the difference, so the fade is
+    // never cut where the rect ends (milestone 746).
+    let blur = inst.params.z;
+    var margin = 0.0;
+    if (blur > 0.0) {
+        margin = max(3.0 * blur_sigma(blur) - blur, 0.0) + 1.0;
+    }
+    let size = inst.rect.zw + vec2<f32>(2.0 * margin, 2.0 * margin);
+    let pos_px = inst.rect.xy - vec2<f32>(margin, margin) + vert.unit_pos * size;
 
     let ndc = vec2<f32>(
         pos_px.x / viewport.size.x * 2.0 - 1.0,
@@ -56,8 +71,13 @@ fn vs_main(vert: VertexInput, inst: InstanceInput) -> VertexOutput {
 
     var out: VertexOutput;
     out.clip_position = vec4<f32>(ndc, 0.0, 1.0);
-    out.local_px = (vert.unit_pos - vec2<f32>(0.5, 0.5)) * inst.rect.zw;
+    out.local_px = (vert.unit_pos - vec2<f32>(0.5, 0.5)) * size;
+    // Across the rect itself, whatever the quad's margin; exactly the corner's own when
+    // there is none.
     out.uv = vert.unit_pos;
+    if (margin > 0.0) {
+        out.uv = out.local_px / max(inst.rect.zw, vec2<f32>(1e-6, 1e-6)) + vec2<f32>(0.5, 0.5);
+    }
     out.half_size = inst.rect.zw * 0.5;
     out.radii = inst.radii;
     out.border_width = inst.params.y;
@@ -170,6 +190,47 @@ fn gradient_fill(code: i32, local: vec2<f32>, g: vec4<f32>, extra: vec4<f32>, ro
     return vec4<f32>(color.rgb, color.a * seen);
 }
 
+// The error function, to within 5e-4: Abramowitz and Stegun 7.1.27, both lanes at once.
+fn erf2(x: vec2<f32>) -> vec2<f32> {
+    let s = sign(x);
+    let a = abs(x);
+    var t = 1.0 + (0.278393 + (0.230389 + 0.078108 * (a * a)) * a) * a;
+    t = t * t;
+    return s - s / (t * t);
+}
+
+fn gaussian(x: f32, sigma: f32) -> f32 {
+    return exp(-(x * x) / (2.0 * sigma * sigma)) / (2.50662827 * sigma);
+}
+
+// One row of a rounded box blurred along x: the box's extent on the row `y` from its
+// centre (the corner's arc taken into account), convolved with the gaussian.
+fn shadow_row(x: f32, y: f32, sigma: f32, corner: f32, half_size: vec2<f32>) -> f32 {
+    let delta = min(half_size.y - corner - abs(y), 0.0);
+    let curved = half_size.x - corner + sqrt(max(0.0, corner * corner - delta * delta));
+    let integral = 0.5 + 0.5 * erf2((vec2<f32>(x, x) + vec2<f32>(-curved, curved)) * (0.70710678 / sigma));
+    return integral.y - integral.x;
+}
+
+// **How much of a rounded box blurred by a gaussian of deviation `sigma` covers `p`**
+// (pixels from the box's centre): exact across the rows, the rows themselves summed over
+// four samples of the gaussian down the column — a fade that is smooth everywhere and
+// reaches nothing three deviations out, with no edge of its own.
+fn blurred_box(p: vec2<f32>, half_size: vec2<f32>, corner: f32, sigma: f32) -> f32 {
+    let low = p.y - half_size.y;
+    let high = p.y + half_size.y;
+    let start = clamp(-3.0 * sigma, low, high);
+    let end = clamp(3.0 * sigma, low, high);
+    let step = (end - start) / 4.0;
+    var y = start + step * 0.5;
+    var value = 0.0;
+    for (var i = 0; i < 4; i = i + 1) {
+        value = value + shadow_row(p.x, p.y - y, sigma, corner, half_size) * gaussian(y, sigma) * step;
+        y = y + step;
+    }
+    return value;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Clipping.
@@ -183,19 +244,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let r = min(corner_radius(in.local_px, in.radii), min(in.half_size.x, in.half_size.y));
     let d = sdf_round_box(in.local_px, in.half_size, r);
 
-    // A hard edge (half a pixel either side of it), or, for a shadow, a soft one that fades
-    // **inside** the quad: a shadow's rect already reaches its blur beyond the shape, so
-    // the fade runs from the shape's edge less the blur, at full strength, out to the
-    // quad's edge, at nothing. Ramping across the quad's edge instead left the outer half
-    // of every shadow unrasterised, and cut it off at half its strength (milestone 606).
+    // A hard edge, half a pixel either side of it, or, for a shadow, its shape blurred by a
+    // gaussian. The shadow's rect reaches `blur` beyond the shape, its corners `blur` rounder,
+    // so the shape is the rect less the blur all round. The fade used to be a smoothstep
+    // across that `blur` either side of the shape's edge, ending where the rect ended: a
+    // narrow fade with a visible rim, the wider the blur the plainer, where a gaussian goes
+    // on three deviations out and fades into the page (milestone 746).
     var alpha = 1.0 - smoothstep(-0.5, 0.5, d);
     let code = i32(round(in.shade.x));
     if (in.blur > 0.0) {
-        alpha = 1.0 - smoothstep(-2.0 * in.blur, 0.0, d);
+        let shape_half = max(in.half_size - vec2<f32>(in.blur, in.blur), vec2<f32>(0.0, 0.0));
+        let shape_r = min(max(r - in.blur, 0.0), min(shape_half.x, shape_half.y));
+        alpha = blurred_box(in.local_px, shape_half, shape_r, blur_sigma(in.blur));
         // The blur style (milestone 645), read where a flat fill leaves the ramp row
-        // free. The shape's own edge runs `blur` inside the quad's.
+        // free: what of the blur to keep, inside the shape or outside it.
         let style = i32(round(in.shade.y));
-        let inside = 1.0 - smoothstep(-0.5, 0.5, d + in.blur);
+        let inside = 1.0 - smoothstep(-0.5, 0.5, sdf_round_box(in.local_px, shape_half, shape_r));
         if (code == 0 && style == 1) {
             alpha = max(alpha, inside);
         } else if (code == 0 && style == 2) {
