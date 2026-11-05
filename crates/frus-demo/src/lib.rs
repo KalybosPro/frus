@@ -6,7 +6,7 @@
 //! `State`, a router that maps a location to a screen, and `FrusApp` to run it.
 //!
 //! Two entry points for the same code:
-//! - desktop: `cargo run -p frus-demo` → the `src/bin/frus-demo.rs` binary → `run()`;
+//! - desktop: `frus run` in `crates/frus-demo` → the `src/bin/frus-demo.rs` binary → `run()`;
 //! - Android: the `cdylib` library exposes `android_main`, called by the native activity.
 //!
 //! Where things are kept:
@@ -55,6 +55,9 @@ pub(crate) fn build() -> (FrusApp, GoRouter, Rc<Demo>) {
     let (window, pages) = (demo.clone(), router.clone());
     let app = FrusApp::router(router.clone())
         .title("frus — Todo")
+        // **State restoration** (milestone 753): the page, the draft and the scroll come back
+        // after the system ends the process in the background.
+        .restoration_scope_id("demo")
         // **The window's menu bar**, above every page, on a wide window: the window's, so it
         // stays put while the pages change under it (milestone 642).
         .builder(move |cx, child| screens::window(cx, child, &window, &pages))

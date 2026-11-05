@@ -23,11 +23,12 @@ wasm-bindgen = "0.2"
 
 # --- Android packaging (cargo-apk) ---
 #
-#     cargo apk run --lib                  # build, install and start on the device (debug)
-#     cargo apk build --lib --release      # the APK you ship: target/release/apk/
+#     frus run -d android                  # build, install and start on the device (debug)
+#     frus build apk                       # the APK you ship: target/release/apk/
 #
-# `--lib` is required: the crate has a library (what Android loads) and a binary (the
-# desktop's), and asked for both, cargo-apk panics after writing the APK.
+# By hand, `cargo apk run --lib` and `cargo apk build --lib --release`. `--lib` is required:
+# the crate has a library (what Android loads) and a binary (the desktop's), and asked for
+# both, cargo-apk panics after writing the APK.
 [package.metadata.android]
 # The application's identity on Android: a store knows it by this, so it cannot change after
 # the first release. `frus create --org com.acme` writes `com.acme.<name>`.
@@ -84,9 +85,9 @@ target_sdk_version = 34
 
 # --- What you ship ---
 #
-# `cargo run` and `cargo apk run` build in **debug**, and a debug build carries its
-# symbols: on Android that is a ~300 MB `.so` where a release one is a few megabytes.
-# Build with `--release` for anything that leaves your machine.
+# `frus run` builds in **debug**, and a debug build carries its symbols: on Android that
+# is a ~300 MB `.so` where a release one is a few megabytes. `frus build` builds in
+# release: use it for anything that leaves your machine.
 #
 # These settings are what make that release build small without costing frame time.
 [profile.release]
@@ -97,6 +98,7 @@ panic = "abort"      # no unwinding tables (cargo ignores this for tests)
 strip = true         # symbols and debuginfo out of the shipped binary
 
 # The web's release profile: the `.wasm` is **downloaded**, so here size comes first.
+# `frus build web` uses it; by hand:
 #
 #     cargo build --lib --target wasm32-unknown-unknown --profile web-release
 [profile.web-release]

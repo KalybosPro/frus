@@ -65,6 +65,168 @@ pub(crate) fn paint_behind(color: Color) -> bool {
         .is_ok()
 }
 
+/// `color` as a `#rrggbb` hex triplet, its alpha dropped: the spelling every browser
+/// takes in `<meta name="theme-color">`, where a translucent colour is not honoured.
+pub(crate) fn css_hex(color: Color) -> String {
+    let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        byte(color.r),
+        byte(color.g),
+        byte(color.b)
+    )
+}
+
+/// The colour a system bar next to the page is given (milestone 751): the colour a region
+/// at that edge states for it first — an explicit request — then the colour the frame
+/// actually paints at that edge, then the theme's background; laid over the theme's
+/// background when translucent, since nothing in the page is behind it.
+///
+/// The painted colour is what keeps the bar from being one step away from the screen: a
+/// scaffold that paints `#F5F5F7` over a theme whose background is `#F5F6F8` gets a bar of
+/// `#F5F5F7`, not of the theme's colour.
+pub(crate) fn bar_color(stated: Option<Color>, painted: Option<Color>, theme: Color) -> Color {
+    page_background(stated.or(painted).unwrap_or(theme), theme)
+}
+
+/// Sets the page's `<meta name="theme-color">` to `color`, creating it in the `<head>` when
+/// the page has none. A phone's browser colours its toolbar and the status bar above it
+/// with it, as a native application's status bar is coloured. Returns whether it reached
+/// the page.
+#[cfg(web)]
+pub(crate) fn paint_toolbar(color: Color) -> bool {
+    let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+        return false;
+    };
+    let meta = match document.query_selector("meta[name=\"theme-color\"]") {
+        Ok(Some(meta)) => meta,
+        Ok(None) => {
+            let Some(head) = document.query_selector("head").ok().flatten() else {
+                return false;
+            };
+            let Ok(meta) = document.create_element("meta") else {
+                return false;
+            };
+            if meta.set_attribute("name", "theme-color").is_err()
+                || head.append_child(&meta).is_err()
+            {
+                return false;
+            }
+            meta
+        }
+        Err(_) => return false,
+    };
+    meta.set_attribute("content", &css_hex(color)).is_ok()
+}
+
+/// The safe area's four insets, in CSS pixels: what a notch, a rounded corner or a home
+/// indicator takes from the page's edges.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct SafeArea {
+    pub(crate) top: f64,
+    pub(crate) right: f64,
+    pub(crate) bottom: f64,
+    pub(crate) left: f64,
+}
+
+/// The number of CSS pixels a computed length such as `"47px"` says; nought for anything
+/// else (`""`, `"auto"`, a negative length).
+pub(crate) fn css_px(value: &str) -> f64 {
+    value
+        .trim()
+        .strip_suffix("px")
+        .and_then(|number| number.trim().parse::<f64>().ok())
+        .filter(|number| number.is_finite() && *number > 0.0)
+        .unwrap_or(0.0)
+}
+
+/// The window's insets on the Web, in CSS pixels, top, right, bottom, left, from the safe
+/// area and the on-screen keyboard's cover: the keyboard is laid over the bottom of the
+/// page, the home indicator with it, so the bottom inset is the larger of the two — what
+/// the shell's baseline then splits into padding and the keyboard's `view_insets`, as it
+/// does a phone's own.
+pub(crate) fn window_insets(safe: SafeArea, keyboard: f64) -> [f64; 4] {
+    [safe.top, safe.right, safe.bottom.max(keyboard), safe.left]
+}
+
+/// The probe's style: an element that takes no room and is never seen, padded by the safe
+/// area — a browser exposes the insets to style sheets only.
+#[cfg(web)]
+const PROBE_STYLE: &str = "position: fixed; left: 0; top: 0; width: 0; height: 0; \
+    visibility: hidden; pointer-events: none; \
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) \
+    env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);";
+
+/// Reads the safe area through a probe element padded by `env(safe-area-inset-*)`. The
+/// insets are non-zero only on a page whose viewport asks for `viewport-fit=cover`, which
+/// every page `frus create` writes does.
+///
+/// The answer is kept for the window's size: a notch moves from the top to a side only with
+/// a rotation, and a rotation resizes the window.
+#[cfg(web)]
+#[inline(never)]
+pub(crate) fn safe_area() -> SafeArea {
+    use std::cell::RefCell;
+    use wasm_bindgen::JsCast;
+    type Probe = (web_sys::HtmlElement, (f64, f64), SafeArea);
+    thread_local! {
+        static PROBE: RefCell<Option<Probe>> = const { RefCell::new(None) };
+    }
+    let Some(window) = web_sys::window() else {
+        return SafeArea::default();
+    };
+    let number = |value: Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>| {
+        value.ok().and_then(|v| v.as_f64()).unwrap_or(0.0)
+    };
+    let size = (number(window.inner_width()), number(window.inner_height()));
+    PROBE.with(|probe| {
+        let mut probe = probe.borrow_mut();
+        if let Some((_, at, safe)) = probe.as_ref() {
+            if *at == size {
+                return *safe;
+            }
+        }
+        let element = match probe.as_ref() {
+            Some((element, _, _)) => element.clone(),
+            None => {
+                let Some(document) = window.document() else {
+                    return SafeArea::default();
+                };
+                let Some(element) = document
+                    .create_element("div")
+                    .ok()
+                    .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
+                else {
+                    return SafeArea::default();
+                };
+                let _ = element.set_attribute("aria-hidden", "true");
+                let _ = element.set_attribute("style", PROBE_STYLE);
+                let Some(body) = document.body() else {
+                    return SafeArea::default();
+                };
+                if body.append_child(&element).is_err() {
+                    return SafeArea::default();
+                }
+                element
+            }
+        };
+        let safe = match window.get_computed_style(&element) {
+            Ok(Some(style)) => {
+                let side = |name: &str| css_px(&style.get_property_value(name).unwrap_or_default());
+                SafeArea {
+                    top: side("padding-top"),
+                    right: side("padding-right"),
+                    bottom: side("padding-bottom"),
+                    left: side("padding-left"),
+                }
+            }
+            _ => SafeArea::default(),
+        };
+        *probe = Some((element, size, safe));
+        safe
+    })
+}
+
 /// How many CSS pixels of a canvas whose bottom edge is at `canvas_bottom` (in the page's
 /// layout coordinates) lie below what the visual viewport shows: the on-screen keyboard's
 /// cover. `vv_top`, `vv_height` and `vv_scale` are the visual viewport's.
@@ -203,6 +365,66 @@ mod tests {
             "{half:?}"
         );
         assert_eq!(half.a, 1.0);
+    }
+
+    #[test]
+    fn a_toolbar_colour_is_an_opaque_hex_triplet() {
+        assert_eq!(
+            css_hex(Color::rgb(245.0 / 255.0, 245.0 / 255.0, 247.0 / 255.0)),
+            "#f5f5f7"
+        );
+        assert_eq!(css_hex(Color::rgba(1.0, 0.0, 0.5, 0.2)), "#ff0080");
+    }
+
+    /// The bar next to the page: what a region states, then what is painted at the edge,
+    /// then the theme — the gallery's scaffold paints one step away from its theme, and the
+    /// bar is the scaffold's colour (milestone 751).
+    #[test]
+    fn a_bar_is_what_is_stated_then_what_is_painted_then_the_theme() {
+        let theme = Color::rgb(245.0 / 255.0, 246.0 / 255.0, 248.0 / 255.0);
+        let scaffold = Color::rgb(245.0 / 255.0, 245.0 / 255.0, 247.0 / 255.0);
+        let stated = Color::rgb(0.1, 0.2, 0.3);
+        assert!(close(bar_color(None, None, theme), theme));
+        assert_eq!(css_hex(bar_color(None, Some(scaffold), theme)), "#f5f5f7");
+        assert!(close(
+            bar_color(Some(stated), Some(scaffold), theme),
+            stated
+        ));
+        // A translucent paint is laid over the theme: the page is opaque.
+        assert_eq!(
+            bar_color(None, Some(Color::rgba(0.0, 0.0, 0.0, 0.5)), theme).a,
+            1.0
+        );
+    }
+
+    #[test]
+    fn a_computed_length_is_read_in_css_pixels() {
+        assert_eq!(css_px("47px"), 47.0);
+        assert_eq!(css_px(" 34.5px "), 34.5);
+        assert_eq!(css_px("0px"), 0.0);
+        assert_eq!(css_px(""), 0.0);
+        assert_eq!(css_px("auto"), 0.0);
+        assert_eq!(css_px("-3px"), 0.0);
+    }
+
+    /// A notch and a home indicator, then the keyboard laid over the indicator.
+    #[test]
+    fn the_safe_area_and_the_keyboard_make_the_window_s_insets() {
+        let portrait = SafeArea {
+            top: 47.0,
+            right: 0.0,
+            bottom: 34.0,
+            left: 0.0,
+        };
+        assert_eq!(window_insets(portrait, 0.0), [47.0, 0.0, 34.0, 0.0]);
+        assert_eq!(window_insets(portrait, 336.0), [47.0, 0.0, 336.0, 0.0]);
+        let landscape = SafeArea {
+            top: 0.0,
+            right: 47.0,
+            bottom: 21.0,
+            left: 47.0,
+        };
+        assert_eq!(window_insets(landscape, 0.0), [0.0, 47.0, 21.0, 47.0]);
     }
 
     #[test]

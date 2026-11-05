@@ -10,9 +10,9 @@ use crate::models::profile::Profile;
 /// On the desktop, a location given on the command line opens the application there —
 /// handy while working on one page:
 ///
-/// - `cargo run -- "/?errors"` — the form as it looks after a failed submit, to style the
+/// - `frus run -- "/?errors"` — the form as it looks after a failed submit, to style the
 ///   error state without clicking through it each time;
-/// - `cargo run -- /summary` — the summary page, with sample data.
+/// - `frus run -- /summary` — the summary page, with sample data.
 pub fn router() -> GoRouter {
     let start = std::env::args()
         .nth(1)

@@ -13,7 +13,7 @@ use crate::features::profile::pages::profilepage::ProfilePage;
 /// The application's router.
 ///
 /// On the desktop, a location given on the command line is where it starts — try
-/// `cargo run -- /profile` while signed out: the guard sends you to
+/// `frus run -- /profile` while signed out: the guard sends you to
 /// `/login?from=/profile`, and signing in brings you back to the profile.
 pub fn router(auth: Auth) -> GoRouter {
     let start = std::env::args()

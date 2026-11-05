@@ -7,13 +7,13 @@ nowhere.
 ## Run it
 
 ```sh
-cargo run                                  # desktop, at /
-cargo run -- /products/3                   # open it at any location
-cargo run -- "/search?q=shoes&sort=price"  # query parameters too
-cargo run -- /checkout                     # the guard sends an empty cart to /cart
-cargo run -- /sale/2019                    # no route: the page-not-found page
-cargo apk run --lib                        # Android
-cargo test                                 # the cart, the guard, search and the page states
+frus run                                   # desktop, at /
+frus run -- /products/3                    # open it at any location
+frus run -- "/search?q=shoes&sort=price"   # query parameters too
+frus run -- /checkout                      # the guard sends an empty cart to /cart
+frus run -- /sale/2019                     # no route: the page-not-found page
+frus run -d android                        # Android
+frus test                                  # the cart, the guard, search and the page states
 ```
 
 On the **web** you do not need the command line: the router's location *is* the address bar.
@@ -23,7 +23,12 @@ router, and a reload comes back to the same page. `FrusApp::router(..)` does all
 
 ## Web
 
-Once: `rustup target add wasm32-unknown-unknown` and
+```sh
+frus run -d web          # build, serve on http://localhost:8080 and open the browser
+frus build web           # release: web/, with the application compiled into web/pkg/
+```
+
+By hand, once: `rustup target add wasm32-unknown-unknown` and
 `cargo install wasm-bindgen-cli --version 0.2.127` (the version must match `wasm-bindgen` in
 `Cargo.lock`). Then build, generate the JavaScript glue into `web/pkg/`, and serve `web/`:
 

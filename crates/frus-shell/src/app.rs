@@ -225,9 +225,13 @@ fn is_text_field<M>(widget: &dyn Widget<M>) -> bool {
     widget.text_value().is_some()
 }
 
-/// How far apart two presses may be and still be a double click on words in a selection area, in
-/// logical pixels.
-const REGION_DOUBLE_CLICK_SLOP: f32 = 8.0;
+/// How far apart two clicks of a mouse may be and still be a double click on words — in a
+/// field or in a selection area — in logical pixels. A finger, less precise, has the double
+/// tap's slop.
+const DOUBLE_CLICK_SLOP: f32 = 8.0;
+
+/// How soon a second click must follow the first to make a double click on words, in seconds.
+const DOUBLE_CLICK_TIME: f32 = 0.4;
 
 /// How long a first tap waits for a second one to make a double tap: the reference's
 /// `kDoubleTapTimeout`.
@@ -923,6 +927,27 @@ fn install_ambient<A: Application>(app: &A, preferred: &[frus_widgets::Locale]) 
     }
 }
 
+/// Hands the platform what is to be kept for restoration, when it changed since the last
+/// frame (milestone 753). `published` is what it was last handed.
+fn publish_restoration(
+    runtime: &Runtime,
+    published: &mut Option<Vec<u8>>,
+    #[cfg(web)] index: usize,
+) {
+    if !runtime.restoration.is_enabled() {
+        return;
+    }
+    let data = runtime.restoration.data(runtime);
+    if data == *published {
+        return;
+    }
+    #[cfg(android)]
+    crate::restoration::publish(data.clone());
+    #[cfg(web)]
+    crate::restoration::publish(index, data.as_deref());
+    *published = data;
+}
+
 fn build_view<A: Application>(
     app: &A,
     theme: &Theme,
@@ -1159,11 +1184,14 @@ pub struct App<A: Application> {
     /// other carries itself to a slot — but the reason they wait is the same, and it is
     /// the reason a list can still be scrolled.
     pending_reorder: Option<(WidgetId, usize, Point)>,
-    /// The last click's instant, for double-click detection.
-    last_click_time: Option<Instant>,
+    /// When, on [`App::click_clock`], and where the last press placed a field's caret, and in
+    /// which field: a second one soon after, close by and in the same field is a double click.
+    last_click: Option<(f32, Point, WidgetId)>,
     /// When and where the last press began a selection in a selection area: a second one soon
     /// after and close by is a double click.
-    last_region_click: Option<(Instant, Point)>,
+    last_region_click: Option<(f32, Point)>,
+    /// What [`App::click_clock`] counts from in an application.
+    clock_origin: Instant,
     /// The texts a selection area's selection has been worked out over, in reading order,
     /// with their words — kept while texts leave the frame (milestone 739): a selection dragged
     /// down a scrolling area, which scrolls under it, would otherwise lose its beginning as
@@ -1292,9 +1320,14 @@ pub struct App<A: Application> {
     /// change (#46).
     #[cfg(android)]
     system_bars: Option<frus_widgets::SystemBars>,
+    /// What was last handed to the platform to keep for restoration (milestone 753).
+    restoration_published: Option<Vec<u8>>,
     /// The page's background as it was last painted, on the Web (milestone 749).
     #[cfg(web)]
     page_background: Option<frus_widgets::Color>,
+    /// The page's `theme-color` as it was last set, on the Web (milestone 751).
+    #[cfg(web)]
+    page_toolbar: Option<frus_widgets::Color>,
 }
 
 impl<A: Application> App<A> {
@@ -1412,8 +1445,9 @@ impl<A: Application> App<A> {
             last_edit_at: None,
             pending_lift: None,
             pending_reorder: None,
-            last_click_time: None,
+            last_click: None,
             last_region_click: None,
+            clock_origin: Instant::now(),
             region_known: None,
             region_autoscrolled: false,
             pending_tap: None,
@@ -1463,9 +1497,35 @@ impl<A: Application> App<A> {
             soft_input_shown: false,
             #[cfg(android)]
             system_bars: None,
+            restoration_published: None,
             #[cfg(web)]
             page_background: None,
+            #[cfg(web)]
+            page_toolbar: None,
         }
+        .with_restoration()
+    }
+
+    /// Turns restoration on when the application asks for it, and takes what the platform
+    /// handed back from the process before (milestone 753). In a browser that waits for the
+    /// address, which says which entry of the history the page is.
+    fn with_restoration(self) -> Self {
+        let Some(id) = self.app.restoration_scope_id() else {
+            return self;
+        };
+        self.runtime.restoration.enable(id);
+        #[cfg(web)]
+        self.runtime.restoration.set_restores_router(false);
+        #[cfg(android)]
+        if let Some(bytes) = crate::restoration::take_restored() {
+            if self.runtime.restoration.restore(&bytes) {
+                log::info!(
+                    "restoring the state the system kept ({} bytes)",
+                    bytes.len()
+                );
+            }
+        }
+        self
     }
 
     /// What an assistive technology's click on widget `id` does: what a pointer click on it
@@ -1504,6 +1564,7 @@ impl<A: Application> App<A> {
         self.runtime.edits.insert(
             id,
             Edit {
+                affinity: Default::default(),
                 cursor: value.chars().count(),
                 anchor: None,
                 composing: None,
@@ -1664,7 +1725,11 @@ impl<A: Application> App<A> {
     /// On the Web the browser owns the bars, but Chrome on Android paints the phone's
     /// navigation bar with the page's background: the page is given the navigation bar's
     /// colour (milestone 749), or it shows as a band of the loading screen's colour under
-    /// the application.
+    /// the application. The browser's toolbar, and the status bar over it, take the page's
+    /// `theme-color`, which follows the top edge the same way (milestone 751). The bars
+    /// there stand against the page's own edges, and where no region states a colour they
+    /// take the one the frame paints at that edge, not the theme's, which a scaffold may
+    /// paint over in a colour of its own.
     fn sync_system_bars(&mut self, theme: &Theme) {
         #[cfg(any(android, web))]
         {
@@ -1677,23 +1742,43 @@ impl<A: Application> App<A> {
             let scale = self.total_scale();
             let size = window.inner_size();
             let (width, height) = (size.width as f32 / scale, size.height as f32 / scale);
-            let edges = self.last_insets.padding;
-            let bars = ui
-                .system_ui_style(
-                    frus_widgets::Point::new(width / 2.0, edges.top + 0.5),
-                    frus_widgets::Point::new(width / 2.0, height - edges.bottom - 0.5),
-                )
-                .resolve(theme);
             #[cfg(android)]
-            if self.system_bars != Some(bars) && crate::android_system_bars::apply(bars) {
-                self.system_bars = Some(bars);
+            {
+                let edges = self.last_insets.padding;
+                let bars = ui
+                    .system_ui_style(
+                        frus_widgets::Point::new(width / 2.0, edges.top + 0.5),
+                        frus_widgets::Point::new(width / 2.0, height - edges.bottom - 0.5),
+                    )
+                    .resolve(theme);
+                if self.system_bars != Some(bars) && crate::android_system_bars::apply(bars) {
+                    self.system_bars = Some(bars);
+                }
             }
             #[cfg(web)]
             {
-                let page =
-                    crate::web_page::page_background(bars.navigation_bar_color, theme.background);
+                // The browser's bars are outside the page, against its very edges.
+                let (top, bottom) = (
+                    frus_widgets::Point::new(width / 2.0, 0.5),
+                    frus_widgets::Point::new(width / 2.0, height - 0.5),
+                );
+                let stated = ui.system_ui_style(top, bottom);
+                let scene = ui.scene();
+                let page = crate::web_page::bar_color(
+                    stated.navigation_bar_color,
+                    scene.flat_color_at(bottom),
+                    theme.background,
+                );
                 if self.page_background != Some(page) && crate::web_page::paint_behind(page) {
                     self.page_background = Some(page);
+                }
+                let toolbar = crate::web_page::bar_color(
+                    stated.status_bar_color,
+                    scene.flat_color_at(top),
+                    theme.background,
+                );
+                if self.page_toolbar != Some(toolbar) && crate::web_page::paint_toolbar(toolbar) {
+                    self.page_toolbar = Some(toolbar);
                 }
             }
         }
@@ -1981,6 +2066,7 @@ impl<A: Application> App<A> {
                         cursor: value.chars().count(),
                         anchor: None,
                         composing: None,
+                        affinity: Default::default(),
                     },
                 );
                 self.dispatch_edit(message);
@@ -2039,8 +2125,9 @@ impl<A: Application> App<A> {
     }
 
     /// The system insets — the safe area — in **logical** px. On Android they are
-    /// derived from the activity's content rect, outside the system bars; on the Web the
-    /// bottom one is the on-screen keyboard's cover of the canvas; zero elsewhere.
+    /// derived from the activity's content rect, outside the system bars; on the Web they
+    /// are the page's safe area (`env(safe-area-inset-*)`, milestone 751), the bottom one
+    /// raised to the on-screen keyboard's cover of the canvas; zero elsewhere.
     ///
     /// The content rect is what the system leaves the activity, so it excludes
     /// **any** decoration the theme asks for — a title bar included. An app whose
@@ -2068,8 +2155,11 @@ impl<A: Application> App<A> {
             use winit::platform::web::WindowExtWebSys;
             window.canvas()
         }) {
-            let cover = crate::web_page::keyboard_cover_of(&canvas) as f32;
-            return Insets::new(0.0, 0.0, cover * self.scale / scale, 0.0);
+            let cover = crate::web_page::keyboard_cover_of(&canvas);
+            let [top, right, bottom, left] =
+                crate::web_page::window_insets(crate::web_page::safe_area(), cover)
+                    .map(|css| css as f32 * self.scale / scale);
+            return Insets::new(top, right, bottom, left);
         }
         let _ = (phys_w, phys_h, scale);
         Insets::ZERO
@@ -3117,6 +3207,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     // `AppBar` would silently never mount, never fade in and never fade out.
                     let build_start = timed.then(Instant::now);
                     let tree = build_view(&self.app, &theme, &self.runtime);
+                    // What restoration handed back for the widgets this build registered:
+                    // in place before the layout, so a restored page opens where it was.
+                    self.runtime.apply_restored();
                     if let Some(at) = build_start {
                         let took = at.elapsed();
                         self.frame_costs.build = Some(took.as_secs_f32() * 1000.0);
@@ -3404,6 +3497,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // effects it asked for run. An effect that changed something asks for the
                 // frame that shows it.
                 self.runtime.states.end_frame();
+                publish_restoration(
+                    &self.runtime,
+                    &mut self.restoration_published,
+                    #[cfg(web)]
+                    self.history.index(),
+                );
                 crate::startup::laid_out(layout_took);
                 #[cfg(web)]
                 crate::web_dev::keep(|| self.runtime.states.snapshot());
@@ -5529,15 +5628,18 @@ impl<A: Application> App<A> {
                 .as_ref()
                 .and_then(|tree| find_widget(tree.as_ref(), id))
                 .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, scroll_cursor));
-            if let Some(cursor) = cursor {
+            if let Some(at) = cursor {
                 // Placing the caret with the mouse forgets the vertical goal column.
                 self.goal_x = None;
+                // On the side of its boundary that was pressed: beside a change of
+                // direction, or past the end of a wrapped line, that is where it is drawn.
                 self.runtime.edits.insert(
                     id,
                     Edit {
-                        cursor,
+                        cursor: at.offset,
                         anchor: None,
                         composing: None,
+                        affinity: at.affinity,
                     },
                 );
                 self.drag = Some(Drag::TextSelect { id, rect });
@@ -5553,23 +5655,25 @@ impl<A: Application> App<A> {
                 // `request_soft_input`.
                 self.request_soft_input();
 
-                // A double click selects the word under the pointer.
-                let now = Instant::now();
-                let double = self
-                    .last_click_time
-                    .map(|t| (now - t).as_secs_f32() < 0.4)
-                    .unwrap_or(false);
-                self.last_click_time = Some(now);
+                // A double click selects the word under the pointer: a second press soon
+                // after the first, close to it and in the same field. Timed by the clock the
+                // gestures keep, which in a driven test is the frames run (milestone 747).
+                let (now, here) = (self.click_clock(), self.cursor);
+                let double = self.last_click.is_some_and(|(then, there, field)| {
+                    field == id && self.is_double_click(then, there, now, here)
+                });
+                self.last_click = Some((now, here, id));
                 if double {
                     if let Some((start, end)) = self
                         .tree
                         .as_ref()
                         .and_then(|tree| find_widget(tree.as_ref(), id))
-                        .and_then(|widget| widget.word_at(cursor))
+                        .and_then(|widget| widget.word_at(at.offset))
                     {
                         self.runtime.edits.insert(
                             id,
                             Edit {
+                                affinity: Default::default(),
                                 cursor: end,
                                 anchor: Some(start),
                                 composing: None,
@@ -6311,6 +6415,13 @@ impl<A: Application> App<A> {
         let base = crate::address::base();
         let (location, index) = crate::address::current(strategy, &base);
         self.history.opened(location.clone(), index);
+        // What the tab kept for this entry of its history, the last time the page was here
+        // (milestone 753): a reload, or a tab the browser discarded and opened again.
+        if self.runtime.restoration.is_enabled() {
+            if let Some(bytes) = crate::restoration::load(self.history.index()) {
+                self.runtime.restoration.restore(&bytes);
+            }
+        }
         crate::address::listen(window.clone(), strategy, base.clone());
         self.address = (strategy, base);
         if let Some(location) = location {
@@ -6677,12 +6788,13 @@ impl<A: Application> App<A> {
                     .and_then(|widget| {
                         widget.cursor_at(local_x, local_y, rect.width, scroll_cursor)
                     });
-                if let Some(cursor) = cursor {
+                if let Some(at) = cursor {
                     let edit = self.runtime.edits.entry(*id).or_default();
                     if edit.anchor.is_none() {
                         edit.anchor = Some(edit.cursor);
                     }
-                    edit.cursor = cursor;
+                    edit.cursor = at.offset;
+                    edit.affinity = at.affinity;
                 }
             }
             Drag::SelectionHandle {
@@ -6703,7 +6815,7 @@ impl<A: Application> App<A> {
                     .as_ref()
                     .and_then(|tree| find_widget(tree.as_ref(), *id))
                     .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, edit.cursor))
-                    .and_then(|to| crate::selection::drag(edit, *handle, to));
+                    .and_then(|to| crate::selection::drag(edit, *handle, to.offset));
                 if let Some(moved) = moved {
                     self.runtime.edits.insert(*id, moved);
                 }
@@ -7231,6 +7343,29 @@ impl<A: Application> App<A> {
             Some((now, start)) => now - start,
             None => (Instant::now() - self.gesture_start).as_secs_f32(),
         }
+    }
+
+    /// Seconds on the clock clicks are counted by: the test driver's frames when there is
+    /// one, as for the gestures, and the wall's in an application. A driver's events are
+    /// microseconds apart on the wall, which made every second click of a test a double
+    /// click wherever it landed (milestone 747).
+    fn click_clock(&self) -> f32 {
+        match self.gesture_clock {
+            Some((now, _)) => now,
+            None => (Instant::now() - self.clock_origin).as_secs_f32(),
+        }
+    }
+
+    /// Whether a press at `here`, at `now`, makes a double click of the one at `there`,
+    /// at `then`: soon enough after it and close enough to it — a mouse's slop, or a
+    /// finger's, which lands less precisely.
+    fn is_double_click(&self, then: f32, there: Point, now: f32, here: Point) -> bool {
+        let slop = if self.pointer_touch {
+            DOUBLE_TAP_SLOP
+        } else {
+            DOUBLE_CLICK_SLOP
+        };
+        now - then < DOUBLE_CLICK_TIME && (here.x - there.x).hypot(here.y - there.y) <= slop
     }
 
     /// Starts a fresh gesture: the history of the previous one must not leak into
@@ -8585,7 +8720,12 @@ impl<A: Application> App<A> {
             .and_then(|ui| ui.widget_rect(id))
             .map(|r| r.width)
             .unwrap_or(0.0);
-        let cursor = self.runtime.edits.get(&id).map(|e| e.cursor).unwrap_or(0);
+        let cursor = self
+            .runtime
+            .edits
+            .get(&id)
+            .map(|e| e.position())
+            .unwrap_or_default();
         let moved = self
             .tree
             .as_ref()
@@ -8603,7 +8743,8 @@ impl<A: Application> App<A> {
         } else {
             edit.anchor = None;
         }
-        edit.cursor = new_cursor;
+        edit.cursor = new_cursor.offset;
+        edit.affinity = new_cursor.affinity;
         // Remember the goal column for the next vertical jump.
         self.goal_x = Some(goal);
         self.reveal_caret(id, new_cursor);
@@ -8630,6 +8771,7 @@ impl<A: Application> App<A> {
         self.runtime.edits.insert(
             id,
             Edit {
+                affinity: Default::default(),
                 cursor: end,
                 anchor: Some(start),
                 composing: None,
@@ -8690,10 +8832,29 @@ impl<A: Application> App<A> {
         // `dispatch_edit` rebuilds the tree: a plain keystroke leaves it unused, since
         // `on_edit` answers `None` for one and the announcement below is never spoken.
         let announce = widget.and_then(|widget| widget.announce());
-        let message = widget.and_then(|widget| widget.on_edit(&mut edit, &key));
+        // The caret keys move over the text as it is drawn, when the widget can say how;
+        // everything else — and those, when it cannot — is the widget's edit.
+        let caret_key = matches!(
+            key,
+            Key::Left { .. } | Key::Right { .. } | Key::Home { .. } | Key::End { .. }
+        );
+        let width = self
+            .ui
+            .as_ref()
+            .and_then(|ui| ui.widget_rect(id))
+            .map(|r| r.width);
+        let moved = caret_key
+            && width.is_some_and(|width| {
+                widget.is_some_and(|widget| widget.caret_key(width, &mut edit, &key))
+            });
+        let message = if moved {
+            None
+        } else {
+            widget.and_then(|widget| widget.on_edit(&mut edit, &key))
+        };
         self.runtime.edits.insert(id, edit);
         // In a multi-line field, make the retained scroll follow the caret and reveal it.
-        self.reveal_caret(id, edit.cursor);
+        self.reveal_caret(id, edit.position());
         if let Some(message) = message {
             self.dispatch_edit(message);
             if let Some(announce) = announce {
@@ -8798,7 +8959,7 @@ impl<A: Application> App<A> {
         // The caret goes back with the text — an undo that restores the value and leaves
         // the caret at the end has done half the job.
         self.runtime.edits.insert(id, target.edit);
-        self.reveal_caret(id, target.edit.cursor);
+        self.reveal_caret(id, target.edit.position());
         if let Some(message) = message {
             self.dispatch_edit(message);
         }
@@ -8836,7 +8997,7 @@ impl<A: Application> App<A> {
     /// Makes a multi-line field's retained scroll **follow the caret**: adjusts
     /// `runtime.scroll[id]` just enough to keep the caret visible, the way an editor
     /// re-centres as you type. A no-op for a field that does not scroll.
-    fn reveal_caret(&mut self, id: WidgetId, cursor: usize) {
+    fn reveal_caret(&mut self, id: WidgetId, cursor: frus_widgets::TextPosition) {
         let Some(vp) = self.ui.as_ref().and_then(|ui| ui.scrollable_viewport(id)) else {
             return;
         };
@@ -8950,12 +9111,10 @@ impl<A: Application> App<A> {
             return;
         };
         let index = self.region_index(&stop, self.cursor);
-        let now = Instant::now();
-        let here = self.cursor;
-        let double = self.last_region_click.is_some_and(|(then, there)| {
-            (now - then).as_secs_f32() < 0.4
-                && (here.x - there.x).hypot(here.y - there.y) <= REGION_DOUBLE_CLICK_SLOP
-        });
+        let (now, here) = (self.click_clock(), self.cursor);
+        let double = self
+            .last_region_click
+            .is_some_and(|(then, there)| self.is_double_click(then, there, now, here));
         self.last_region_click = Some((now, here));
         // A new selection is worked out over the texts on screen, not the last one's.
         self.region_known = None;
@@ -9321,6 +9480,7 @@ impl<A: Application> App<A> {
         self.runtime.edits.insert(
             id,
             Edit {
+                affinity: Default::default(),
                 cursor: usize::MAX,
                 anchor: Some(0),
                 composing: None,
@@ -9489,7 +9649,7 @@ impl<A: Application> App<A> {
                 )
             });
         // Only a text field has a bar; a button under the pointer is not one.
-        let Some(cursor) = cursor else {
+        let Some(at) = cursor else {
             self.hide_selection_toolbar();
             return;
         };
@@ -9499,7 +9659,7 @@ impl<A: Application> App<A> {
                 .edits
                 .get(&id)
                 .and_then(|edit| edit.selection_range())
-                .is_some_and(|(start, end)| cursor >= start && cursor <= end);
+                .is_some_and(|(start, end)| at.offset >= start && at.offset <= end);
         self.runtime.input.focused = Some(id);
         self.runtime.selection_handles = None;
         if !inside {
@@ -9507,9 +9667,10 @@ impl<A: Application> App<A> {
             self.runtime.edits.insert(
                 id,
                 Edit {
-                    cursor,
+                    cursor: at.offset,
                     anchor: None,
                     composing: None,
+                    affinity: at.affinity,
                 },
             );
             self.runtime.close_edit_run(id);
@@ -9533,6 +9694,7 @@ impl<A: Application> App<A> {
 fn collapsed_to_end(edit: Edit) -> Edit {
     let cursor = edit.selection_range().map_or(edit.cursor, |(_, end)| end);
     Edit {
+        affinity: Default::default(),
         cursor,
         anchor: None,
         composing: None,
@@ -10251,16 +10413,19 @@ mod tests {
     fn a_copy_collapses_the_selection_to_its_end() {
         use frus_widgets::Edit;
         let forwards = Edit {
+            affinity: Default::default(),
             cursor: 11,
             anchor: Some(6),
             composing: None,
         };
         let backwards = Edit {
+            affinity: Default::default(),
             cursor: 6,
             anchor: Some(11),
             composing: None,
         };
         let expect = Edit {
+            affinity: Default::default(),
             cursor: 11,
             anchor: None,
             composing: None,
@@ -10269,6 +10434,7 @@ mod tests {
         assert_eq!(super::collapsed_to_end(backwards), expect);
         // Nothing selected: the caret stays where it is.
         let caret = Edit {
+            affinity: Default::default(),
             cursor: 3,
             anchor: None,
             composing: None,
@@ -10276,6 +10442,7 @@ mod tests {
         assert_eq!(super::collapsed_to_end(caret), caret);
         // An anchor on the caret is no selection either.
         let empty = Edit {
+            affinity: Default::default(),
             cursor: 3,
             anchor: Some(3),
             composing: Some((1, 2)),
@@ -11968,6 +12135,18 @@ pub mod testing {
             }
         }
 
+        /// What the application keeps for restoration, as the platform would be handed it
+        /// now: `None` when it has not turned restoration on (milestone 753).
+        pub fn restoration_data(&self) -> Option<Vec<u8>> {
+            self.shell.runtime.restoration.data(&self.shell.runtime)
+        }
+
+        /// Hands the application what a process before it kept — as the platform does when
+        /// it starts one again. Before the first frame. Whether it held anything for it.
+        pub fn restore(&mut self, data: &[u8]) -> bool {
+            self.shell.runtime.restoration.restore(data)
+        }
+
         /// The system's **Back** — Android's back button, the browser's Back — as the shell
         /// handles it, short of leaving: whether it went back from anything.
         pub fn system_back(&mut self) -> bool {
@@ -12140,6 +12319,14 @@ pub mod testing {
                 },
                 None,
             );
+        }
+
+        /// The selection in the focused field, as its first and last character boundaries,
+        /// when one is selected.
+        #[cfg(test)]
+        pub(crate) fn field_selection(&self) -> Option<(usize, usize)> {
+            let id = self.focused()?;
+            self.shell.runtime.edits.get(&id)?.selection_range()
         }
 
         /// Makes the shell stand in for a built-in device, as `FRUS_DEVICE` does
@@ -12520,6 +12707,7 @@ pub mod testing {
                 s.tree.is_none() || s.runtime.switching(),
             ) {
                 s.tree = Some(build_view(&s.app, &theme, &s.runtime));
+                s.runtime.apply_restored();
             }
             s.build_dirty = false;
             // As the window's frame does once its tree is built (milestone 752).

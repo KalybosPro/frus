@@ -112,6 +112,20 @@ pub trait Application {
         Command::none()
     }
 
+    /// **State restoration** (milestone 753): the id the application's restorable values are
+    /// kept under, in the parcel the system keeps when it ends a process in the background —
+    /// Android's saved instance state, a browser tab's session storage. `None`, the default,
+    /// keeps nothing, and an application the system ended starts afresh.
+    ///
+    /// With an id, what the application registers — a component's
+    /// [`use_restorable_state`](frus_widgets::BuildContext::use_restorable_state), a field's
+    /// or a list's `restoration_id`, the router's stack — is written after every frame that
+    /// changed it, and handed back to the next process. Changing the id discards what was
+    /// kept under the old one. See [`Restoration`](frus_widgets::Restoration).
+    fn restoration_scope_id(&self) -> Option<String> {
+        None
+    }
+
     /// Whether the application is **one window**, and its name: on a desktop, a second process
     /// started with a link — the operating system's way of opening `myapp://orders/42` — hands
     /// the link to the first and ends, instead of opening a second window. `None`, the default,

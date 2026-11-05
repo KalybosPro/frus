@@ -70,6 +70,9 @@ pub struct SingleChildScrollView<Msg = crate::callback::Callback> {
     /// [`SingleChildScrollView::notify_every`].
     grain: f32,
     content: Vec<Box<dyn Widget<Msg>>>,
+    /// Where the offset is kept for restoration; see
+    /// [`SingleChildScrollView::restoration_id`].
+    restoration: Option<Vec<String>>,
 }
 
 impl<Msg> SingleChildScrollView<Msg> {
@@ -97,7 +100,17 @@ impl<Msg> SingleChildScrollView<Msg> {
             on_scroll: None,
             grain: 0.0,
             content: Vec::new(),
+            restoration: None,
         }
+    }
+
+    /// Keeps how far the area is scrolled across the end of the process (milestone 753):
+    /// when the application has restoration on, the offset is kept under `id` and a process
+    /// the system started again opens the area where it was. `id` must be unique within its
+    /// scope — the page, or a [`restoration_scope`](crate::restoration_scope).
+    pub fn restoration_id(mut self, id: &str) -> Self {
+        self.restoration = Some(crate::restoration::path_here(id));
+        self
     }
 
     /// Chooses the scrolling axis or axes; vertical by default.
@@ -253,6 +266,19 @@ impl<Msg> Default for SingleChildScrollView<Msg> {
 }
 
 impl<Msg: Clone> Widget<Msg> for SingleChildScrollView<Msg> {
+    /// Registers the offset under its restoration id, if it has one (milestone 753).
+    fn build_in(
+        &self,
+        id: crate::interaction::WidgetId,
+        runtime: &crate::runtime::Runtime,
+        theme: &crate::theme::Theme,
+    ) {
+        if let Some(path) = &self.restoration {
+            runtime.restoration.register_scroll(path.clone(), id);
+        }
+        self.build_themed(theme)
+    }
+
     fn style(&self) -> Style {
         // In **flex** mode (fill then scroll), an axis dimension that was not set
         // explicitly must not serve as a basis: the default height of 200 would

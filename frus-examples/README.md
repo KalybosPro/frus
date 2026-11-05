@@ -43,14 +43,16 @@ The tests live in `tests/`, beside `src/`, apart from the code they test. Each f
 From any project folder:
 
 ```sh
-cargo run                       # desktop (Windows, macOS, Linux)
-cargo apk run --lib             # Android, with cargo-apk and a device connected
-cargo test                      # the tests in tests/, without a window
+frus run                        # desktop (Windows, macOS, Linux)
+frus run -d android             # Android: the connected phone, or an emulator
+frus run -d web                 # in the browser
+frus test                       # the tests in tests/, without a window
 ```
 
-Every project also runs in the browser: each has a `web/index.html`, and its README's "Web"
-section gives the three commands (build for `wasm32-unknown-unknown`, run `wasm-bindgen`, serve
-`web/`).
+`frus` comes from `cargo install frus-cli`, and installs what a platform needs the first time
+(the Android SDK, a Rust target, wasm-bindgen). Every project has a `web/index.html`, and its
+README's "Web" section also gives the commands by hand (build for `wasm32-unknown-unknown`, run
+`wasm-bindgen`, serve `web/`).
 
 The projects depend on the frus checkout they sit in (`frus = { path = "../../crates/frus" }`).
 Copied elsewhere, depend on the published crate instead: `frus = "0.3"`.
@@ -59,5 +61,5 @@ To share one build cache between all the examples (frus is then compiled once, n
 project), point them at the same target directory:
 
 ```sh
-CARGO_TARGET_DIR=../../target cargo run
+CARGO_TARGET_DIR=../../target frus run
 ```

@@ -37,9 +37,18 @@ pub struct Edit {
     /// Range `(start, end)` **being composed** by the IME (provisional text,
     /// underlined on screen); `None` outside composition. In character indices.
     pub composing: Option<(usize, usize)>,
+    /// Which side of its boundary the cursor belongs to — where it is drawn when the
+    /// boundary is in two places on screen: a soft wrap, or a change of direction. See
+    /// [`TextAffinity`](frus_core::TextAffinity).
+    pub affinity: frus_core::TextAffinity,
 }
 
 impl Edit {
+    /// The cursor as a position: its boundary and its affinity.
+    pub fn position(&self) -> frus_core::TextPosition {
+        frus_core::TextPosition::with(self.cursor, self.affinity)
+    }
+
     /// Selected range `(start, end)`, non-empty, otherwise `None`.
     pub fn selection_range(&self) -> Option<(usize, usize)> {
         self.anchor
@@ -638,6 +647,9 @@ pub struct Runtime {
     /// What every [`Component`](crate::Component) keeps between rebuilds: the state of a
     /// [`StatefulWidget`](crate::StatefulWidget), and the values a component's hooks hold.
     pub states: crate::component::StateStore,
+    /// What the application keeps for the system to hand back after it ended the process
+    /// (milestone 753). See [`Restoration`](crate::Restoration).
+    pub restoration: crate::restoration::Restoration,
     /// **Motion is off**: the user has asked for animations to be reduced or removed,
     /// and the shell has passed that on from the platform.
     ///
@@ -852,6 +864,16 @@ impl Runtime {
         }
     }
 
+    /// Hands the scroll offsets, carets and selections restored for the widgets the last
+    /// build registered to the state they live in. The shell calls it after every build,
+    /// before laying out, so the first frame of a restored page is already where it was.
+    /// Whether anything was handed over.
+    pub fn apply_restored(&mut self) -> bool {
+        self.restoration.apply(&mut self.scroll, &mut self.edits)
+    }
+}
+
+impl Runtime {
     /// A widget's animated hover progress.
     pub fn hover_progress(&self, id: WidgetId) -> f32 {
         self.anims.get(&id).map(|a| a.hover).unwrap_or(0.0)

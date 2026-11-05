@@ -23,8 +23,8 @@ use std::sync::{Mutex, OnceLock, RwLock};
 
 use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping, Style, Weight};
 use frus_core::{
-    fits, FontWeight, Point, Rect, ResolvedTextStyle, Size, TextAlign, TextBlock, TextRun,
-    TextStyle,
+    fits, FontWeight, Point, Rect, ResolvedTextStyle, Size, TextAffinity, TextAlign, TextBlock,
+    TextPosition, TextRun, TextStyle,
 };
 
 /// The default line-height to font-size ratio.
@@ -1397,6 +1397,11 @@ struct LayoutLine {
     /// character drawn by no glyph (the space a line broke at) is an empty extent at its
     /// caret.
     extents: Vec<(f32, f32)>,
+    /// Whether each character on the line was drawn right to left — its glyph's direction,
+    /// or the line's for a character drawn by none.
+    rtl: Vec<bool>,
+    /// Whether the line itself reads right to left: where it starts and where it ends.
+    base_rtl: bool,
     /// The line's top edge.
     top: f32,
     /// The line's height.
@@ -1756,6 +1761,9 @@ impl TextLayout {
                         None => (carets[i], carets[i]),
                     })
                     .collect();
+                let rtl = (0..n)
+                    .map(|i| drawn[i].map_or(run.rtl, |(_, _, rtl)| rtl))
+                    .collect();
 
                 let start_char = text[..line_byte_start[run.line_i] + lo].chars().count();
                 width = width.max(run.line_w);
@@ -1764,6 +1772,8 @@ impl TextLayout {
                     start_char,
                     carets,
                     extents,
+                    rtl,
+                    base_rtl: run.rtl,
                     top: run.line_top,
                     height: run.line_height,
                 });
@@ -1777,6 +1787,8 @@ impl TextLayout {
                 start_char: 0,
                 carets: vec![empty_line_x(block.width, block.align, false)],
                 extents: Vec::new(),
+                rtl: Vec::new(),
+                base_rtl: false,
                 top: 0.0,
                 height: fallback_h,
             });
@@ -1798,48 +1810,241 @@ impl TextLayout {
         self.size
     }
 
-    /// The line containing the drawn character boundary `index`.
-    fn line_of(&self, index: usize) -> &LayoutLine {
-        self.lines
+    /// The line the drawn boundary `index` is drawn on with `affinity`: the line it starts,
+    /// or — upstream, at a soft wrap — the line it ends.
+    fn line_index(&self, index: usize, affinity: TextAffinity) -> usize {
+        let at = self
+            .lines
             .iter()
-            .rev()
-            .find(|line| index >= line.start_char)
-            .unwrap_or(&self.lines[0])
+            .rposition(|line| index >= line.start_char)
+            .unwrap_or(0);
+        if affinity == TextAffinity::Upstream && at > 0 {
+            let (line, above) = (&self.lines[at], &self.lines[at - 1]);
+            // Only a wrap is both: after a newline, the line above ends a character earlier.
+            if index == line.start_char && above.start_char + above.extents.len() == index {
+                return at - 1;
+            }
+        }
+        at
+    }
+
+    /// The `x` of the caret at boundary `local` of `line`: downstream, the leading edge of
+    /// the character after it; upstream, the trailing edge of the character before it. A
+    /// boundary with no character on that side of it on the line is drawn the other way.
+    fn caret_x(line: &LayoutLine, local: usize, affinity: TextAffinity) -> f32 {
+        let local = local.min(line.extents.len());
+        match affinity {
+            TextAffinity::Upstream if local > 0 => Self::trailing(line, local - 1),
+            _ => line.carets[local],
+        }
+    }
+
+    /// The leading edge of character `k` of `line`: its left, or its right when it was drawn
+    /// right to left.
+    fn leading(line: &LayoutLine, k: usize) -> f32 {
+        let (left, right) = line.extents[k];
+        if line.rtl[k] {
+            right
+        } else {
+            left
+        }
+    }
+
+    /// The trailing edge of character `k` of `line`.
+    fn trailing(line: &LayoutLine, k: usize) -> f32 {
+        let (left, right) = line.extents[k];
+        if line.rtl[k] {
+            left
+        } else {
+            right
+        }
+    }
+
+    /// A drawn position as a source one: a boundary the cut moved to the source's end
+    /// belongs to the text before it.
+    fn source_position(&self, drawn: usize, affinity: TextAffinity) -> TextPosition {
+        let offset = self.source_index(drawn.min(self.chars));
+        if offset != drawn {
+            TextPosition::upstream(offset)
+        } else {
+            TextPosition::with(offset, affinity)
+        }
     }
 
     /// The caret's rectangle at boundary `index`, of zero width — it is up to the
     /// widget to choose the stroke thickness. `index` is clamped to the text.
+    ///
+    /// The **downstream** caret: see [`TextLayout::caret_rect_at`] for a caret that may
+    /// belong to the character before its boundary.
     pub fn caret_rect(&self, index: usize) -> Rect {
-        let index = self.drawn_end(index.min(self.source));
-        let line = self.line_of(index);
+        self.caret_rect_at(TextPosition::new(index))
+    }
+
+    /// The caret's rectangle at `position`, of zero width: at the leading edge of the
+    /// character after the boundary for a [`TextAffinity::Downstream`] position, at the
+    /// trailing edge of the one before it for an upstream one — the two places a boundary
+    /// between two directions is drawn at, or the end of one line and the start of the
+    /// next at a soft wrap. The offset is clamped to the text.
+    pub fn caret_rect_at(&self, position: TextPosition) -> Rect {
+        let index = self.drawn_end(position.offset.min(self.source));
+        let line = &self.lines[self.line_index(index, position.affinity)];
         let local = (index - line.start_char).min(line.carets.len() - 1);
-        Rect::new(line.carets[local], line.top, 0.0, line.height)
+        Rect::new(
+            Self::caret_x(line, local, position.affinity),
+            line.top,
+            0.0,
+            line.height,
+        )
     }
 
     /// The character boundary **closest** to `point`, in text-local coordinates. The
-    /// `y` picks the line (clamped), the `x` picks the boundary.
+    /// `y` picks the line (clamped), the `x` picks the boundary. The offset of
+    /// [`TextLayout::position_at`].
     pub fn hit_test(&self, point: Point) -> usize {
+        self.position_at(point).offset
+    }
+
+    /// The caret position a press at `point` puts down, in text-local coordinates: the
+    /// `y` picks the line (clamped), and the character under the `x` decides — on its
+    /// leading half, the boundary before it, belonging to it (downstream); on its trailing
+    /// half, the boundary after it, belonging to it (upstream). So a press beside a change of
+    /// direction puts the caret on the side that was pressed, and a press past the end of a
+    /// wrapped line puts it at the end of that line, not at the start of the next.
+    pub fn position_at(&self, point: Point) -> TextPosition {
         let last = self.lines.last().expect("at least one line");
         // Below the last line of a cut text is past everything it was cut from.
         if self.is_elided() && point.y >= last.top + last.height {
-            return self.source;
+            return TextPosition::upstream(self.source);
         }
         let line = self
             .lines
             .iter()
             .find(|line| point.y < line.top + line.height)
             .unwrap_or(last);
-
-        let mut best = 0;
-        let mut best_dist = f32::MAX;
-        for (i, x) in line.carets.iter().enumerate() {
-            let dist = (x - point.x).abs();
-            if dist < best_dist {
-                best_dist = dist;
-                best = i;
+        let n = line.extents.len();
+        let x = point.x;
+        // The character under the point, its leading half or its trailing one.
+        let under = (0..n).find(|&k| {
+            let (left, right) = line.extents[k];
+            left < right && left <= x && x < right
+        });
+        let (local, affinity) = match under {
+            Some(k) => {
+                let (left, right) = line.extents[k];
+                let leading_half = if line.rtl[k] {
+                    x >= (left + right) * 0.5
+                } else {
+                    x < (left + right) * 0.5
+                };
+                if leading_half {
+                    (k, TextAffinity::Downstream)
+                } else {
+                    (k + 1, TextAffinity::Upstream)
+                }
             }
+            // Beside the line, or in a gap: the nearest edge of a character — and of two
+            // at the same place, the later in the text, so that past the end of a wrapped
+            // line is its end, after the space it broke at.
+            None => {
+                let mut best = (0, TextAffinity::Downstream);
+                let mut best_dist = (line.carets[0] - x).abs();
+                for k in 0..n {
+                    for (edge, stop) in [
+                        (Self::leading(line, k), (k, TextAffinity::Downstream)),
+                        (Self::trailing(line, k), (k + 1, TextAffinity::Upstream)),
+                    ] {
+                        let dist = (edge - x).abs();
+                        if dist <= best_dist {
+                            best_dist = dist;
+                            best = stop;
+                        }
+                    }
+                }
+                best
+            }
+        };
+        self.source_position(line.start_char + local, affinity)
+    }
+
+    /// The caret one step **on screen** from `from`: past the character drawn next to it on
+    /// the right when `rightwards`, on the left otherwise — whatever the direction of that
+    /// character, so that the arrows move the caret the way they point through a line that
+    /// mixes directions. Crossing a character leaves the caret beside it, belonging to it.
+    ///
+    /// Off the end of a line — its right for a left-to-right line, its left for a
+    /// right-to-left one — the caret goes to the start of the next line; off its start, to
+    /// the end of the line before. At the very start or end of the text it stays where it
+    /// is.
+    pub fn visual_step(&self, from: TextPosition, rightwards: bool) -> TextPosition {
+        let index = self.drawn_end(from.offset.min(self.source));
+        let at = self.line_index(index, from.affinity);
+        let line = &self.lines[at];
+        let n = line.extents.len();
+        let local = (index - line.start_char).min(n);
+        let x = Self::caret_x(line, local, from.affinity);
+        const EPS: f32 = 0.01;
+        // The drawn character next to the caret on that side.
+        let next = (0..n)
+            .filter(|&k| line.extents[k].0 < line.extents[k].1)
+            .filter(|&k| {
+                if rightwards {
+                    line.extents[k].0 >= x - EPS
+                } else {
+                    line.extents[k].1 <= x + EPS
+                }
+            })
+            .min_by(|&a, &b| {
+                if rightwards {
+                    line.extents[a].0.total_cmp(&line.extents[b].0)
+                } else {
+                    line.extents[b].1.total_cmp(&line.extents[a].1)
+                }
+            });
+        if let Some(k) = next {
+            // Rightwards over a left-to-right character, or leftwards over a right-to-left
+            // one, is forwards: the caret lands after it.
+            let (local, affinity) = if rightwards != line.rtl[k] {
+                (k + 1, TextAffinity::Upstream)
+            } else {
+                (k, TextAffinity::Downstream)
+            };
+            return self.source_position(line.start_char + local, affinity);
         }
-        self.source_index((line.start_char + best).min(self.chars))
+        // Off an edge of the line: towards its end, or towards its start.
+        if rightwards != line.base_rtl {
+            match self.lines.get(at + 1) {
+                Some(below) => self.source_position(below.start_char, TextAffinity::Downstream),
+                None => self.source_position(line.start_char + n, TextAffinity::Upstream),
+            }
+        } else if at > 0 {
+            let above = &self.lines[at - 1];
+            self.source_position(
+                above.start_char + above.extents.len(),
+                TextAffinity::Upstream,
+            )
+        } else {
+            self.source_position(line.start_char, TextAffinity::Downstream)
+        }
+    }
+
+    /// The two ends of the **line `at` is drawn on**, in reading order: its first boundary,
+    /// belonging to the character after it, and its last, belonging to the one before — so
+    /// that the end of a wrapped line is drawn on that line, after the space it broke at.
+    /// What Home and End go to.
+    pub fn line_bounds(&self, at: TextPosition) -> (TextPosition, TextPosition) {
+        let index = self.drawn_end(at.offset.min(self.source));
+        let line = &self.lines[self.line_index(index, at.affinity)];
+        (
+            self.source_position(line.start_char, TextAffinity::Downstream),
+            self.source_position(line.start_char + line.extents.len(), TextAffinity::Upstream),
+        )
+    }
+
+    /// Whether the line `at` is drawn on reads **right to left** — whether its paragraph
+    /// starts with a right-to-left letter.
+    pub fn line_is_rtl(&self, at: TextPosition) -> bool {
+        let index = self.drawn_end(at.offset.min(self.source));
+        self.lines[self.line_index(index, at.affinity)].base_rtl
     }
 
     /// The rectangles covering the character range `[start, end)`: one per line crossed,
@@ -3084,5 +3289,295 @@ mod tests {
         for i in 0..=text.chars().count() {
             assert_eq!(plain.caret_rect(i), boxed.caret_rect(i), "boundary {i}");
         }
+    }
+
+    // ---- Bidirectional carets (milestone 747) ----
+
+    /// Latin, then Hebrew, then Latin, on a left-to-right line: `abc אבג def`. Logically
+    /// a b c ␠ א ב ג ␠ d e f; on screen a b c ␠ ג ב א ␠ d e f.
+    const MIXED: &str = "abc \u{5d0}\u{5d1}\u{5d2} def";
+
+    /// The one rectangle the characters `[start, end)` are highlighted with.
+    fn char_box(layout: &TextLayout, start: usize, end: usize) -> Rect {
+        let rects = layout.selection_rects(start, end);
+        assert_eq!(rects.len(), 1, "[{start}, {end}) is one stretch: {rects:?}");
+        rects[0]
+    }
+
+    /// **A boundary between two directions has a caret on each side**: the end of the
+    /// space before the Hebrew run is drawn after the space, belonging to it, and before the
+    /// first Hebrew letter — at that letter's right — belonging to the letter.
+    #[test]
+    fn a_boundary_between_directions_has_a_caret_on_each_side() {
+        let style = ResolvedTextStyle::exact(16.0);
+        let layout = TextLayout::in_block(MIXED, &style, block(400.0, true, TextAlign::Start));
+        let space = char_box(&layout, 3, 4);
+        let alef = char_box(&layout, 4, 5);
+        let gimel = char_box(&layout, 6, 7);
+        let after_space = layout.caret_rect_at(TextPosition::upstream(4)).x;
+        let before_alef = layout.caret_rect_at(TextPosition::new(4)).x;
+        assert!(
+            (after_space - (space.x + space.width)).abs() < 0.5,
+            "{after_space} {space:?}"
+        );
+        assert!(
+            (before_alef - (alef.x + alef.width)).abs() < 0.5,
+            "{before_alef} {alef:?}"
+        );
+        assert!(before_alef - after_space > 10.0, "two places, apart");
+        // The plain caret is the downstream one.
+        assert_eq!(
+            layout.caret_rect(4),
+            layout.caret_rect_at(TextPosition::new(4))
+        );
+        // The run's other end: after the last Hebrew letter is at its left, beside the
+        // space; before the second space is at the right of the run.
+        let after_gimel = layout.caret_rect_at(TextPosition::upstream(7)).x;
+        assert!(
+            (after_gimel - gimel.x).abs() < 0.5,
+            "{after_gimel} {gimel:?}"
+        );
+        let before_space = layout.caret_rect_at(TextPosition::new(7)).x;
+        assert!((before_space - (alef.x + alef.width)).abs() < 0.5);
+    }
+
+    /// **A press beside a change of direction takes the side it landed on**: on the left of
+    /// the last Hebrew letter, the caret is after that letter (upstream), drawn where the
+    /// finger is — not after the space a letter's width away; on the right of the first
+    /// Hebrew letter, before it.
+    #[test]
+    fn a_press_beside_a_direction_change_takes_the_side_it_landed_on() {
+        let style = ResolvedTextStyle::exact(16.0);
+        let layout = TextLayout::in_block(MIXED, &style, block(400.0, true, TextAlign::Start));
+        let alef = char_box(&layout, 4, 5);
+        let gimel = char_box(&layout, 6, 7);
+        let space = char_box(&layout, 3, 4);
+        let y = 5.0;
+        let at = |x: f32| layout.position_at(Point::new(x, y));
+        assert_eq!(at(gimel.x + 1.0), TextPosition::upstream(7));
+        assert_eq!(at(alef.x + alef.width - 1.0), TextPosition::new(4));
+        assert_eq!(at(space.x + space.width - 1.0), TextPosition::upstream(4));
+        // Wherever the press, the caret it puts down is at the nearer edge of the character
+        // pressed: never more than half a character away.
+        let widest = (0..MIXED.chars().count())
+            .map(|i| char_box(&layout, i, i + 1).width)
+            .fold(0.0_f32, f32::max);
+        let mut x = 0.0;
+        while x < layout.size().width {
+            let caret = layout.caret_rect_at(at(x)).x;
+            assert!(
+                (caret - x).abs() <= widest * 0.5 + 0.5,
+                "a press at {x} put the caret at {caret}"
+            );
+            x += 1.0;
+        }
+        // The plain hit is the position's boundary.
+        assert_eq!(layout.hit_test(Point::new(gimel.x + 1.0, y)), 7);
+    }
+
+    /// Steps a caret across `layout` from `from` until it stops moving, collecting where it
+    /// was drawn after each step.
+    fn walk(
+        layout: &TextLayout,
+        from: TextPosition,
+        rightwards: bool,
+    ) -> Vec<(TextPosition, Rect)> {
+        let mut at = from;
+        let mut seen = vec![(at, layout.caret_rect_at(at))];
+        for _ in 0..200 {
+            let next = layout.visual_step(at, rightwards);
+            if next == at {
+                break;
+            }
+            at = next;
+            seen.push((at, layout.caret_rect_at(at)));
+        }
+        seen
+    }
+
+    /// **The arrows walk a mixed line on screen**: right from the start, the caret moves
+    /// right at every step, through the Hebrew run too, and reaches the end of the line;
+    /// left from there it comes back the same way. Every character is passed once.
+    #[test]
+    fn the_arrows_walk_a_mixed_line_from_one_edge_to_the_other() {
+        let style = ResolvedTextStyle::exact(16.0);
+        let layout = TextLayout::in_block(MIXED, &style, block(400.0, true, TextAlign::Start));
+        let len = MIXED.chars().count();
+        let right = walk(&layout, TextPosition::new(0), true);
+        assert_eq!(right.len(), len + 1, "{right:?}");
+        for pair in right.windows(2) {
+            assert!(pair[1].1.x > pair[0].1.x + 1.0, "rightwards: {pair:?}");
+        }
+        let end = right.last().unwrap().0;
+        assert_eq!(end.offset, len);
+        let left = walk(&layout, end, false);
+        assert_eq!(left.len(), len + 1, "{left:?}");
+        for pair in left.windows(2) {
+            assert!(pair[1].1.x < pair[0].1.x - 1.0, "leftwards: {pair:?}");
+        }
+        assert_eq!(left.last().unwrap().0.offset, 0);
+        // Into the Hebrew run from the left, the first step crosses its last letter.
+        let entering = right
+            .iter()
+            .position(|(p, _)| *p == TextPosition::upstream(4))
+            .expect("the caret stops after the space");
+        assert_eq!(right[entering + 1].0, TextPosition::new(6));
+    }
+
+    /// **Numbers inside a right-to-left line** run left to right, and the boundary before
+    /// them is drawn at either end of the number: after the space at its right, or before
+    /// the first digit at its left. Walking left from the start of the line crosses every
+    /// character once and ends at the line's left end.
+    #[test]
+    fn numbers_inside_a_right_to_left_line_keep_both_their_ends() {
+        let style = ResolvedTextStyle::exact(16.0);
+        // Four Hebrew letters, a space, 1 2 3, a space, three letters.
+        let text = "\u{5de}\u{5e1}\u{5e4}\u{5e8} 123 \u{5db}\u{5d0}\u{5df}";
+        let len = text.chars().count();
+        let layout = TextLayout::in_block(text, &style, block(400.0, true, TextAlign::Start));
+        // The line reads from the right.
+        assert!((layout.caret_rect(0).x - 400.0).abs() < 1.0);
+        let digits = char_box(&layout, 5, 8);
+        let after_space = layout.caret_rect_at(TextPosition::upstream(5)).x;
+        let before_one = layout.caret_rect_at(TextPosition::new(5)).x;
+        assert!(
+            (after_space - (digits.x + digits.width)).abs() < 0.5,
+            "{after_space} {digits:?}"
+        );
+        assert!(
+            (before_one - digits.x).abs() < 0.5,
+            "{before_one} {digits:?}"
+        );
+        // The arrows, leftwards from the start: every step to the left, every character once.
+        let left = walk(&layout, TextPosition::new(0), false);
+        assert_eq!(left.len(), len + 1, "{left:?}");
+        for pair in left.windows(2) {
+            assert!(pair[1].1.x < pair[0].1.x - 1.0, "leftwards: {pair:?}");
+        }
+        assert_eq!(left.last().unwrap().0.offset, len);
+        // Through the number left to right on screen: 3, then 2, then 1, then out of it.
+        let order: Vec<TextPosition> = left.iter().map(|(p, _)| *p).collect();
+        let at = order
+            .iter()
+            .position(|p| *p == TextPosition::upstream(5))
+            .unwrap();
+        assert_eq!(
+            &order[at + 1..at + 4],
+            &[
+                TextPosition::new(7),
+                TextPosition::new(6),
+                TextPosition::new(5)
+            ]
+        );
+    }
+
+    /// **A soft-wrapped right-to-left paragraph**: every line starts at the right edge; the
+    /// boundary at a wrap is the left end of the line above upstream and the right end of
+    /// the line below downstream; a press at the far left of the first line is its end, on
+    /// it; the arrows cross from one line to the next at the line's left end, and back.
+    #[test]
+    fn a_wrapped_right_to_left_paragraph_keeps_its_line_ends() {
+        let style = ResolvedTextStyle::exact(16.0);
+        // Eight Hebrew words, which wrap at 110 px.
+        let text = concat!(
+            "\u{5e9}\u{5dc}\u{5d5}\u{5dd} \u{5e2}\u{5d5}\u{5dc}\u{5dd} ",
+            "\u{5d6}\u{5d4} \u{5de}\u{5e9}\u{5e4}\u{5d8} \u{5d0}\u{5e8}\u{5d5}\u{5da} ",
+            "\u{5e9}\u{5e0}\u{5e9}\u{5d1}\u{5e8} \u{5dc}\u{5db}\u{5de}\u{5d4} ",
+            "\u{5e9}\u{5d5}\u{5e8}\u{5d5}\u{5ea}"
+        );
+        let width = 110.0;
+        let layout = TextLayout::in_block(text, &style, block(width, true, TextAlign::Start));
+        let spans = line_spans_resolved(text, &style, Some(width), true);
+        assert!(spans.len() >= 3, "the fixture wraps: {spans:?}");
+        let starts: Vec<usize> = spans
+            .iter()
+            .map(|s| text[..s.start].chars().count())
+            .collect();
+        for &start in &starts {
+            let x = layout.caret_rect_at(TextPosition::new(start)).x;
+            assert!(
+                (x - width).abs() < 1.0,
+                "line at {start} starts at the right: {x}"
+            );
+        }
+        let wrap = starts[1];
+        let first = layout.caret_rect(0);
+        let line_end = layout.caret_rect_at(TextPosition::upstream(wrap));
+        let next_start = layout.caret_rect_at(TextPosition::new(wrap));
+        assert_eq!(
+            line_end.y, first.y,
+            "upstream, the wrap is on the first line"
+        );
+        assert!(next_start.y > first.y, "downstream, on the second");
+        let first_left = layout
+            .selection_rects(0, wrap)
+            .iter()
+            .map(|r| r.x)
+            .fold(f32::MAX, f32::min);
+        assert!(
+            (line_end.x - first_left).abs() < 1.0,
+            "{line_end:?} {first_left}"
+        );
+        // A press at the far left of the first line is its end, on it.
+        let pressed = layout.position_at(Point::new(1.0, first.y + 1.0));
+        assert_eq!(pressed, TextPosition::upstream(wrap));
+        assert_eq!(layout.caret_rect_at(pressed).y, first.y);
+        // The ends of the first line, and of the second.
+        assert_eq!(
+            layout.line_bounds(TextPosition::new(2)),
+            (TextPosition::new(0), TextPosition::upstream(wrap))
+        );
+        assert_eq!(
+            layout.line_bounds(TextPosition::new(wrap)).0,
+            TextPosition::new(wrap)
+        );
+        assert_eq!(
+            layout.line_bounds(TextPosition::new(wrap + 1)).1,
+            TextPosition::upstream(starts[2])
+        );
+        // Left off the end of the first line is the start of the second, at its right;
+        // right off the start of the second is the end of the first again.
+        let down = layout.visual_step(TextPosition::upstream(wrap), false);
+        assert_eq!(down, TextPosition::new(wrap));
+        assert_eq!(layout.visual_step(down, true), TextPosition::upstream(wrap));
+        // The whole paragraph walked leftwards: every character once, line by line.
+        let all = walk(&layout, TextPosition::new(0), false);
+        let len = text.chars().count();
+        assert_eq!(all.last().unwrap().0.offset, len);
+        for pair in all.windows(2) {
+            let (a, b) = (pair[0].1, pair[1].1);
+            assert!(
+                b.x < a.x - 1.0 || b.y > a.y,
+                "leftwards, or down a line: {pair:?}"
+            );
+        }
+        assert!(layout.line_is_rtl(TextPosition::new(wrap)));
+    }
+
+    /// A left-to-right paragraph's wrap is the same in the other direction: the end of the
+    /// first line upstream is at its right, and a press past its right end stays on it.
+    #[test]
+    fn a_wrapped_left_to_right_line_ends_on_its_own_line() {
+        let style = ResolvedTextStyle::exact(16.0);
+        let text = "aaaa bbbb cccc dddd";
+        let layout = TextLayout::in_block(text, &style, block(60.0, true, TextAlign::Start));
+        let first = layout.caret_rect(0);
+        let end = layout.caret_rect_at(TextPosition::upstream(5));
+        assert_eq!(end.y, first.y);
+        assert!(end.x > 20.0);
+        assert_eq!(layout.caret_rect_at(TextPosition::new(5)).x, 0.0);
+        assert_eq!(
+            layout.position_at(Point::new(59.0, first.y + 1.0)),
+            TextPosition::upstream(5)
+        );
+        assert_eq!(
+            layout.visual_step(TextPosition::upstream(5), true),
+            TextPosition::new(5)
+        );
+        assert_eq!(
+            layout.visual_step(TextPosition::new(5), false),
+            TextPosition::upstream(5)
+        );
+        assert!(!layout.line_is_rtl(TextPosition::new(0)));
     }
 }

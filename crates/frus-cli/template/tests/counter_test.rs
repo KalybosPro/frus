@@ -1,5 +1,5 @@
 //! The counter's tests. Each file in `tests/` is built against the application as a library,
-//! so it tests what `src/` makes public. `cargo test` runs them: they need no window and no
+//! so it tests what `src/` makes public. `frus test` runs them: they need no window and no
 //! GPU.
 
 use {{crate_name}}::CounterState;

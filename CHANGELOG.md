@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 752 so far, each documenting the objective, the alternatives
+> record — one per step, 753 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -31,6 +31,40 @@ any release may break.
   the word, and a drag scrolls what the field sits in instead of selecting text. A mouse press
   still focuses at once and a mouse drag still selects.
 
+- **The documentation says `frus`, not cargo, wherever a `frus` command does the job.** The
+  README (English and French), the getting-started page, the testing guide, CONTRIBUTING, the
+  template `frus create` writes (its README, manifest comments and code comments), the sample
+  crates and the eight example projects now run applications with `frus run` (`-d android`,
+  `-d web`), ship them with `frus build`, and test them with `frus test`; the cargo, cargo-apk and
+  wasm-bindgen commands stay, as the same steps by hand. `frus create` ends by suggesting
+  `frus run` (`-d android`, `-d web`), no longer `cargo run` and `cargo apk run --lib`. The README's
+  "cargo-native: no `frus doctor`" row and CONTRIBUTING's "No bespoke CLI" principle now
+  describe the tool as it is: one command over cargo, which adds no build system of its own.
+- **State restoration** (J753): an application the system ends in the background — a phone
+  short of memory does — comes back on the page it was on, scrolled where it was, with what was
+  typed. Opt in with `FrusApp::restoration_scope_id("app")` (`Application::restoration_scope_id`);
+  the router's stack is then kept on its own, and a page keeps what it registers:
+  `BuildContext::use_restorable_state`, `use_restorable_text_controller`, `use_restorable_serde`
+  (new `serde` feature), a `State` that returns a `restoration_id()` (its `save`/`restore`),
+  `TextField::restoration_id` (caret and selection), `SingleChildScrollView::restoration_id` and
+  `ListView::restoration_id` (offset). Values live in a `RestorationBucket` tree; every router
+  page has a scope of its own, and `restoration_scope(id, build)` makes more. Android keeps the
+  data in the activity's saved instance state (Android 10 and later), the web in the tab's
+  session storage per history entry; the desktop keeps nothing, and iOS is not done yet.
+- **The page around a web application, and the way back through it** (J751): the safe areas
+  (`env(safe-area-inset-*)`, read through a probe element) are the window's insets on the Web,
+  the keyboard's cover raised over the bottom one, as a phone's own build reports them. The
+  browser's toolbar follows the application through the page's `<meta name="theme-color">`,
+  created when the page has none, and both it and the page's background take the colour a region
+  at that edge states, then the colour the frame actually paints there (new
+  `Scene::flat_color_at`), then the theme — so an application that paints its edges in a colour
+  of its own has the bars follow it. `GoRouter::open` — what the browser's Back
+  and Forward come through — goes back to a page already beneath the top, a pushed one included,
+  instead of rebuilding the stack from the location; and `GoRouter::keep_popped_pages` keeps
+  popped pages alive so that Forward finds them as they were left, fields filled in (on by
+  default on the Web, four pages). The widget gallery's pages are sub-routes of its home page, so
+  a link straight to a category or a demo has a way back. Every `index.html` is checked to ask for
+  `viewport-fit=cover`.
 - **Scrolling with the keyboard up keeps it up** (J750): on a touch screen a press outside the
   focused field took the focus away the moment the finger came down, so any scroll that started
   outside the field closed the on-screen keyboard, on Android and on the Web. A press outside now
@@ -44,6 +78,18 @@ any release may break.
   focus go when a finger starts scrolling. A mouse press outside is still the click it was. On
   the Web, the editing element takes the browser's focus straight back when winit focuses the
   canvas on a press, so a scroll no longer blurs it and the keyboard stays.
+- **A caret on the right side of a change of direction** (J747): a caret position now carries an
+  affinity (`TextAffinity`, `TextPosition` in `frus-core`, re-exported), so at a boundary drawn in
+  two places — a soft wrap, or where Latin meets Hebrew or Arabic, or digits sit inside them — the
+  caret is drawn beside the character it came past or was tapped next to. In a `TextField` and a
+  selectable `Text` or `RichText` the arrow keys move the caret the way they point on screen
+  through mixed lines, a press resolves to the side of the character that was pressed, Home and
+  End go to the ends of the line on screen (End on a wrapped line stays on it), Up and Down keep
+  the side, and a selection's end handle stands at the end of the selected characters (on the
+  line it ends on, at a wrap). `TextLayout` gained `caret_rect_at`, `position_at`, `visual_step`,
+  `line_bounds` and `line_is_rtl`. **Breaking:** `Edit` and `Status` have an `affinity` field;
+  `Widget::cursor_at` returns a `TextPosition`, `Widget::caret_vertical` and
+  `Widget::text_metrics` take one; a new `Widget::caret_key` moves the caret over the drawn text.
 - **The page fits the phone's screen, and its keyboard** (J749): on a phone, a web application's canvas was sized
   `100vh`, the height with the browser's address bar hidden — which a page that does not scroll
   never hides — so the bottom 56 CSS pixels of the application were drawn below the screen. Every
@@ -67,13 +113,16 @@ any release may break.
   `ListView::find_child_index` tells the list where a kept row's item went (`ChildKey::is`
   compares a key with the application's ids), and a kept row whose item is removed is let go.
   Components inside a list's rows are now built before the row is laid out.
-
 - **Wide shadows fade the whole way out** (J746): a shadow is now its shape blurred by a
   gaussian (deviation `0.57735 × blur + 0.5`), computed analytically and drawn out to three
   deviations. It used to fade along a cubic that stopped one blur beyond the shape, so the
   shadows of a surface twelve or twenty-four high ended on a visible rim around it, short of
   where the blur ends. `Scene::shadow` and `BoxShadow` take the same values as before; blur
   styles keep their meaning.
+- **A field's double click needs the two presses close together** (J747): a second press within
+  0.4 s selects the word only if it lands in the same field within 8 logical pixels of the first
+  (a finger: 100). Two quick clicks far apart now place the caret twice instead of selecting a
+  word. Double clicks in fields and selection areas are timed on the driver's clock in tests.
 - **The website is frus.dev**: every crate's `homepage` points to https://frus.dev, and both
   READMEs link to it first. The widget gallery stays at https://frus-rs.github.io/frus/.
 - **WebGL 2 where there is no WebGPU** (J745): on the web, frus drew through WebGPU alone, and a

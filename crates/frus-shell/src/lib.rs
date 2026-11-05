@@ -49,6 +49,9 @@ mod app;
 mod application;
 #[cfg(any(android, test))]
 mod autofill;
+/// A field's caret through text that mixes directions, through the shell (milestone 747).
+#[cfg(all(test, desktop))]
+mod bidi_caret_tests;
 mod cache_dir;
 mod caret;
 mod command;
@@ -79,11 +82,15 @@ pub mod net;
 mod notification;
 #[cfg(all(web, feature = "notifications"))]
 mod notification_web;
+#[cfg(test)]
+mod restoration_tests;
 // Asking the person for the camera, the microphone, the location (milestone 730).
 #[cfg(target_os = "macos")]
 mod macos_permission;
 mod permission;
 mod reload;
+// Where each platform keeps the restoration data (milestone 753).
+mod restoration;
 #[cfg(web)]
 mod web_permission;
 // How long the application takes to show its first frame (milestone 683, #211).

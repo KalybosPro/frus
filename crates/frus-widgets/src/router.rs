@@ -49,6 +49,15 @@
 //!
 //! A page covered by another is kept: what its components hold is still there when the top
 //! page is popped. It is built, but not laid out or drawn, until it is on show again.
+//!
+//! ## Addresses from outside
+//!
+//! A location handed in from outside — [`GoRouter::open`], what a browser's Back and Forward
+//! come through — that is a page already beneath the top goes back to **that page**, the one
+//! that was pushed included, rather than rebuilding the stack from the location: it keeps
+//! its state, and what was beneath it. A router that
+//! [keeps popped pages](GoRouter::keep_popped_pages) also finds a page it went back from as
+//! it was left, when the location comes back — a browser's Forward.
 
 use std::any::Any;
 use std::cell::{Cell, RefCell};
@@ -446,6 +455,8 @@ struct Page {
     key: u64,
     node: Option<Rc<Node>>,
     state: Rc<GoRouterState>,
+    /// Whether it was pushed rather than made by a `go`: what restoring the stack replays.
+    pushed: bool,
 }
 
 struct Transition {
@@ -465,6 +476,11 @@ struct Stack {
     pages: Vec<Page>,
     transition: Option<Transition>,
     back: Option<Back>,
+    /// The pages popped off the top, the nearest **last**: what going forward again would
+    /// show. They continue `pages` exactly — the first one popped sat at `pages.len()` —
+    /// since any move that is not a pop clears them. Kept only up to the configured
+    /// number, `keep_popped`.
+    forward: Vec<Page>,
 }
 
 struct Config {
@@ -475,6 +491,8 @@ struct Config {
     error: Option<RouteBuilder>,
     limit: usize,
     animate: bool,
+    /// How many popped pages are kept alive for a return ([`GoRouter::keep_popped_pages`]).
+    keep_popped: usize,
 }
 
 struct Inner {
@@ -492,6 +510,11 @@ struct Inner {
     transitions: Cell<crate::PageTransitionsBuilder>,
     unique: Cell<u64>,
     refresh: RefCell<Option<Subscription>>,
+    /// Whether the stack restored for this router has been looked for (milestone 753).
+    restoration_checked: Cell<bool>,
+    /// The restoration scope of each page at the last build: a page that left the stack
+    /// takes its scope's values with it.
+    page_scopes: RefCell<Vec<Vec<String>>>,
 }
 
 /// The routes, and the stack of pages showing which of them the person has been through.
@@ -533,6 +556,7 @@ impl GoRouter {
                     error: None,
                     limit: 5,
                     animate: true,
+                    keep_popped: 0,
                 }),
                 stack: RefCell::new(Stack::default()),
                 started: Cell::new(false),
@@ -541,6 +565,8 @@ impl GoRouter {
                 replaced: Cell::new(false),
                 unique: Cell::new(0),
                 refresh: RefCell::new(None),
+                restoration_checked: Cell::new(false),
+                page_scopes: RefCell::new(Vec::new()),
             }),
         }
     }
@@ -582,6 +608,32 @@ impl GoRouter {
     pub fn animate(self, animate: bool) -> Self {
         self.inner.config.borrow_mut().animate = animate;
         self
+    }
+
+    /// Keeps up to `limit` pages that were popped **alive**, the nearest first, so that a
+    /// location handed back in through [`open`](Self::open) — a browser's Forward button —
+    /// finds its page as it was left: its fields, its scroll, everything its components
+    /// hold. Nought by default: a popped page is let go, as a phone's back button expects.
+    ///
+    /// A kept page is built with the others, not laid out or drawn; it is let go as soon as
+    /// the router moves anywhere that is not back — as a browser drops the entries ahead
+    /// when a new one is made. The Web shell keeps a few.
+    pub fn keep_popped_pages(self, limit: usize) -> Self {
+        self.set_keep_popped_pages(limit);
+        self
+    }
+
+    /// How many popped pages this router keeps alive ([`keep_popped_pages`](Self::keep_popped_pages)).
+    pub fn popped_pages_kept(&self) -> usize {
+        self.inner.config.borrow().keep_popped
+    }
+
+    /// [`keep_popped_pages`](Self::keep_popped_pages), on a router already made.
+    pub fn set_keep_popped_pages(&self, limit: usize) {
+        self.inner.config.borrow_mut().keep_popped = limit;
+        let mut stack = self.inner.stack.borrow_mut();
+        let len = stack.forward.len();
+        stack.forward.drain(..len.saturating_sub(limit));
     }
 
     /// Runs the redirects again whenever `listenable` changes — the way a sign-in or sign-out
@@ -733,15 +785,62 @@ impl GoRouter {
     /// built there is no page to slide away from, so the router simply starts there.
     ///
     /// It is what the shell's `FrusApp` hands an address to.
+    ///
+    /// A location that is a page **beneath** the top goes back to that page, keeping it and
+    /// what is under it — a page that was pushed too, which a `go` would have rebuilt from
+    /// the location; one that is a page the router [kept](Self::keep_popped_pages) after
+    /// going back from it brings it back as it was. Either way only when no redirect sends
+    /// the location elsewhere.
     pub fn open(&self, location: impl AsRef<str>) {
         let location = location.as_ref();
         if self.location() == location {
             return;
         }
-        self.go(location);
+        if !self.return_to(location) {
+            self.go(location);
+        }
         if !self.inner.built.get() {
             self.inner.stack.borrow_mut().transition = None;
         }
+    }
+
+    /// Goes back, or forward again, to a page the stack holds or kept for `location`.
+    /// Whether there was one.
+    fn return_to(&self, location: &str) -> bool {
+        self.start();
+        let (current, forward) = {
+            let stack = self.inner.stack.borrow();
+            (stack.pages.clone(), stack.forward.clone())
+        };
+        let below = current[..current.len().saturating_sub(1)]
+            .iter()
+            .rposition(|page| page.state.location == location);
+        let ahead = forward
+            .iter()
+            .rposition(|page| page.state.location == location);
+        if below.is_none() && ahead.is_none() {
+            return false;
+        }
+        // A redirect has its say, as on any navigation: a page it would send elsewhere is not
+        // returned to.
+        let heading = self.pages_for(location, None, Mode::Go, &current);
+        if heading.last().map(|page| page.state.location.as_str()) != Some(location) {
+            return false;
+        }
+        match (below, ahead) {
+            (Some(at), _) => self.commit(current[..=at].to_vec()),
+            (None, Some(at)) => {
+                // The kept pages from the nearest to this one, back on the stack.
+                let mut pages = current;
+                pages.extend(forward[at..].iter().rev().cloned());
+                let rest = forward[..at].to_vec();
+                self.commit(pages);
+                self.inner.stack.borrow_mut().forward = rest;
+            }
+            (None, None) => unreachable!(),
+        }
+        self.inner.replaced.set(false);
+        true
     }
 
     /// Replaces the page on top with the one for `location`, so going back skips the one it
@@ -901,6 +1000,7 @@ impl GoRouter {
                                 key: hash_of(("go", prefix.clone(), node.full_path.clone())),
                                 node: Some(node.clone()),
                                 state: Rc::new(page_state),
+                                pushed: false,
                             }
                         })
                         .collect()
@@ -917,6 +1017,7 @@ impl GoRouter {
                         key: hash_of(("push", unique)),
                         node: Some(leaf),
                         state: Rc::new(state),
+                        pushed: true,
                     });
                     pages
                 }
@@ -931,6 +1032,7 @@ impl GoRouter {
             key: hash_of(("error", unique)),
             node: None,
             state: Rc::new(state),
+            pushed: mode != Mode::Go,
         };
         match mode {
             Mode::Go => vec![page],
@@ -951,7 +1053,23 @@ impl GoRouter {
     /// Makes `pages` the stack, starting the transition from the page that was on top.
     fn commit(&self, pages: Vec<Page>) {
         let animate = self.inner.config.borrow().animate;
+        let keep = self.inner.config.borrow().keep_popped;
         let mut stack = self.inner.stack.borrow_mut();
+        // A move back — the new stack the bottom of the old one — keeps what it took off for
+        // a return; any other move leaves nothing ahead to return to.
+        let kept = pages.len() < stack.pages.len()
+            && pages
+                .iter()
+                .zip(&stack.pages)
+                .all(|(new, old)| new.key == old.key);
+        if kept && keep > 0 {
+            let popped: Vec<Page> = stack.pages[pages.len()..].iter().rev().cloned().collect();
+            stack.forward.extend(popped);
+            let len = stack.forward.len();
+            stack.forward.drain(..len.saturating_sub(keep));
+        } else {
+            stack.forward.clear();
+        }
         let old_top = stack.pages.last().cloned();
         let new_top_key = pages.last().map(|page| page.key);
         if let (true, Some(old), Some(new_key)) = (animate, old_top, new_top_key) {
@@ -1021,13 +1139,19 @@ impl GoRouter {
         if pop {
             // The finger has already carried the page away: there is no transition left to
             // play, only the stack to catch up with.
-            let pages = {
-                let stack = self.inner.stack.borrow();
-                stack.pages[..stack.pages.len().saturating_sub(1)].to_vec()
-            };
-            if !pages.is_empty() {
-                self.inner.stack.borrow_mut().pages = pages;
+            let keep = self.inner.config.borrow().keep_popped;
+            let mut stack = self.inner.stack.borrow_mut();
+            if stack.pages.len() > 1 {
+                let popped = stack.pages.pop().expect("more than one page");
+                if keep > 0 {
+                    stack.forward.push(popped);
+                    let len = stack.forward.len();
+                    stack.forward.drain(..len.saturating_sub(keep));
+                } else {
+                    stack.forward.clear();
+                }
             }
+            drop(stack);
             request_rebuild();
         }
         animating
@@ -1095,12 +1219,68 @@ impl GoRouter {
         request_rebuild();
     }
 
+    // ---- restoration -------------------------------------------------------------------
+
+    /// At the first build: the stack restored for this router, if the platform handed one
+    /// back, replaces the one it starts with; and from then on the stack is kept
+    /// (milestone 753).
+    fn restore(&self, cx: &BuildContext) {
+        if self.inner.restoration_checked.replace(true) {
+            return;
+        }
+        let restoration = &cx.runtime().restoration;
+        if !restoration.is_enabled() || !restoration.restores_router() {
+            return;
+        }
+        let path = cx.restoration_path("router");
+        if let Some(saved) = restoration.claim(&path) {
+            self.restore_stack(&saved);
+        }
+        let weak = Rc::downgrade(&self.inner);
+        restoration.register(path, move || match weak.upgrade() {
+            Some(inner) => crate::restoration::Reading::Value(write_stack(&inner.stack.borrow())),
+            None => crate::restoration::Reading::Gone,
+        });
+    }
+
+    /// Rebuilds the stack `saved` describes: the pages a `go` made, then each one pushed on
+    /// top. Left as it is when a link opened the application somewhere else since.
+    fn restore_stack(&self, saved: &str) {
+        let entries = read_stack(saved);
+        let Some(top) = entries.last() else {
+            return;
+        };
+        let here = self.location();
+        let initial = self.inner.config.borrow().initial.clone();
+        if here != initial && here != top.1 {
+            return;
+        }
+        let base = entries
+            .iter()
+            .rev()
+            .find(|(pushed, _)| !pushed)
+            .map(|(_, location)| location.clone())
+            .unwrap_or(initial);
+        let mut pages = self.pages_for(&base, None, Mode::Go, &[]);
+        for (_, location) in entries.iter().filter(|(pushed, _)| *pushed) {
+            pages = self.pages_for(location, None, Mode::Push, &pages);
+        }
+        let mut stack = self.inner.stack.borrow_mut();
+        stack.pages = pages;
+        stack.transition = None;
+        stack.back = None;
+        drop(stack);
+        self.inner.replaced.set(false);
+        request_rebuild();
+    }
+
     // ---- building ----------------------------------------------------------------------
 
     /// The widget for the router's pages: what an application whose root is a router
     /// builds. It also makes the router reachable from below, with [`BuildContext::router`].
     pub fn build(&self, cx: &BuildContext) -> Box<dyn Widget> {
         self.start();
+        self.restore(cx);
         self.inner.built.set(true);
         let theme = cx.theme();
         self.inner
@@ -1110,7 +1290,7 @@ impl GoRouter {
         let error_builder = self.inner.config.borrow().error.clone();
         // What is on the stack is copied out, so that a page's builder can ask the router
         // things without finding it borrowed.
-        let (pages, transition, back) = {
+        let (pages, transition, back, kept) = {
             let stack = self.inner.stack.borrow();
             (
                 stack.pages.clone(),
@@ -1119,6 +1299,7 @@ impl GoRouter {
                     .as_ref()
                     .map(|t| (t.from.clone(), t.controller.value(), t.forward)),
                 stack.back.as_ref().map(|b| b.progress),
+                stack.forward.clone(),
             )
         };
         let depth = pages.len();
@@ -1133,7 +1314,36 @@ impl GoRouter {
                 router.pop();
             })
         };
+        // Every page has a restoration scope of its own, named by where it is in the stack
+        // and where it leads: ids only have to be unique within a page, and a page that
+        // leaves the stack takes its values with it.
+        let scopes: Vec<Vec<String>> = pages
+            .iter()
+            .enumerate()
+            .map(|(at, page)| {
+                crate::restoration::scope_below(
+                    cx.scope(),
+                    &format!("route {at} {}", page.state.location),
+                )
+                .to_vec()
+            })
+            .collect();
+        {
+            let mut before = self.inner.page_scopes.borrow_mut();
+            for gone in before.iter().filter(|scope| !scopes.contains(scope)) {
+                cx.runtime().restoration.forget_scope(gone);
+            }
+            *before = scopes.clone();
+        }
+        let scope_of = |page: &Page| -> crate::restoration::Scope {
+            match pages.iter().position(|p| p.key == page.key) {
+                Some(at) => Rc::from(scopes[at].clone()),
+                // The page leaving, after a pop: its scope is already forgotten.
+                None => crate::restoration::scope_below(cx.scope(), "route leaving"),
+            }
+        };
         let make_page = |page: &Page, entering: f32| -> Box<dyn Widget> {
+            let _scope = crate::restoration::enter_scope(scope_of(page));
             let state = GoRouterState {
                 entering,
                 ..(*page.state).clone()
@@ -1158,6 +1368,19 @@ impl GoRouter {
         };
         let key_of = |page: &Page, depth: usize| (depth, page.key);
         let top = pages.last().expect("a router has at least one page");
+        // The pages kept for a return are kept in the tree, at the depth they will come back
+        // at, so that what their components hold is still there — but not the one a pop is
+        // sliding out, which is in the tree already.
+        let sliding_out = transition.as_ref().map(|(from, _, _)| from.key);
+        let keep_forward = |mut navigator: Navigator| {
+            for (back, page) in kept.iter().rev().enumerate() {
+                if Some(page.key) != sliding_out {
+                    let at = depth + back;
+                    navigator = navigator.retain(key_of(page, at), make(page, at, 1.0));
+                }
+            }
+            navigator
+        };
 
         // A back gesture previews the pop, driven by the finger.
         if let Some(progress) = back {
@@ -1176,7 +1399,7 @@ impl GoRouter {
                 for (at, page) in pages[..depth - 2].iter().enumerate() {
                     navigator = navigator.retain(key_of(page, at), make(page, at, 1.0));
                 }
-                return Box::new(navigator);
+                return Box::new(keep_forward(navigator));
             }
         }
 
@@ -1184,9 +1407,17 @@ impl GoRouter {
             Some((from, progress, forward)) => {
                 // The page leaving is either still in the stack (a push left it one entry
                 // down) or gone from it (a pop took it off the top).
+                // A page popped and kept slides out under the key it is kept under, which is
+                // the one it had on the stack: it is the same page throughout.
                 let from_depth = pages
                     .iter()
                     .position(|page| page.key == from.key)
+                    .or_else(|| {
+                        kept.iter()
+                            .rev()
+                            .position(|page| page.key == from.key)
+                            .map(|back| depth + back)
+                    })
                     .unwrap_or(depth);
                 let mut navigator =
                     Navigator::new(key_of(top, depth - 1), make(top, depth - 1, progress)).from(
@@ -1200,7 +1431,7 @@ impl GoRouter {
                         navigator = navigator.retain(key_of(page, at), make(page, at, 1.0));
                     }
                 }
-                Box::new(navigator)
+                Box::new(keep_forward(navigator))
             }
             None => {
                 let mut navigator =
@@ -1208,10 +1439,42 @@ impl GoRouter {
                 for (at, page) in pages[..depth - 1].iter().enumerate() {
                     navigator = navigator.retain(key_of(page, at), make(page, at, 1.0));
                 }
-                Box::new(navigator)
+                Box::new(keep_forward(navigator))
             }
         }
     }
+}
+
+/// The stack as a restorable value: a line per page, `g` for one a `go` made and `p` for one
+/// pushed, then its location.
+fn write_stack(stack: &Stack) -> String {
+    stack
+        .pages
+        .iter()
+        .map(|page| {
+            format!(
+                "{}{}",
+                if page.pushed { 'p' } else { 'g' },
+                page.state.location
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn read_stack(saved: &str) -> Vec<(bool, String)> {
+    saved
+        .lines()
+        .filter_map(|line| {
+            let mut chars = line.chars();
+            let pushed = match chars.next()? {
+                'p' => true,
+                'g' => false,
+                _ => return None,
+            };
+            Some((pushed, chars.as_str().to_string()))
+        })
+        .collect()
 }
 
 impl BuildContext<'_> {
@@ -1747,6 +2010,125 @@ mod open_tests {
         assert!(r.replaced());
         assert!(r.pop());
         assert!(!r.replaced(), "and a pop removes a page");
+    }
+
+    fn flat() -> GoRouter {
+        GoRouter::new(vec![
+            GoRoute::new("/", page),
+            GoRoute::new("/category/:id", page),
+            GoRoute::new("/widget/:id", page),
+        ])
+        .animate(false)
+    }
+
+    fn top_key(router: &GoRouter) -> u64 {
+        router.inner.stack.borrow().pages.last().unwrap().key
+    }
+
+    /// The browser's Back to a page that was pushed: the page itself, still with what was
+    /// beneath it, not one rebuilt from its location alone (milestone 751).
+    #[test]
+    fn an_address_that_is_a_pushed_page_underneath_goes_back_to_that_page() {
+        let r = flat();
+        r.push("/category/inputs");
+        let category = top_key(&r);
+        r.push("/widget/text_field");
+        r.open("/category/inputs");
+        assert_eq!(r.locations(), ["/", "/category/inputs"]);
+        assert!(
+            r.can_pop(),
+            "home is still beneath: the page keeps its way back"
+        );
+        assert_eq!(
+            top_key(&r),
+            category,
+            "the same page, and so the same state"
+        );
+    }
+
+    /// A redirect still has its say about a page beneath.
+    #[test]
+    fn a_page_underneath_a_redirect_sends_elsewhere_is_not_returned_to() {
+        let blocked = Rc::new(Cell::new(false));
+        let r = {
+            let blocked = blocked.clone();
+            flat().redirect(move |state| {
+                (blocked.get() && state.location().starts_with("/category"))
+                    .then(|| "/".to_string())
+            })
+        };
+        r.push("/category/inputs");
+        r.push("/widget/text_field");
+        blocked.set(true);
+        r.open("/category/inputs");
+        assert_eq!(r.locations(), ["/"]);
+    }
+
+    /// The browser's Forward to a page it went back from: kept, it is the same page.
+    #[test]
+    fn a_kept_page_comes_back_as_it_was_left() {
+        let r = flat().keep_popped_pages(4);
+        r.push("/category/inputs");
+        r.push("/widget/text_field");
+        let demo = top_key(&r);
+        // Back twice, through the browser and through the app bar.
+        r.open("/category/inputs");
+        assert!(r.pop());
+        assert_eq!(r.inner.stack.borrow().forward.len(), 2);
+        // Forward twice.
+        r.open("/category/inputs");
+        r.open("/widget/text_field");
+        assert_eq!(
+            r.locations(),
+            ["/", "/category/inputs", "/widget/text_field"]
+        );
+        assert_eq!(top_key(&r), demo, "the same page, and so the same state");
+        assert!(r.inner.stack.borrow().forward.is_empty());
+
+        // Forward past a page in one move, as a browser's history menu does.
+        r.open("/");
+        r.open("/widget/text_field");
+        assert_eq!(top_key(&r), demo);
+    }
+
+    /// A move that is not back drops what was kept, as a browser drops the entries ahead.
+    #[test]
+    fn a_new_move_lets_the_kept_pages_go() {
+        let r = flat().keep_popped_pages(4);
+        r.push("/widget/text_field");
+        let demo = top_key(&r);
+        r.pop();
+        r.push("/category/inputs");
+        assert!(r.inner.stack.borrow().forward.is_empty());
+        r.pop();
+        r.open("/widget/text_field");
+        assert_ne!(top_key(&r), demo, "a new page");
+    }
+
+    /// Without being asked to keep them, a router lets popped pages go: a phone's back
+    /// button expects it.
+    #[test]
+    fn a_router_keeps_no_popped_page_unless_asked() {
+        let r = flat();
+        r.push("/widget/text_field");
+        let demo = top_key(&r);
+        r.pop();
+        assert!(r.inner.stack.borrow().forward.is_empty());
+        r.open("/widget/text_field");
+        assert_ne!(top_key(&r), demo);
+    }
+
+    /// Only so many: the nearest are the ones kept.
+    #[test]
+    fn the_nearest_popped_pages_are_the_ones_kept() {
+        let r = flat().keep_popped_pages(1);
+        r.push("/category/inputs");
+        r.push("/widget/text_field");
+        let category = r.inner.stack.borrow().pages[1].key;
+        r.open("/");
+        let forward = r.inner.stack.borrow().forward.clone();
+        assert_eq!(forward.len(), 1);
+        assert_eq!(forward[0].key, category);
     }
 
     #[test]

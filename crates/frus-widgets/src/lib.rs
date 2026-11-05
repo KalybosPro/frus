@@ -164,6 +164,7 @@ mod remote;
 mod reorder;
 mod reorderable;
 mod responsive;
+mod restoration;
 mod richtext;
 mod rotatedbox;
 mod router;
@@ -430,6 +431,7 @@ pub use reorder::{
 };
 pub use reorderable::{settled_index, ReorderGrab, ReorderableList};
 pub use responsive::{responsive, Responsive};
+pub use restoration::{restoration_scope, RestorableValue, Restoration, RestorationBucket};
 pub use richtext::RichText;
 pub use rotatedbox::RotatedBox;
 pub use router::{GoRoute, GoRouter, GoRouterState};
@@ -566,8 +568,8 @@ pub use frus_core::{
     FilterQuality, FontFamily, FontWeight, FractionalMask, ImageData, ImageFilter, ImageHandle,
     Insets, InsetsDirectional, InsetsGeometry, LinearGradient, MaterialColor, Orientation, Path,
     PathVerb, Point, Primitive, Rect, Role, Scene, SemanticsProperties, Size, SizeClass, StrokeCap,
-    TextAlign, TextDecoration, TextDirection, TextOverflow, TextSpan, TextStyle, Toggled,
-    WindowInsets,
+    TextAffinity, TextAlign, TextDecoration, TextDirection, TextOverflow, TextPosition, TextSpan,
+    TextStyle, Toggled, WindowInsets,
 };
 /// The shared animation layer — physics, curves, driver — see
 /// [`frus_core::animation`]. Re-exported here so applications can reach it through

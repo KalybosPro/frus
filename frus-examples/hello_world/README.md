@@ -5,8 +5,8 @@ The smallest frus application, laid out the way a real one is: one page that say
 ## Run it
 
 ```sh
-cargo run                       # desktop
-cargo apk run --lib             # Android (device connected, cargo-apk installed)
+frus run                        # desktop
+frus run -d android             # Android: the connected phone, or an emulator
 ```
 
 ## What to read
@@ -23,7 +23,12 @@ page needs to remember something, see [`../counter`](../counter).
 
 ## Web
 
-Once: `rustup target add wasm32-unknown-unknown` and
+```sh
+frus run -d web          # build, serve on http://localhost:8080 and open the browser
+frus build web           # release: web/, with the application compiled into web/pkg/
+```
+
+By hand, once: `rustup target add wasm32-unknown-unknown` and
 `cargo install wasm-bindgen-cli --version 0.2.127` (the version must match `wasm-bindgen` in
 `Cargo.lock`). Then build, generate the JavaScript glue into `web/pkg/`, and serve `web/`:
 
