@@ -196,6 +196,9 @@ pub struct Status {
     pub focused: bool,
     /// The caret's (character) index, if this widget is a focused field.
     pub cursor: Option<usize>,
+    /// Which side of its boundary the caret belongs to, where the boundary is drawn in two
+    /// places — see [`TextAffinity`](frus_core::TextAffinity).
+    pub affinity: frus_core::TextAffinity,
     /// The selected `(start, end)` range, in character indices.
     pub selection: Option<(usize, usize)>,
     /// The `(start, end)` range **being composed** by the IME (provisional,
@@ -312,6 +315,7 @@ impl Default for Status {
             interaction: Interaction::None,
             focused: false,
             cursor: None,
+            affinity: frus_core::TextAffinity::Downstream,
             selection: None,
             composing: None,
             toolbar: None,
@@ -366,6 +370,7 @@ impl InputState {
             Interaction::None
         };
         Status {
+            affinity: Default::default(),
             interaction,
             focused: self.focused == Some(id),
             cursor: None,

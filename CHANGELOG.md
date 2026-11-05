@@ -27,6 +27,31 @@ any release may break.
   default on the Web, four pages). The widget gallery's pages are sub-routes of its home page, so
   a link straight to a category or a demo has a way back. Every `index.html` is checked to ask for
   `viewport-fit=cover`.
+- **Scrolling with the keyboard up keeps it up** (J750): on a touch screen a press outside the
+  focused field took the focus away the moment the finger came down, so any scroll that started
+  outside the field closed the on-screen keyboard, on Android and on the Web. A press outside now
+  moves nothing until it is known to be a tap — lifted within the slop, without having become a
+  scroll, a fling or another drag — and a tap does what the field's new `TextField::tap_outside`
+  says (`TapOutside::Unfocus`, the default, or `TapOutside::Keep`; themed through
+  `TextFieldTheme::tap_outside`). A press on another field still moves the focus at once, and a
+  button tapped with the keyboard up is pressed. Scrollables gain `keyboard_dismiss_behavior`
+  (`SingleChildScrollView`, `ListView`, `GridView`, and `ScrollBehavior::with_keyboard_dismiss_behavior`
+  for a subtree): `Manual`, the default, keeps the keyboard while scrolling, `OnDrag` lets the
+  focus go when a finger starts scrolling. A mouse press outside is still the click it was. On
+  the Web, the editing element takes the browser's focus straight back when winit focuses the
+  canvas on a press, so a scroll no longer blurs it and the keyboard stays.
+- **A caret on the right side of a change of direction** (J747): a caret position now carries an
+  affinity (`TextAffinity`, `TextPosition` in `frus-core`, re-exported), so at a boundary drawn in
+  two places — a soft wrap, or where Latin meets Hebrew or Arabic, or digits sit inside them — the
+  caret is drawn beside the character it came past or was tapped next to. In a `TextField` and a
+  selectable `Text` or `RichText` the arrow keys move the caret the way they point on screen
+  through mixed lines, a press resolves to the side of the character that was pressed, Home and
+  End go to the ends of the line on screen (End on a wrapped line stays on it), Up and Down keep
+  the side, and a selection's end handle stands at the end of the selected characters (on the
+  line it ends on, at a wrap). `TextLayout` gained `caret_rect_at`, `position_at`, `visual_step`,
+  `line_bounds` and `line_is_rtl`. **Breaking:** `Edit` and `Status` have an `affinity` field;
+  `Widget::cursor_at` returns a `TextPosition`, `Widget::caret_vertical` and
+  `Widget::text_metrics` take one; a new `Widget::caret_key` moves the caret over the drawn text.
 - **The page fits the phone's screen, and its keyboard** (J749): on a phone, a web application's canvas was sized
   `100vh`, the height with the browser's address bar hidden — which a page that does not scroll
   never hides — so the bottom 56 CSS pixels of the application were drawn below the screen. Every
@@ -57,6 +82,10 @@ any release may break.
   shadows of a surface twelve or twenty-four high ended on a visible rim around it, short of
   where the blur ends. `Scene::shadow` and `BoxShadow` take the same values as before; blur
   styles keep their meaning.
+- **A field's double click needs the two presses close together** (J747): a second press within
+  0.4 s selects the word only if it lands in the same field within 8 logical pixels of the first
+  (a finger: 100). Two quick clicks far apart now place the caret twice instead of selecting a
+  word. Double clicks in fields and selection areas are timed on the driver's clock in tests.
 - **The website is frus.dev**: every crate's `homepage` points to https://frus.dev, and both
   READMEs link to it first. The widget gallery stays at https://frus-rs.github.io/frus/.
 - **WebGL 2 where there is no WebGPU** (J745): on the web, frus drew through WebGPU alone, and a

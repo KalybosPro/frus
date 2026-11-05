@@ -7,7 +7,9 @@
 //! The value is controlled; the **caret / selection** are edit state retained at
 //! runtime ([`Edit`]), keyed by widget identity.
 
-use frus_core::{Color, Point, Rect, ResolvedTextStyle, Scene, TextAlign, TextStyle};
+use frus_core::{
+    Color, Point, Rect, ResolvedTextStyle, Scene, TextAffinity, TextAlign, TextPosition, TextStyle,
+};
 use frus_layout::{Dimension, Style};
 use frus_text::TextLayout;
 
@@ -217,6 +219,9 @@ pub struct TextField<Msg = crate::callback::Callback> {
     /// Sent for a press outside the field while it is focused; see
     /// [`TextField::on_tap_outside`].
     on_tap_outside: Option<Msg>,
+    /// What a tap outside does to the focus; unset, the theme's — see
+    /// [`TextField::tap_outside`].
+    tap_outside: Option<crate::TapOutside>,
     /// What to tell the screen reader when `on_submit` fires — see [`TextField::announce`].
     announce: Option<String>,
     /// Label displayed above the field.
@@ -404,13 +409,22 @@ pub(crate) fn handles_in(
 
 /// One selection handle, hanging from character boundary `index` of a text laid out as
 /// `layout` and drawn at `origin`.
+///
+/// Each handle stands at the edge of the selected characters: the start one at the leading
+/// edge of the first of them, the end one at the trailing edge of the last — so that a
+/// selection ending at a wrap has its end handle on the line it ends on, and one ending
+/// where the direction changes has it against the highlight.
 pub(crate) fn handle_at(
     layout: &TextLayout,
     origin: Point,
     index: usize,
     start: bool,
 ) -> crate::SelectionHandle {
-    let caret = layout.caret_rect(index);
+    let caret = layout.caret_rect_at(if start {
+        TextPosition::new(index)
+    } else {
+        TextPosition::upstream(index)
+    });
     let x = origin.x + caret.x;
     let top = origin.y + caret.y;
     crate::SelectionHandle {
@@ -509,43 +523,86 @@ pub fn word_bounds(text: &str, index: usize) -> (usize, usize) {
 /// ends of the line or of the text — extending the selection under Shift. Returns whether
 /// `key` was one of those. Shared by an editable field and a selectable paragraph, which move
 /// the caret the same way and differ only in what else a key may do.
+///
+/// Without a layout the caret moves through the text's order: Left is back a character,
+/// Home the start of the logical line. With the **drawn** layout ([`caret_key_in`]) it moves
+/// on screen.
 pub(crate) fn move_caret(
     chars: &[char],
     cursor: &mut usize,
     anchor: &mut Option<usize>,
     key: &Key,
 ) -> bool {
+    let mut affinity = TextAffinity::Downstream;
+    move_caret_in(chars, cursor, anchor, &mut affinity, key, None)
+}
+
+/// [`move_caret`] over `layout`, the text as it is drawn, for `edit`: the arrows move the
+/// caret the way they point on screen, Home and End go to the ends of the line it is drawn
+/// on, and the caret keeps the side of its boundary it arrived on.
+pub(crate) fn caret_key_in(
+    chars: &[char],
+    layout: &TextLayout,
+    edit: &mut Edit,
+    key: &Key,
+) -> bool {
     let len = chars.len();
-    let target = match key {
-        Key::Left { word, .. } => {
-            if *word {
-                word_boundary_left(chars, *cursor)
-            } else {
-                cursor.saturating_sub(1)
-            }
+    let mut cursor = edit.cursor.min(len);
+    let mut anchor = edit.anchor.map(|anchor| anchor.min(len));
+    let mut affinity = edit.affinity;
+    if !move_caret_in(
+        chars,
+        &mut cursor,
+        &mut anchor,
+        &mut affinity,
+        key,
+        Some(layout),
+    ) {
+        return false;
+    }
+    edit.cursor = cursor;
+    edit.anchor = anchor;
+    edit.affinity = affinity;
+    true
+}
+
+/// The one implementation of the caret keys, through the text's order without a layout and
+/// on screen with one.
+fn move_caret_in(
+    chars: &[char],
+    cursor: &mut usize,
+    anchor: &mut Option<usize>,
+    affinity: &mut TextAffinity,
+    key: &Key,
+    layout: Option<&TextLayout>,
+) -> bool {
+    let len = chars.len();
+    let from = TextPosition::with((*cursor).min(len), *affinity);
+    // A word at a time goes through the text's order, forwards being leftwards on a line
+    // that reads right to left; it stops after a word going forwards, before one going back.
+    let by_word = |rightwards: bool| {
+        let forwards = rightwards != layout.is_some_and(|l| l.line_is_rtl(from));
+        if forwards {
+            TextPosition::upstream(word_boundary_right(chars, from.offset))
+        } else {
+            TextPosition::new(word_boundary_left(chars, from.offset))
         }
-        Key::Right { word, .. } => {
-            if *word {
-                word_boundary_right(chars, *cursor)
-            } else {
-                (*cursor + 1).min(len)
-            }
-        }
-        // Ctrl (`doc`): the bounds of the whole text; otherwise those of the logical line.
-        Key::Home { doc, .. } => {
-            if *doc {
-                0
-            } else {
-                line_start(chars, *cursor)
-            }
-        }
-        Key::End { doc, .. } => {
-            if *doc {
-                len
-            } else {
-                line_end(chars, *cursor)
-            }
-        }
+    };
+    let target = match (key, layout) {
+        (Key::Left { word: true, .. }, _) => by_word(false),
+        (Key::Right { word: true, .. }, _) => by_word(true),
+        (Key::Left { .. }, Some(layout)) => layout.visual_step(from, false),
+        (Key::Right { .. }, Some(layout)) => layout.visual_step(from, true),
+        (Key::Left { .. }, None) => TextPosition::new(from.offset.saturating_sub(1)),
+        (Key::Right { .. }, None) => TextPosition::new((from.offset + 1).min(len)),
+        // Ctrl (`doc`): the bounds of the whole text; otherwise those of the line — the line
+        // on screen with a layout, the logical one without.
+        (Key::Home { doc: true, .. }, _) => TextPosition::new(0),
+        (Key::End { doc: true, .. }, _) => TextPosition::upstream(len),
+        (Key::Home { .. }, Some(layout)) => layout.line_bounds(from).0,
+        (Key::End { .. }, Some(layout)) => layout.line_bounds(from).1,
+        (Key::Home { .. }, None) => TextPosition::new(line_start(chars, from.offset)),
+        (Key::End { .. }, None) => TextPosition::new(line_end(chars, from.offset)),
         _ => return false,
     };
     let shift = matches!(
@@ -555,7 +612,13 @@ pub(crate) fn move_caret(
             | Key::Home { shift: true, .. }
             | Key::End { shift: true, .. }
     );
-    move_cursor(cursor, anchor, target, shift);
+    move_cursor(cursor, anchor, target.offset.min(len), shift);
+    // Without a layout there is no second place to draw a boundary at.
+    *affinity = if layout.is_some() {
+        target.affinity
+    } else {
+        TextAffinity::Downstream
+    };
     true
 }
 
@@ -608,6 +671,7 @@ impl<Msg> TextField<Msg> {
             on_input: None,
             on_submit: None,
             on_tap_outside: None,
+            tap_outside: None,
             announce: None,
             label: None,
             placeholder: None,
@@ -1190,6 +1254,20 @@ impl<Msg> TextField<Msg> {
     /// saves a draft, or closes a suggestion list, when the user taps away.
     pub fn on_tap_outside(mut self, message: impl Into<Msg>) -> Self {
         self.on_tap_outside = Some(message.into());
+        self
+    }
+
+    /// What a **tap outside the field while it is focused** does to the focus (milestone
+    /// 750): [`TapOutside::Unfocus`](crate::TapOutside::Unfocus), the default, lets the
+    /// focus — and the on-screen keyboard — go; [`TapOutside::Keep`](crate::TapOutside::Keep)
+    /// keeps both. Unset, [`TextFieldTheme::tap_outside`](crate::TextFieldTheme::tap_outside)
+    /// decides.
+    ///
+    /// On a touch screen only a **tap** counts: a press outside that becomes a scroll or a
+    /// fling leaves the field focused and the keyboard up, whatever this says. With a mouse,
+    /// the press is the click.
+    pub fn tap_outside(mut self, behavior: crate::TapOutside) -> Self {
+        self.tap_outside = Some(behavior);
         self
     }
 
@@ -2165,6 +2243,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
             } else {
                 s.cursor_color.unwrap()
             };
+            // Drawn on the side of its boundary it belongs to: where the boundary is in two
+            // places — a change of direction, a wrap — beside the character it came past.
+            let caret = layout.caret_rect_at(TextPosition::with(cursor, status.affinity));
             let height = self.cursor.height.unwrap_or(caret.height);
             let radius =
                 self.cursor
@@ -2189,6 +2270,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         if status.focused && status.handles {
             scene.set_clip(outer_clip);
             let edit = Edit {
+                affinity: Default::default(),
                 cursor,
                 anchor: status
                     .selection
@@ -2307,6 +2389,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
             // whole field under Ctrl, which in a single-line field is the same.
             Key::Left { .. } | Key::Right { .. } | Key::Home { .. } | Key::End { .. } => {
                 move_caret(&chars, &mut cursor, &mut anchor, key);
+                edit.affinity = TextAffinity::Downstream;
             }
             // Escape is none of editing's business (routed leaf→root by the shell).
             Key::Escape => {}
@@ -2359,11 +2442,26 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         edit.anchor = anchor;
 
         if changed {
+            // What was typed or deleted leaves the caret before what follows it.
+            edit.affinity = TextAffinity::Downstream;
             let new_value: String = chars.into_iter().collect();
             self.on_input.as_ref().map(|make| make(new_value))
         } else {
             None
         }
+    }
+
+    /// The caret keys over the text as it is drawn: the arrows move the caret the way they
+    /// point through a line that mixes directions, and Home and End go to the ends of the
+    /// line on screen — of a wrapped line too.
+    fn caret_key(&self, width: f32, edit: &mut Edit, key: &Key) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        let chars: Vec<char> = self.value.chars().collect();
+        let content_w = self.content_width(width);
+        let layout = self.layout(self.multiline.then_some(content_w));
+        caret_key_in(&chars, &layout, edit, key)
     }
 
     fn ime(&self) -> Ime {
@@ -2376,7 +2474,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         local_y: f32,
         width: f32,
         scroll_cursor: usize,
-    ) -> Option<usize> {
+    ) -> Option<TextPosition> {
         // A disabled field takes no caret: it is readable, not editable, and a caret
         // sitting in it would promise otherwise.
         if !self.enabled {
@@ -2407,15 +2505,15 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         // the label band and the padding are removed to land inside the text.
         let target_x = local_x - left - align + scroll;
         let target_y = local_y - self.label_block() - self.text_top();
-        Some(layout.hit_test(Point::new(target_x, target_y)))
+        Some(layout.position_at(Point::new(target_x, target_y)))
     }
 
-    fn text_metrics(&self, width: f32, cursor: usize) -> Option<(f32, f32, f32, f32)> {
+    fn text_metrics(&self, width: f32, cursor: TextPosition) -> Option<(f32, f32, f32, f32)> {
         if !self.multiline {
             return None;
         }
         let layout = self.layout(Some(self.content_width(width)));
-        let caret = layout.caret_rect(cursor);
+        let caret = layout.caret_rect_at(cursor);
         let visible = self.field_height_at(width) - self.text_top() - self.pad_bottom();
         Some((layout.size().height, visible, caret.y, caret.height))
     }
@@ -2436,16 +2534,16 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
     fn caret_vertical(
         &self,
         width: f32,
-        cursor: usize,
+        cursor: TextPosition,
         down: bool,
         page: bool,
         goal_x: Option<f32>,
-    ) -> Option<(usize, f32)> {
+    ) -> Option<(TextPosition, f32)> {
         if !self.multiline {
             return None;
         }
         let layout = self.layout(Some(self.content_width(width)));
-        let caret = layout.caret_rect(cursor);
+        let caret = layout.caret_rect_at(cursor);
         let line_h = caret.height;
         // Wanted column: the remembered target, otherwise the current column.
         let x = goal_x.unwrap_or(caret.x);
@@ -2461,13 +2559,13 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         if page {
             // Page: clamped to the field (it is never left).
             let clamped = target_y.clamp(0.0, (full - line_h * 0.5).max(0.0));
-            Some((layout.hit_test(Point::new(x, clamped)), x))
+            Some((layout.position_at(Point::new(x, clamped)), x))
         } else {
             // Line: already on the first/last one → the shell moves the focus.
             if target_y < 0.0 || target_y >= full {
                 return None;
             }
-            Some((layout.hit_test(Point::new(x, target_y)), x))
+            Some((layout.position_at(Point::new(x, target_y)), x))
         }
     }
 
@@ -2576,6 +2674,12 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
 
     fn on_tap_outside(&self) -> Option<Msg> {
         self.on_tap_outside.clone()
+    }
+
+    fn tap_outside(&self, theme: &Theme) -> crate::TapOutside {
+        self.tap_outside
+            .or(theme.widgets.text_field.tap_outside)
+            .unwrap_or_default()
     }
 
     fn focusable(&self) -> bool {
@@ -2822,11 +2926,13 @@ mod tests {
         assert!(Widget::<Msg>::focusable(&live));
         assert!(!Widget::<Msg>::focusable(&dead), "out of the tab order");
         assert!(
-            Widget::<Msg>::cursor_at(&live, 40.0, 30.0, 220.0, 0).is_some(),
+            Widget::<Msg>::cursor_at(&live, 40.0, 30.0, 220.0, 0)
+                .map(|p| p.offset)
+                .is_some(),
             "a live field takes a caret"
         );
         assert_eq!(
-            Widget::<Msg>::cursor_at(&dead, 40.0, 30.0, 220.0, 0),
+            Widget::<Msg>::cursor_at(&dead, 40.0, 30.0, 220.0, 0).map(|p| p.offset),
             None,
             "a disabled field takes none"
         );
@@ -2945,7 +3051,8 @@ mod tests {
         let inp = input("0123456789 abcdefghij");
         // Without scrolling (cursor 0): a click on the left edge → index 0.
         assert_eq!(
-            Widget::<Msg>::cursor_at(&inp, FIELD_PADDING_X, FIELD_OUTLINED_PADDING_TOP, 80.0, 0),
+            Widget::<Msg>::cursor_at(&inp, FIELD_PADDING_X, FIELD_OUTLINED_PADDING_TOP, 80.0, 0)
+                .map(|p| p.offset),
             Some(0)
         );
         // Scrolled (caret at the end): a click on the right lands on a larger index than
@@ -2953,9 +3060,11 @@ mod tests {
         let end = inp.value.chars().count();
         let at_left =
             Widget::<Msg>::cursor_at(&inp, FIELD_PADDING_X, FIELD_OUTLINED_PADDING_TOP, 80.0, end)
+                .map(|p| p.offset)
                 .unwrap();
-        let at_right =
-            Widget::<Msg>::cursor_at(&inp, 76.0, FIELD_OUTLINED_PADDING_TOP, 80.0, end).unwrap();
+        let at_right = Widget::<Msg>::cursor_at(&inp, 76.0, FIELD_OUTLINED_PADDING_TOP, 80.0, end)
+            .map(|p| p.offset)
+            .unwrap();
         assert!(at_left > 0, "scrolled: the left edge is no longer index 0");
         assert!(at_right > at_left, "a click on the right → a larger index");
     }
@@ -2964,6 +3073,7 @@ mod tests {
     fn insert_at_cursor() {
         let inp = input("ac");
         let mut edit = Edit {
+            affinity: Default::default(),
             cursor: 1,
             anchor: None,
             composing: None,
@@ -2980,6 +3090,7 @@ mod tests {
         let inp = input("hello");
         // Caret at the end, Shift+Left twice -> selects "lo".
         let mut edit = Edit {
+            affinity: Default::default(),
             cursor: 5,
             anchor: None,
             composing: None,
@@ -3012,6 +3123,7 @@ mod tests {
     fn home_end_bounds() {
         let inp = input("abc");
         let mut edit = Edit {
+            affinity: Default::default(),
             cursor: 1,
             anchor: None,
             composing: None,
@@ -3039,6 +3151,7 @@ mod tests {
         let inp = input("foo bar baz");
         // From the end, Ctrl+Left jumps to the start of "baz", then "bar", then "foo".
         let mut edit = Edit {
+            affinity: Default::default(),
             cursor: 11,
             anchor: None,
             composing: None,
@@ -3085,6 +3198,7 @@ mod tests {
             .on_input(Msg::Changed)
             .rows(3);
         let mut edit = Edit {
+            affinity: Default::default(),
             cursor: 4,
             anchor: None,
             composing: None,
@@ -3130,6 +3244,7 @@ mod tests {
     fn selected_text_reads_range() {
         let inp = input("hello");
         let edit = Edit {
+            affinity: Default::default(),
             cursor: 5,
             anchor: Some(2),
             composing: None,
@@ -3200,6 +3315,7 @@ mod tests {
             Some(vec!["Paste".into(), "Select all".into()])
         );
         let selected = Edit {
+            affinity: Default::default(),
             cursor: 7,
             anchor: Some(0),
             composing: None,
@@ -3285,16 +3401,19 @@ mod tests {
     fn the_bar_is_anchored_on_the_selection_or_the_caret() {
         let field = input("hello world");
         let word = Edit {
+            affinity: Default::default(),
             cursor: 5,
             anchor: Some(0),
             composing: None,
         };
         let all = Edit {
+            affinity: Default::default(),
             cursor: 11,
             anchor: Some(0),
             composing: None,
         };
         let caret = Edit {
+            affinity: Default::default(),
             cursor: 5,
             anchor: None,
             composing: None,
@@ -3315,6 +3434,7 @@ mod tests {
     fn enter_submits_without_changing_value() {
         let inp = input("acheter du lait").on_submit(Msg::Submitted);
         let mut edit = Edit {
+            affinity: Default::default(),
             cursor: 3,
             anchor: None,
             composing: None,
@@ -3328,6 +3448,7 @@ mod tests {
     fn enter_without_submit_is_noop() {
         let inp = input("x");
         let mut edit = Edit {
+            affinity: Default::default(),
             cursor: 1,
             anchor: None,
             composing: None,
@@ -3399,11 +3520,12 @@ mod tests {
             let field: TextField<()> = TextField::new("42").text_align(align);
             let x = drawn_text_x(&field, width);
             // A tap a hair to the left of the first glyph belongs before it\u2026
-            let before = Widget::<()>::cursor_at(&field, x - 1.0, 20.0, width, 0);
+            let before = Widget::<()>::cursor_at(&field, x - 1.0, 20.0, width, 0).map(|p| p.offset);
             assert_eq!(before, Some(0), "{align:?}: before the first character");
             // \u2026and one past the last glyph belongs after it.
             let text_w = frus_text::measure("42", field.size).width;
-            let after = Widget::<()>::cursor_at(&field, x + text_w + 1.0, 20.0, width, 0);
+            let after =
+                Widget::<()>::cursor_at(&field, x + text_w + 1.0, 20.0, width, 0).map(|p| p.offset);
             assert_eq!(after, Some(2), "{align:?}: after the last character");
         }
     }
@@ -3698,10 +3820,12 @@ mod tests {
             "the prefix icon draws a path"
         );
         let plain = input("hello world");
-        let at_plain =
-            Widget::<Msg>::cursor_at(&plain, 60.0, FIELD_OUTLINED_PADDING_TOP, 220.0, 0).unwrap();
+        let at_plain = Widget::<Msg>::cursor_at(&plain, 60.0, FIELD_OUTLINED_PADDING_TOP, 220.0, 0)
+            .map(|p| p.offset)
+            .unwrap();
         let at_icon =
             Widget::<Msg>::cursor_at(&with_icon, 60.0, FIELD_OUTLINED_PADDING_TOP, 220.0, 0)
+                .map(|p| p.offset)
                 .unwrap();
         assert!(
             at_icon < at_plain,
@@ -3716,6 +3840,7 @@ mod tests {
             .on_input(Msg::Changed)
             .multiline();
         let mut edit = Edit {
+            affinity: Default::default(),
             cursor: 2,
             anchor: None,
             composing: None,
@@ -3728,6 +3853,7 @@ mod tests {
         // Single line: Enter submits (unchanged behaviour).
         let single = input("ab").on_submit(Msg::Submitted);
         let mut edit = Edit {
+            affinity: Default::default(),
             cursor: 2,
             anchor: None,
             composing: None,
@@ -3753,6 +3879,7 @@ mod tests {
             160.0,
             0,
         )
+        .map(|p| p.offset)
         .unwrap();
         let wrapped = Widget::<Msg>::cursor_at(
             &inp,
@@ -3761,6 +3888,7 @@ mod tests {
             160.0,
             0,
         )
+        .map(|p| p.offset)
         .unwrap();
         assert!(top < 10, "1st line: {top}");
         assert!(
@@ -3777,7 +3905,7 @@ mod tests {
             .rows(2)
             .width(200.0);
         let (content_h, visible_h, _, _) =
-            Widget::<Msg>::text_metrics(&inp, 200.0, 0).expect("a multi-line field");
+            Widget::<Msg>::text_metrics(&inp, 200.0, 0.into()).expect("a multi-line field");
         assert!(
             content_h > visible_h + 1.0,
             "5 lines > a box of 2 ({content_h} vs {visible_h})"
@@ -3824,27 +3952,69 @@ mod tests {
             .rows(3)
             .width(200.0);
         // From the 1st line (index 1), moving down lands on the 2nd line.
-        let (down, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 1, true, false, None).unwrap();
+        let (down, _) = Widget::<Msg>::caret_vertical(
+            &inp,
+            200.0,
+            frus_core::TextPosition::from(1),
+            true,
+            false,
+            None,
+        )
+        .map(|(p, x)| (p.offset, x))
+        .unwrap();
         assert!(
             (4..=8).contains(&down),
             "moves down to the 2nd line: {down}"
         );
         // 1st line, moving up → impossible (the shell moves the focus).
         assert_eq!(
-            Widget::<Msg>::caret_vertical(&inp, 200.0, 1, false, false, None),
+            Widget::<Msg>::caret_vertical(
+                &inp,
+                200.0,
+                frus_core::TextPosition::from(1),
+                false,
+                false,
+                None
+            )
+            .map(|(p, x)| (p.offset, x)),
             None
         );
         // Last line (index 10), moving down → impossible.
         assert_eq!(
-            Widget::<Msg>::caret_vertical(&inp, 200.0, 10, true, false, None),
+            Widget::<Msg>::caret_vertical(
+                &inp,
+                200.0,
+                frus_core::TextPosition::from(10),
+                true,
+                false,
+                None
+            )
+            .map(|(p, x)| (p.offset, x)),
             None
         );
         // 2nd line (index 5), moving up lands on the 1st.
-        let (up, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 5, false, false, None).unwrap();
+        let (up, _) = Widget::<Msg>::caret_vertical(
+            &inp,
+            200.0,
+            frus_core::TextPosition::from(5),
+            false,
+            false,
+            None,
+        )
+        .map(|(p, x)| (p.offset, x))
+        .unwrap();
         assert!(up <= 3, "moves up to the 1st line: {up}");
         // A single-line field: never any vertical movement.
         assert_eq!(
-            Widget::<Msg>::caret_vertical(&input("abc"), 200.0, 1, true, false, None),
+            Widget::<Msg>::caret_vertical(
+                &input("abc"),
+                200.0,
+                frus_core::TextPosition::from(1),
+                true,
+                false,
+                None
+            )
+            .map(|(p, x)| (p.offset, x)),
             None
         );
     }
@@ -3859,7 +4029,16 @@ mod tests {
             .on_input(Msg::Changed)
             .rows(3)
             .width(200.0);
-        let (mid, goal) = Widget::<Msg>::caret_vertical(&inp, 200.0, 5, true, false, None).unwrap();
+        let (mid, goal) = Widget::<Msg>::caret_vertical(
+            &inp,
+            200.0,
+            frus_core::TextPosition::from(5),
+            true,
+            false,
+            None,
+        )
+        .map(|(p, x)| (p.offset, x))
+        .unwrap();
         assert!(
             (6..=8).contains(&mid),
             "a short line, clamped to its end: {mid}"
@@ -3867,8 +4046,16 @@ mod tests {
         // A second jump reusing the goal column: without memory the caret would have
         // stayed clamped to the end of "hi" (col. ~2); here it lands far into "world"
         // (col. ~5), proving the original column survives the short line.
-        let (low, _) =
-            Widget::<Msg>::caret_vertical(&inp, 200.0, mid, true, false, Some(goal)).unwrap();
+        let (low, _) = Widget::<Msg>::caret_vertical(
+            &inp,
+            200.0,
+            frus_core::TextPosition::from(mid),
+            true,
+            false,
+            Some(goal),
+        )
+        .map(|(p, x)| (p.offset, x))
+        .unwrap();
         assert!(
             (12..=14).contains(&low),
             "goal column preserved into \"world\": {low}"
@@ -3884,13 +4071,31 @@ mod tests {
             .rows(2)
             .width(200.0);
         // From the last line, PgDn settles at the bottom (the field is not left).
-        let (bottom, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 8, true, true, None).unwrap();
+        let (bottom, _) = Widget::<Msg>::caret_vertical(
+            &inp,
+            200.0,
+            frus_core::TextPosition::from(8),
+            true,
+            true,
+            None,
+        )
+        .map(|(p, x)| (p.offset, x))
+        .unwrap();
         assert!(
             bottom >= 7,
             "PgDn clamped to the bottom of the field: {bottom}"
         );
         // From the 1st line, PgUp settles at the top.
-        let (top, _) = Widget::<Msg>::caret_vertical(&inp, 200.0, 0, false, true, None).unwrap();
+        let (top, _) = Widget::<Msg>::caret_vertical(
+            &inp,
+            200.0,
+            frus_core::TextPosition::from(0),
+            false,
+            true,
+            None,
+        )
+        .map(|(p, x)| (p.offset, x))
+        .unwrap();
         assert!(top <= 1, "PgUp clamped to the top of the field: {top}");
     }
 
@@ -3927,6 +4132,7 @@ mod tests {
             220.0,
             0,
         )
+        .map(|p| p.offset)
         .unwrap();
         // A click one line lower → the 2nd line (index ≥ 3).
         let below = Widget::<Msg>::cursor_at(
@@ -3936,6 +4142,7 @@ mod tests {
             220.0,
             0,
         )
+        .map(|p| p.offset)
         .unwrap();
         assert!(top <= 2, "1st line: {top}");
         assert!(below >= 3, "2nd line: {below}");
@@ -4159,13 +4366,18 @@ mod tests {
             Widget::<Msg>::positional_click(&field, x_suffix, y, w, 40.0),
             Some(Msg::Submitted)
         );
-        assert_eq!(Widget::<Msg>::cursor_at(&field, x_suffix, y, w, 0), None);
+        assert_eq!(
+            Widget::<Msg>::cursor_at(&field, x_suffix, y, w, 0).map(|p| p.offset),
+            None
+        );
         // A click in the body: no suffix, a caret is placed.
         assert_eq!(
             Widget::<Msg>::positional_click(&field, 20.0, y, w, 40.0),
             None
         );
-        assert!(Widget::<Msg>::cursor_at(&field, 20.0, y, w, 0).is_some());
+        assert!(Widget::<Msg>::cursor_at(&field, 20.0, y, w, 0)
+            .map(|p| p.offset)
+            .is_some());
         // Without `on_suffix` the icon stays decorative (no positional click).
         let deco = TextField::<Msg>::new("hello")
             .suffix_icon(Icons::CLOSE)
@@ -4260,6 +4472,7 @@ mod tests {
         for field in &fields {
             let len = field.value.chars().count();
             let edit = Edit {
+                affinity: Default::default(),
                 cursor: len,
                 anchor: Some(len - 5),
                 composing: None,
@@ -4269,7 +4482,8 @@ mod tests {
             for (handle, index) in [(start, len - 5), (end, len)] {
                 let at = handle.line_center;
                 assert_eq!(
-                    Widget::<Msg>::cursor_at(field, at.x, at.y, width, edit.cursor),
+                    Widget::<Msg>::cursor_at(field, at.x, at.y, width, edit.cursor)
+                        .map(|p| p.offset),
                     Some(index),
                     "{:?}",
                     field.value
@@ -4329,6 +4543,7 @@ mod tests {
             .width(width);
         // "five".
         let edit = Edit {
+            affinity: Default::default(),
             cursor: 23,
             anchor: Some(19),
             composing: None,
@@ -4340,7 +4555,8 @@ mod tests {
         for (handle, index) in [(start, 19), (end, 23)] {
             let at = handle.line_center;
             assert_eq!(
-                Widget::<Msg>::cursor_at(&field, at.x, at.y + scroll, width, edit.cursor),
+                Widget::<Msg>::cursor_at(&field, at.x, at.y + scroll, width, edit.cursor)
+                    .map(|p| p.offset),
                 Some(index)
             );
         }
@@ -4572,13 +4788,17 @@ mod limit_tests {
         let read = field("REF-4417").read_only();
         assert!(Widget::<Msg>::focusable(&read), "still in the tab order");
         assert!(
-            Widget::<Msg>::cursor_at(&read, 20.0, 10.0, 200.0, 0).is_some(),
+            Widget::<Msg>::cursor_at(&read, 20.0, 10.0, 200.0, 0)
+                .map(|p| p.offset)
+                .is_some(),
             "and it still takes a caret, so a reference can be selected and copied"
         );
 
         let dead = field("REF-4417").enabled(false);
         assert!(!Widget::<Msg>::focusable(&dead));
-        assert!(Widget::<Msg>::cursor_at(&dead, 20.0, 10.0, 200.0, 0).is_none());
+        assert!(Widget::<Msg>::cursor_at(&dead, 20.0, 10.0, 200.0, 0)
+            .map(|p| p.offset)
+            .is_none());
     }
 }
 
@@ -4749,7 +4969,7 @@ mod decoration_tests {
         );
 
         // A click just after the prefix lands at the value's start.
-        let at = Widget::<()>::cursor_at(&priced, value.x + 0.5, 30.0, W, 0);
+        let at = Widget::<()>::cursor_at(&priced, value.x + 0.5, 30.0, W, 0).map(|p| p.offset);
         assert_eq!(at, Some(0));
 
         // Empty and unfocused under a resting label, they wait; focused, they show.
@@ -4799,7 +5019,7 @@ mod decoration_tests {
         assert_eq!(shift, 34.0, "18 and 16, dense");
         let x = find(&after, "42").unwrap().0.x;
         assert_eq!(
-            Widget::<()>::cursor_at(&iconed, x + 0.5, 30.0, W, 0),
+            Widget::<()>::cursor_at(&iconed, x + 0.5, 30.0, W, 0).map(|p| p.offset),
             Some(0)
         );
         // The box itself starts after the icon.
@@ -5123,5 +5343,235 @@ mod cursor_tests {
         assert!(!Widget::<()>::autofocus(
             &TextField::new("").autofocus(true).enabled(false)
         ));
+    }
+}
+
+/// A field's caret through text that mixes directions, and through a wrapped right-to-left
+/// paragraph (milestone 747).
+#[cfg(test)]
+mod bidi_tests {
+    use super::*;
+    use frus_core::Primitive;
+
+    /// Latin, Hebrew, Latin: `abc אבג def`, drawn a b c ␠ ג ב א ␠ d e f.
+    const MIXED: &str = "abc \u{5d0}\u{5d1}\u{5d2} def";
+
+    /// Eight Hebrew words, which wrap in a field 200 px wide.
+    const HEBREW: &str = concat!(
+        "\u{5e9}\u{5dc}\u{5d5}\u{5dd} \u{5e2}\u{5d5}\u{5dc}\u{5dd} ",
+        "\u{5d6}\u{5d4} \u{5de}\u{5e9}\u{5e4}\u{5d8} \u{5d0}\u{5e8}\u{5d5}\u{5da} ",
+        "\u{5e9}\u{5e0}\u{5e9}\u{5d1}\u{5e8} \u{5dc}\u{5db}\u{5de}\u{5d4} ",
+        "\u{5e9}\u{5d5}\u{5e8}\u{5d5}\u{5ea}"
+    );
+
+    const WIDTH: f32 = 320.0;
+
+    fn right(shift: bool) -> Key {
+        Key::Right { shift, word: false }
+    }
+
+    fn left(shift: bool) -> Key {
+        Key::Left { shift, word: false }
+    }
+
+    /// The caret a focused `field` paints for `edit`, `width` wide.
+    fn painted_caret(field: &TextField<()>, edit: &Edit, width: f32) -> Rect {
+        let theme = Theme::default();
+        let mut scene = Scene::new();
+        let status = Status {
+            focused: true,
+            focus_progress: 1.0,
+            cursor: Some(edit.cursor),
+            affinity: edit.affinity,
+            ..Default::default()
+        };
+        let height = Widget::<()>::text_metrics(field, width, 0.into())
+            .map_or(56.0, |(content, ..)| content + 40.0);
+        Widget::<()>::paint(
+            field,
+            Rect::new(0.0, 0.0, width, height),
+            status,
+            &theme,
+            &mut scene,
+        );
+        scene
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, color, .. }
+                    if *color == theme.scheme.primary && rect.width == 2.0 =>
+                {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("a caret")
+    }
+
+    /// **The arrows move a field's caret the way they point** through a line that mixes
+    /// directions: right from the start the painted caret goes right at every press, through
+    /// the Hebrew run too, to the end; left from there it comes back the same way.
+    #[test]
+    fn a_fields_arrows_move_the_caret_the_way_they_point() {
+        let field = TextField::<()>::new(MIXED);
+        let len = MIXED.chars().count();
+        let mut edit = Edit::default();
+        let mut x = painted_caret(&field, &edit, WIDTH).x;
+        for press in 0..len {
+            assert!(Widget::<()>::caret_key(
+                &field,
+                WIDTH,
+                &mut edit,
+                &right(false)
+            ));
+            let now = painted_caret(&field, &edit, WIDTH).x;
+            assert!(now > x + 1.0, "press {press}: {x} -> {now}, {edit:?}");
+            x = now;
+        }
+        assert_eq!(edit.cursor, len);
+        for press in 0..len {
+            Widget::<()>::caret_key(&field, WIDTH, &mut edit, &left(false));
+            let now = painted_caret(&field, &edit, WIDTH).x;
+            assert!(now < x - 1.0, "press {press}: {x} -> {now}, {edit:?}");
+            x = now;
+        }
+        assert_eq!(edit.cursor, 0);
+    }
+
+    /// **A tap beside a change of direction puts the caret where the finger is**: just left
+    /// of the last Hebrew letter — the boundary after it, upstream — and not after the space
+    /// a letter's width away, which is where its downstream twin is drawn.
+    #[test]
+    fn a_tap_beside_a_direction_change_draws_the_caret_where_it_landed() {
+        let field = TextField::<()>::new(MIXED);
+        let layout = field.layout(None);
+        let gimel = layout.selection_rects(6, 7)[0];
+        let y = field.label_block() + field.text_top() + 4.0;
+        let x = field.lead() + gimel.x + 1.0;
+        let at = Widget::<()>::cursor_at(&field, x, y, WIDTH, 0).expect("a field");
+        assert_eq!(at, TextPosition::upstream(7));
+        let edit = Edit {
+            cursor: at.offset,
+            affinity: at.affinity,
+            ..Edit::default()
+        };
+        let caret = painted_caret(&field, &edit, WIDTH);
+        assert!((caret.x - (x - 1.0)).abs() < 1.5, "{caret:?} vs {x}");
+    }
+
+    /// The field's layout, its first line's caret and the boundary its second line starts at.
+    fn wrapped(field: &TextField<()>, width: f32) -> (TextLayout, usize) {
+        let layout = field.layout(Some(field.content_width(width)));
+        let first = layout.caret_rect(0);
+        let wrap = (1..HEBREW.chars().count())
+            .find(|&i| layout.caret_rect(i).y > first.y)
+            .expect("the paragraph wraps");
+        (layout, wrap)
+    }
+
+    /// **End goes to the end of the line on screen** in a wrapped right-to-left field, and
+    /// the caret is painted there — at the left end of the first line, not at the start of
+    /// the second; Home from there comes back to the start; Shift+End selects the line.
+    #[test]
+    fn end_goes_to_the_end_of_a_wrapped_right_to_left_line() {
+        let width = 200.0;
+        let field = TextField::<()>::new(HEBREW).multiline().rows(4);
+        let (layout, wrap) = wrapped(&field, width);
+        let start = painted_caret(&field, &Edit::default(), width);
+        let mut edit = Edit::default();
+        let end = Key::End {
+            shift: false,
+            doc: false,
+        };
+        assert!(Widget::<()>::caret_key(&field, width, &mut edit, &end));
+        assert_eq!(edit.position(), TextPosition::upstream(wrap));
+        let caret = painted_caret(&field, &edit, width);
+        assert_eq!(caret.y, start.y, "on the first line");
+        let first_line_left = layout
+            .selection_rects(0, wrap)
+            .iter()
+            .map(|r| r.x)
+            .fold(f32::MAX, f32::min);
+        assert!(caret.x < start.x - 50.0, "at its left: {caret:?} {start:?}");
+        assert!(
+            (caret.x - (start.x - (layout.caret_rect(0).x - first_line_left))).abs() < 1.5,
+            "{caret:?}"
+        );
+        let home = Key::Home {
+            shift: false,
+            doc: false,
+        };
+        Widget::<()>::caret_key(&field, width, &mut edit, &home);
+        assert_eq!(edit.position(), TextPosition::new(0));
+        // Shift+End selects the first line, and its end handle hangs on that line.
+        let shift_end = Key::End {
+            shift: true,
+            doc: false,
+        };
+        Widget::<()>::caret_key(&field, width, &mut edit, &shift_end);
+        assert_eq!(edit.selection_range(), Some((0, wrap)));
+        let [_, end_handle] =
+            Widget::<()>::selection_handles(&field, width, &edit, 0.0).expect("handles");
+        let first_mid = start.y + start.height * 0.5;
+        assert!(
+            (end_handle.line_center.y - first_mid).abs() < 2.0,
+            "the end handle hangs from the first line: {end_handle:?} vs {first_mid}"
+        );
+    }
+
+    /// **Up and down keep the side**: down from the end of the first line lands on the
+    /// second, about below it, and up from there comes back to the first line.
+    #[test]
+    fn up_and_down_cross_the_lines_of_a_wrapped_right_to_left_field() {
+        let width = 200.0;
+        let field = TextField::<()>::new(HEBREW).multiline().rows(4);
+        let (_, wrap) = wrapped(&field, width);
+        let from = TextPosition::upstream(wrap);
+        let (down, goal) = Widget::<()>::caret_vertical(&field, width, from, true, false, None)
+            .expect("a line below");
+        let edit = |at: TextPosition| Edit {
+            cursor: at.offset,
+            affinity: at.affinity,
+            ..Edit::default()
+        };
+        let above = painted_caret(&field, &edit(from), width);
+        let below = painted_caret(&field, &edit(down), width);
+        assert!(below.y > above.y, "{above:?} -> {below:?}");
+        assert!(
+            (below.x - above.x).abs() < 12.0,
+            "about below it: {above:?} -> {below:?}"
+        );
+        let (up, _) = Widget::<()>::caret_vertical(&field, width, down, false, false, Some(goal))
+            .expect("a line above");
+        assert_eq!(painted_caret(&field, &edit(up), width).y, above.y);
+    }
+
+    /// **Shift and an arrow extend the selection a character at a time** in a right-to-left
+    /// field: Shift+Left from the start selects its first letter, drawn at the right.
+    #[test]
+    fn shift_and_an_arrow_extend_a_right_to_left_selection() {
+        let field = TextField::<()>::new("\u{5e9}\u{5dc}\u{5d5}\u{5dd}");
+        let mut edit = Edit::default();
+        Widget::<()>::caret_key(&field, WIDTH, &mut edit, &left(true));
+        assert_eq!(edit.selection_range(), Some((0, 1)));
+        Widget::<()>::caret_key(&field, WIDTH, &mut edit, &left(true));
+        assert_eq!(edit.selection_range(), Some((0, 2)));
+        // Right, without Shift, comes back a letter and drops the selection.
+        Widget::<()>::caret_key(&field, WIDTH, &mut edit, &right(false));
+        assert_eq!(edit.selection_range(), None);
+        assert_eq!(edit.cursor, 1);
+    }
+
+    /// Typing after a move resets the side: what is typed goes before what follows it.
+    #[test]
+    fn typing_puts_the_caret_before_what_follows() {
+        let field = TextField::<()>::new("ab");
+        let mut edit = Edit {
+            cursor: 1,
+            affinity: TextAffinity::Upstream,
+            ..Edit::default()
+        };
+        Widget::<()>::on_edit(&field, &mut edit, &Key::Text("x".into()));
+        assert_eq!(edit.position(), TextPosition::new(2));
     }
 }

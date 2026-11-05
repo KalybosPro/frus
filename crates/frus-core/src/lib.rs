@@ -82,6 +82,6 @@ pub use semantics::{Role, SemanticsProperties, Toggled};
 pub use shape::{BorderSide, ShapeBorder};
 pub use text_style::{
     install_text_scale, text_scale, with_text_scale, FontFamily, FontWeight, ResolvedTextStyle,
-    TextAlign, TextDecoration, TextOverflow, TextRun, TextScaleGuard, TextSpan, TextStyle,
-    DEFAULT_LINE_HEIGHT, DEFAULT_TEXT_SIZE,
+    TextAffinity, TextAlign, TextDecoration, TextOverflow, TextPosition, TextRun, TextScaleGuard,
+    TextSpan, TextStyle, DEFAULT_LINE_HEIGHT, DEFAULT_TEXT_SIZE,
 };
