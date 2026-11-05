@@ -8,10 +8,24 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 754 so far, each documenting the objective, the alternatives
+> record — one per step, 755 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **An Android activity that ends no longer hangs the application** (J755). When Android destroyed
+  the activity while the process lived ("Don't keep activities", Back at the root, the system
+  finishing it, a configuration change), the application froze and could not be opened again
+  until the system killed it as not responding: the loop never ended, and the activity's
+  `onDestroy` waits for it. The loop now ends as soon as the activity is destroyed, and the
+  process with it; the next launch starts afresh, or from the state the system kept when the
+  application uses state restoration. Back at the root now does what the platform does (the
+  activity finishes, or from Android 12 goes to the background) instead of ending the process
+  under a running activity. The template, the demo, the sample crates and the example projects
+  declare `config_changes` for rotation, font size, night mode, language, density and keyboards,
+  so those no longer recreate the activity, and the shell reads the platform's settings again when
+  one arrives. An existing application adds the same line to its
+  `[package.metadata.android.application.activity]` to get that.
 
 - **Hot reload is how `frus run` runs** (J754): a debug build now patches each saved change into
   the running application — desktop, web, Android — with every state where it was, instead of
