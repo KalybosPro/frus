@@ -226,6 +226,9 @@ web-sys = { version = "0.3", features = [
     "console",
     # The page's clock, which counts from the navigation (milestone 683).
     "Performance",
+    # A page that cannot draw says so (milestone 745): the event the page listens to.
+    "CustomEvent",
+    "CustomEventInit",
 ] }
 
 # On Android, winit goes through the native activity (android-activity) and the logs

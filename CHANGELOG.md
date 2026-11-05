@@ -8,11 +8,20 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 744 so far, each documenting the objective, the alternatives
+> record — one per step, 745 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **WebGL 2 where there is no WebGPU** (J745): on the web, frus drew through WebGPU alone, and a
+  browser without it — Chrome on Android before Android 12, a GPU the browser blocks — showed an
+  empty, dark page. The renderer now draws through WebGPU where the browser gives an adapter and a
+  device, and through WebGL 2 otherwise, choosing before the canvas gets a context; the console
+  says which. Four shaders' viewport uniforms are padded to the 16 bytes WebGL 2 requires, and a
+  test checks every shader against WebGL 2's rules. When nothing can be drawn, or the application
+  panics, the shell dispatches a `frus-error` event with a readable message and, when the page
+  does not show it, lays its own box over the canvas. Every web `index.html` (template, demo,
+  hello, examples) no longer refuses to start without `navigator.gpu`, and shows the message.
 - **Plain open-source notices**: `NOTICE` keeps only the copyright, the two licenses and the
   contribution terms; the paragraph warning redistributors is gone. `TRADEMARKS.md` is removed,
   and the READMEs no longer point to it. frus stays MIT OR Apache-2.0.

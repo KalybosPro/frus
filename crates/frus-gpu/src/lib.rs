@@ -34,6 +34,9 @@ mod path;
 mod pipeline_cache;
 mod renderer;
 mod text;
+// The web: which GPU interface a page draws through (milestone 745). Tested on every host.
+#[cfg(any(target_arch = "wasm32", test))]
+mod web_backend;
 
 /// How many draw calls a scene's rectangles, images and paths will cost.
 ///
