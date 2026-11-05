@@ -25,6 +25,12 @@ any release may break.
   `line_bounds` and `line_is_rtl`. **Breaking:** `Edit` and `Status` have an `affinity` field;
   `Widget::cursor_at` returns a `TextPosition`, `Widget::caret_vertical` and
   `Widget::text_metrics` take one; a new `Widget::caret_key` moves the caret over the drawn text.
+- **Wide shadows fade the whole way out** (J746): a shadow is now its shape blurred by a
+  gaussian (deviation `0.57735 × blur + 0.5`), computed analytically and drawn out to three
+  deviations. It used to fade along a cubic that stopped one blur beyond the shape, so the
+  shadows of a surface twelve or twenty-four high ended on a visible rim around it, short of
+  where the blur ends. `Scene::shadow` and `BoxShadow` take the same values as before; blur
+  styles keep their meaning.
 - **A field's double click needs the two presses close together** (J747): a second press within
   0.4 s selects the word only if it lands in the same field within 8 logical pixels of the first
   (a finger: 100). Two quick clicks far apart now place the caret twice instead of selecting a
