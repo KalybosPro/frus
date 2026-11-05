@@ -4734,6 +4734,10 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // Where the content starts, so that a stretch can take all of it (milestone 591).
             let stretch_mark = (self.scene.primitives().len(), self.xform_base());
             let outer = self.scroll_host.replace(id);
+            // The rows walked this frame, each with its identity, its key and its index:
+            // what the list keeps alive is decided from them once the window is done.
+            let mut walked: Vec<crate::list::KeptRow> = Vec::new();
+            let runtime: &'a Runtime = self.runtime;
             if let Some(known) = measured.as_mut().filter(|_| vlist.count > 0) {
                 // Items of any extent (milestone 716): from the first one the window
                 // reaches, each laid out at its natural length and placed after the one
@@ -4762,7 +4766,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 let mut correction = 0.0;
                 while i < vlist.count && start < offset - lead + extent {
                     let item = (vlist.build)(i);
-                    let item_rects = self.cached_rects(id.child(i), item.as_ref(), constraints);
+                    // A row is its key when it has one, its index otherwise (milestone 748).
+                    let row = child_id(id, i, item.as_ref());
+                    let item_rects = {
+                        let _row = runtime.states.enter_row(row, true);
+                        build_deferred_at(item.as_ref(), row, &self.theme, runtime);
+                        self.cached_rects(row, item.as_ref(), constraints)
+                    };
                     let size = item_rects
                         .first()
                         .copied()
@@ -4796,8 +4806,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                         Some(done) => done,
                         None => {
                             let item = (vlist.build)(i);
-                            let item_rects =
-                                self.cached_rects(id.child(i), item.as_ref(), constraints);
+                            let row = child_id(id, i, item.as_ref());
+                            let item_rects = {
+                                let _row = runtime.states.enter_row(row, true);
+                                build_deferred_at(item.as_ref(), row, &self.theme, runtime);
+                                self.cached_rects(row, item.as_ref(), constraints)
+                            };
                             let size = item_rects
                                 .first()
                                 .copied()
@@ -4816,16 +4830,22 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                         true => (along, viewport.y + cross_near),
                         false => (viewport.x + cross_near, along),
                     };
+                    let key = item.key();
+                    let row = child_id(id, i, item.as_ref());
                     let item = self.keep(item);
                     let mut item_index = 0;
-                    self.walk(
-                        item,
-                        id.child(i),
-                        (x, y),
-                        content_clip,
-                        &item_rects,
-                        &mut item_index,
-                    );
+                    {
+                        let _row = runtime.states.enter_row(row, false);
+                        self.walk(
+                            item,
+                            row,
+                            (x, y),
+                            content_clip,
+                            &item_rects,
+                            &mut item_index,
+                        );
+                    }
+                    walked.push(crate::list::KeptRow { row, key, index: i });
                     start += length;
                     i += 1;
                 }
@@ -4865,8 +4885,13 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     // down the left instead of rows across the list. Found on a device
                     // in milestone 349.
                     let free_cross = (cross_extent - cross_near - cross_far).max(0.0);
+                    // A row is its key when it has one, its index otherwise (milestone 748).
+                    let key = item.key();
+                    let row = child_id(id, i, item.as_ref());
+                    let _row = runtime.states.enter_row(row, true);
+                    build_deferred_at(item.as_ref(), row, &self.theme, runtime);
                     let item_rects = self.cached_rects(
-                        id.child(i),
+                        row,
                         item.as_ref(),
                         Constraints::filled(match across {
                             true => Size::new(vlist.item_extent, free_cross),
@@ -4878,14 +4903,16 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     let mut item_index = 0;
                     self.walk(
                         item,
-                        id.child(i),
+                        row,
                         (x, y),
                         content_clip,
                         &item_rects,
                         &mut item_index,
                     );
+                    walked.push(crate::list::KeptRow { row, key, index: i });
                 }
             }
+            self.keep_rows_alive(id, &vlist, &walked);
 
             if let Some(known) = measured {
                 self.runtime.item_extents.borrow_mut().insert(id, known);
@@ -5835,6 +5862,45 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 2.0,
                 self.theme.focus.fade(alpha),
             );
+        }
+    }
+
+    /// Decides which rows of the list `list` stay alive out of view (milestone 748): of the
+    /// rows walked this frame, those that asked to be kept or that the list keeps by
+    /// default; of the rows kept before and not walked now, those still in the list, found
+    /// by their key when the list can find one. What those own is held through the frame's
+    /// sweep; what the others own is let go with it.
+    fn keep_rows_alive(
+        &self,
+        list: WidgetId,
+        vlist: &crate::list::VirtualList<'_, Msg>,
+        walked: &[crate::list::KeptRow],
+    ) {
+        let states = &self.runtime.states;
+        let mut lists = self.runtime.kept_rows.borrow_mut();
+        let before = lists.remove(&list).unwrap_or_default();
+        let mut kept: Vec<crate::list::KeptRow> = walked
+            .iter()
+            .filter(|row| states.row_wish(row.row).unwrap_or(vlist.keep_alive))
+            .copied()
+            .collect();
+        for row in before {
+            if walked.iter().any(|built| built.row == row.row) {
+                continue;
+            }
+            let index = match (row.key, vlist.find_child_index) {
+                (Some(key), Some(find)) => find(crate::ChildKey(key)),
+                _ => Some(row.index),
+            };
+            let Some(index) = index.filter(|&index| index < vlist.count) else {
+                // Removed from the list: what it held goes with this frame's sweep.
+                continue;
+            };
+            states.hold(row.row);
+            kept.push(crate::list::KeptRow { index, ..row });
+        }
+        if !kept.is_empty() {
+            lists.insert(list, kept);
         }
     }
 
@@ -7097,6 +7163,19 @@ fn expand_scoped<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &Runtime,
 /// before the frame advances its animations, and one frame behind is the whole tree agreeing
 /// with itself rather than a builder disagreeing with the layout around it.
 pub fn build_deferred<Msg>(root: &dyn Widget<Msg>, theme: &Theme, runtime: &Runtime) {
+    build_deferred_at(root, WidgetId::ROOT, theme, runtime);
+}
+
+/// [`build_deferred`] over a subtree whose root has the identity `id`: a row a list built
+/// for the frame, which the walk over the tree before the frame could not reach (milestone
+/// 748). Its components are built, and their states reached, before anything is asked of it
+/// — the layout cache's fingerprint reads their children.
+pub(crate) fn build_deferred_at<Msg>(
+    root: &dyn Widget<Msg>,
+    id: WidgetId,
+    theme: &Theme,
+    runtime: &Runtime,
+) {
     fn walk<Msg>(widget: &dyn Widget<Msg>, id: WidgetId, runtime: &Runtime, theme: &Theme) {
         expand_scoped(widget, id, runtime, theme);
         let scoped = scoped_theme(widget, id, runtime, theme);
@@ -7118,7 +7197,7 @@ pub fn build_deferred<Msg>(root: &dyn Widget<Msg>, theme: &Theme, runtime: &Runt
             );
         }
     }
-    walk(root, WidgetId::ROOT, runtime, theme);
+    walk(root, id, runtime, theme);
 }
 
 /// The widget of the tree under `root` that has the identity `target`, or `None` if none

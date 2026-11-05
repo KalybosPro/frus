@@ -40,6 +40,16 @@ any release may break.
   instead of the browser panning the whole page and the application's top bar off the screen.
   What the browser types into a field goes through the field's filter and length limit, as a key
   does. A WebGL context the browser takes away is asked back, and drawn again.
+- **Rows that keep their state** (J748): a row of `ListView::new` or `ListView::builder` with a
+  key (`keyed(..)`, `Keyed::new`, `Component::with_key`) is identified by its key rather than its
+  index, so the state of its components, its hooks and a selection in its words follow it when
+  items are inserted or removed above it. `ListView::keep_alive(bool)` says whether rows scrolled
+  out of view keep their state by default (they do not); a row asks for itself with
+  `KeepAlive::new(..)` (`.keep(false)` declines) or, from a component, `BuildContext::keep_alive`.
+  `ListView::find_child_index` tells the list where a kept row's item went (`ChildKey::is`
+  compares a key with the application's ids), and a kept row whose item is removed is let go.
+  Components inside a list's rows are now built before the row is laid out.
+
 - **Wide shadows fade the whole way out** (J746): a shadow is now its shape blurred by a
   gaussian (deviation `0.57735 × blur + 0.5`), computed analytically and drawn out to three
   deviations. It used to fade along a cubic that stopped one blur beyond the shape, so the

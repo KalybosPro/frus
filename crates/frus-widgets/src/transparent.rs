@@ -61,6 +61,7 @@ macro_rules! forward_transparent {
     ($ty:ident { $($extra:item)* }) => {
         $crate::transparent::forward_transparent!(@body $ty {
             $($extra)*
+            $crate::transparent::forward_expand_hook!();
             $crate::transparent::forward_gesture_hooks!();
             $crate::transparent::forward_hover_hooks!();
             $crate::transparent::forward_listener_hooks!();
@@ -72,6 +73,7 @@ macro_rules! forward_transparent {
     (gestures $ty:ident { $($extra:item)* }) => {
         $crate::transparent::forward_transparent!(@body $ty {
             $($extra)*
+            $crate::transparent::forward_expand_hook!();
             $crate::transparent::forward_hover_hooks!();
             $crate::transparent::forward_listener_hooks!();
         });
@@ -81,6 +83,7 @@ macro_rules! forward_transparent {
     (hover $ty:ident { $($extra:item)* }) => {
         $crate::transparent::forward_transparent!(@body $ty {
             $($extra)*
+            $crate::transparent::forward_expand_hook!();
             $crate::transparent::forward_gesture_hooks!();
             $crate::transparent::forward_listener_hooks!();
         });
@@ -90,8 +93,19 @@ macro_rules! forward_transparent {
     (listener $ty:ident { $($extra:item)* }) => {
         $crate::transparent::forward_transparent!(@body $ty {
             $($extra)*
+            $crate::transparent::forward_expand_hook!();
             $crate::transparent::forward_gesture_hooks!();
             $crate::transparent::forward_hover_hooks!();
+        });
+    };
+    // A wrapper that **does something as its child is built** — `KeepAlive` (milestone 748),
+    // which asks its list to keep its row — states `expand` itself, forwarding it after.
+    (expand $ty:ident { $($extra:item)* }) => {
+        $crate::transparent::forward_transparent!(@body $ty {
+            $($extra)*
+            $crate::transparent::forward_gesture_hooks!();
+            $crate::transparent::forward_hover_hooks!();
+            $crate::transparent::forward_listener_hooks!();
         });
     };
     (@body $ty:ident { $($extra:item)* }) => {
@@ -125,17 +139,6 @@ macro_rules! forward_transparent {
                 // `AnimatedSwitcher` behind a `Keyed` is built by `build_themed` and never
                 // finds what it was showing.
                 self.inner.build_in(id, runtime, theme)
-            }
-
-            fn expand(
-                &self,
-                id: $crate::interaction::WidgetId,
-                runtime: &$crate::runtime::Runtime,
-                theme: &$crate::theme::Theme,
-            ) {
-                // Also with the identity untouched: what a component built is where the
-                // component is.
-                self.inner.expand(id, runtime, theme)
             }
 
             fn switches(&self) -> bool {
@@ -931,6 +934,21 @@ macro_rules! forward_hover_hooks {
 
 /// The two listener hooks, forwarded to `inner` — what every transparent wrapper but a
 /// [`crate::Listener`] does with them.
+macro_rules! forward_expand_hook {
+    () => {
+        fn expand(
+            &self,
+            id: $crate::interaction::WidgetId,
+            runtime: &$crate::runtime::Runtime,
+            theme: &$crate::theme::Theme,
+        ) {
+            // Also with the identity untouched: what a component built is where the
+            // component is.
+            self.inner.expand(id, runtime, theme)
+        }
+    };
+}
+
 macro_rules! forward_listener_hooks {
     () => {
         fn pointer_listener(&self) -> bool {
@@ -943,6 +961,7 @@ macro_rules! forward_listener_hooks {
     };
 }
 
+pub(crate) use forward_expand_hook;
 pub(crate) use forward_gesture_hooks;
 pub(crate) use forward_hover_hooks;
 pub(crate) use forward_listener_hooks;

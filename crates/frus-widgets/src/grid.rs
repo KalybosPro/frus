@@ -506,6 +506,10 @@ impl<Msg: Clone + 'static> Widget<Msg> for GridView<Msg> {
             axis: crate::scroll::Axis::Vertical,
             build: &**rows,
             variable: false,
+            // A grid's rows are strips of cells made for the frame: nothing in them is
+            // kept, and a cell's key is the strip's business.
+            keep_alive: false,
+            find_child_index: None,
         })
     }
 
