@@ -8,11 +8,25 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 749 so far, each documenting the objective, the alternatives
+> record — one per step, 751 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The page around a web application, and the way back through it** (J751): the safe areas
+  (`env(safe-area-inset-*)`, read through a probe element) are the window's insets on the Web,
+  the keyboard's cover raised over the bottom one, as a phone's own build reports them. The
+  browser's toolbar follows the application through the page's `<meta name="theme-color">`,
+  created when the page has none, and both it and the page's background take the colour a region
+  at that edge states, then the colour the frame actually paints there (new
+  `Scene::flat_color_at`), then the theme — so an application that paints its edges in a colour
+  of its own has the bars follow it. `GoRouter::open` — what the browser's Back
+  and Forward come through — goes back to a page already beneath the top, a pushed one included,
+  instead of rebuilding the stack from the location; and `GoRouter::keep_popped_pages` keeps
+  popped pages alive so that Forward finds them as they were left, fields filled in (on by
+  default on the Web, four pages). The widget gallery's pages are sub-routes of its home page, so
+  a link straight to a category or a demo has a way back. Every `index.html` is checked to ask for
+  `viewport-fit=cover`.
 - **The page fits the phone's screen, and its keyboard** (J749): on a phone, a web application's canvas was sized
   `100vh`, the height with the browser's address bar hidden — which a page that does not scroll
   never hides — so the bottom 56 CSS pixels of the application were drawn below the screen. Every

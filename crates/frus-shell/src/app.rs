@@ -1278,6 +1278,9 @@ pub struct App<A: Application> {
     /// The page's background as it was last painted, on the Web (milestone 749).
     #[cfg(web)]
     page_background: Option<frus_widgets::Color>,
+    /// The page's `theme-color` as it was last set, on the Web (milestone 751).
+    #[cfg(web)]
+    page_toolbar: Option<frus_widgets::Color>,
 }
 
 impl<A: Application> App<A> {
@@ -1445,6 +1448,8 @@ impl<A: Application> App<A> {
             system_bars: None,
             #[cfg(web)]
             page_background: None,
+            #[cfg(web)]
+            page_toolbar: None,
         }
     }
 
@@ -1640,7 +1645,11 @@ impl<A: Application> App<A> {
     /// On the Web the browser owns the bars, but Chrome on Android paints the phone's
     /// navigation bar with the page's background: the page is given the navigation bar's
     /// colour (milestone 749), or it shows as a band of the loading screen's colour under
-    /// the application.
+    /// the application. The browser's toolbar, and the status bar over it, take the page's
+    /// `theme-color`, which follows the top edge the same way (milestone 751). The bars
+    /// there stand against the page's own edges, and where no region states a colour they
+    /// take the one the frame paints at that edge, not the theme's, which a scaffold may
+    /// paint over in a colour of its own.
     fn sync_system_bars(&mut self, theme: &Theme) {
         #[cfg(any(android, web))]
         {
@@ -1653,23 +1662,43 @@ impl<A: Application> App<A> {
             let scale = self.total_scale();
             let size = window.inner_size();
             let (width, height) = (size.width as f32 / scale, size.height as f32 / scale);
-            let edges = self.last_insets.padding;
-            let bars = ui
-                .system_ui_style(
-                    frus_widgets::Point::new(width / 2.0, edges.top + 0.5),
-                    frus_widgets::Point::new(width / 2.0, height - edges.bottom - 0.5),
-                )
-                .resolve(theme);
             #[cfg(android)]
-            if self.system_bars != Some(bars) && crate::android_system_bars::apply(bars) {
-                self.system_bars = Some(bars);
+            {
+                let edges = self.last_insets.padding;
+                let bars = ui
+                    .system_ui_style(
+                        frus_widgets::Point::new(width / 2.0, edges.top + 0.5),
+                        frus_widgets::Point::new(width / 2.0, height - edges.bottom - 0.5),
+                    )
+                    .resolve(theme);
+                if self.system_bars != Some(bars) && crate::android_system_bars::apply(bars) {
+                    self.system_bars = Some(bars);
+                }
             }
             #[cfg(web)]
             {
-                let page =
-                    crate::web_page::page_background(bars.navigation_bar_color, theme.background);
+                // The browser's bars are outside the page, against its very edges.
+                let (top, bottom) = (
+                    frus_widgets::Point::new(width / 2.0, 0.5),
+                    frus_widgets::Point::new(width / 2.0, height - 0.5),
+                );
+                let stated = ui.system_ui_style(top, bottom);
+                let scene = ui.scene();
+                let page = crate::web_page::bar_color(
+                    stated.navigation_bar_color,
+                    scene.flat_color_at(bottom),
+                    theme.background,
+                );
                 if self.page_background != Some(page) && crate::web_page::paint_behind(page) {
                     self.page_background = Some(page);
+                }
+                let toolbar = crate::web_page::bar_color(
+                    stated.status_bar_color,
+                    scene.flat_color_at(top),
+                    theme.background,
+                );
+                if self.page_toolbar != Some(toolbar) && crate::web_page::paint_toolbar(toolbar) {
+                    self.page_toolbar = Some(toolbar);
                 }
             }
         }
@@ -2012,8 +2041,9 @@ impl<A: Application> App<A> {
     }
 
     /// The system insets — the safe area — in **logical** px. On Android they are
-    /// derived from the activity's content rect, outside the system bars; on the Web the
-    /// bottom one is the on-screen keyboard's cover of the canvas; zero elsewhere.
+    /// derived from the activity's content rect, outside the system bars; on the Web they
+    /// are the page's safe area (`env(safe-area-inset-*)`, milestone 751), the bottom one
+    /// raised to the on-screen keyboard's cover of the canvas; zero elsewhere.
     ///
     /// The content rect is what the system leaves the activity, so it excludes
     /// **any** decoration the theme asks for — a title bar included. An app whose
@@ -2041,8 +2071,11 @@ impl<A: Application> App<A> {
             use winit::platform::web::WindowExtWebSys;
             window.canvas()
         }) {
-            let cover = crate::web_page::keyboard_cover_of(&canvas) as f32;
-            return Insets::new(0.0, 0.0, cover * self.scale / scale, 0.0);
+            let cover = crate::web_page::keyboard_cover_of(&canvas);
+            let [top, right, bottom, left] =
+                crate::web_page::window_insets(crate::web_page::safe_area(), cover)
+                    .map(|css| css as f32 * self.scale / scale);
+            return Insets::new(top, right, bottom, left);
         }
         let _ = (phys_w, phys_h, scale);
         Insets::ZERO

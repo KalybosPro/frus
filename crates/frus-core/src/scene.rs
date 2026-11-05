@@ -1991,6 +1991,25 @@ impl Scene {
         &self.primitives
     }
 
+    /// **The flat colour this scene paints at `point`**, when it can be told without
+    /// rendering: the solid rectangles over it composited in drawing order, in linear
+    /// light as the renderer does. `None` when what shows there is not a flat colour — a
+    /// picture, a gradient, a vector shape, a transformed or filtered layer — or when
+    /// nothing is painted there at all. The colour may be translucent, when everything
+    /// over the point is.
+    ///
+    /// Text is left out: glyphs are thin and leave the colour behind them showing. So are
+    /// soft shadows, which are never the colour of a surface.
+    ///
+    /// What the shell asks of the frame to colour what the platform paints next to it —
+    /// the page under a web canvas, the browser's toolbar (milestone 751).
+    pub fn flat_color_at(&self, point: Point) -> Option<Color> {
+        match flat_color_over(&self.primitives, point, Painted::Nothing) {
+            Painted::Flat(color) => Some(color.to_srgb()),
+            Painted::Nothing | Painted::Unknown => None,
+        }
+    }
+
     /// A copy of the scene with all geometry scaled by `factor` — the logical →
     /// physical conversion for HiDPI rendering.
     pub fn scaled(&self, factor: f32) -> Scene {
@@ -2001,6 +2020,121 @@ impl Scene {
             current_bounds: self.current_bounds.scale(factor),
         }
     }
+}
+
+/// What a scene paints at one point, as far as [`Scene::flat_color_at`] can tell.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Painted {
+    /// Nothing covers the point yet.
+    Nothing,
+    /// A flat colour, in **linear** light, alpha straight (not premultiplied).
+    Flat(Color),
+    /// Something that is not one colour: a picture, a gradient, a shape.
+    Unknown,
+}
+
+/// `src` laid over `dst`, both linear with straight alpha — the renderer's "over".
+fn composite_over(src: Color, dst: Color) -> Color {
+    let a = src.a + dst.a * (1.0 - src.a);
+    if a <= 0.0 {
+        return Color::rgba(0.0, 0.0, 0.0, 0.0);
+    }
+    let mix = |s: f32, d: f32| (s * src.a + d * dst.a * (1.0 - src.a)) / a;
+    Color::rgba(mix(src.r, dst.r), mix(src.g, dst.g), mix(src.b, dst.b), a)
+}
+
+/// `layer` (what one primitive or group paints at the point) laid over `under`.
+fn paint_over(layer: Painted, under: Painted) -> Painted {
+    match (layer, under) {
+        (Painted::Nothing, under) => under,
+        (Painted::Unknown, _) => Painted::Unknown,
+        (Painted::Flat(c), _) if c.a <= 0.0 => under,
+        (Painted::Flat(c), _) if c.a >= 1.0 => Painted::Flat(c),
+        (Painted::Flat(c), Painted::Nothing) => Painted::Flat(c),
+        (Painted::Flat(c), Painted::Flat(d)) => Painted::Flat(composite_over(c, d)),
+        (Painted::Flat(_), Painted::Unknown) => Painted::Unknown,
+    }
+}
+
+/// What `primitives` paint at `point` over `under`, in drawing order.
+fn flat_color_over(primitives: &[Primitive], point: Point, mut under: Painted) -> Painted {
+    for primitive in primitives {
+        let painted = match primitive {
+            Primitive::Rect {
+                rect,
+                color,
+                color2,
+                gradient_dir,
+                border_width,
+                border_color,
+                blur,
+                clip,
+                shader,
+                ..
+            } => {
+                if !clip.contains(point) || !rect.contains(point) || *blur > 0.0 {
+                    continue;
+                }
+                let in_border = *border_width > 0.0
+                    && (point.x < rect.x + border_width
+                        || point.x >= rect.x + rect.width - border_width
+                        || point.y < rect.y + border_width
+                        || point.y >= rect.y + rect.height - border_width);
+                if in_border {
+                    Painted::Flat(border_color.to_linear())
+                } else if shader.is_some() || (*gradient_dir != [0.0, 0.0] && color != color2) {
+                    Painted::Unknown
+                } else {
+                    Painted::Flat(color.to_linear())
+                }
+            }
+            Primitive::Text { .. } | Primitive::RichText { .. } => continue,
+            Primitive::Path {
+                fill, stroke, clip, ..
+            } => {
+                if (fill.is_none() && stroke.is_none())
+                    || !clip.contains(point)
+                    || !primitive.bounds().contains(point)
+                {
+                    continue;
+                }
+                Painted::Unknown
+            }
+            Primitive::Image { rect, clip, .. } => {
+                if !clip.contains(point) || !rect.contains(point) {
+                    continue;
+                }
+                Painted::Unknown
+            }
+            Primitive::Layer {
+                primitives,
+                opacity,
+                clip,
+                clip_shape,
+                transform,
+                filter,
+                ..
+            } => {
+                if !clip.contains(point) {
+                    continue;
+                }
+                let inner = flat_color_over(primitives, point, Painted::Nothing);
+                let plain = transform.is_none()
+                    && filter.is_none()
+                    && matches!(clip_shape, ClipShape::Rect | ClipShape::RRect(_));
+                match inner {
+                    Painted::Nothing => continue,
+                    Painted::Flat(c) if plain => Painted::Flat(Color {
+                        a: c.a * opacity.clamp(0.0, 1.0),
+                        ..c
+                    }),
+                    _ => Painted::Unknown,
+                }
+            }
+        };
+        under = paint_over(painted, under);
+    }
+    under
 }
 
 #[cfg(test)]
@@ -2429,5 +2563,94 @@ mod tests {
         let mut scene = Scene::new();
         scene.draw_image_mapped(&image, Affine::scale(0.0, 1.0), Color::WHITE);
         assert!(scene.primitives().is_empty(), "flattened to nothing");
+    }
+
+    fn near(a: Option<Color>, b: Color) -> bool {
+        a.is_some_and(|a| {
+            a.to_array()
+                .iter()
+                .zip(b.to_array())
+                .all(|(x, y)| (x - y).abs() < 2e-3)
+        })
+    }
+
+    /// **What is painted at a point** (milestone 751): the last opaque surface, a
+    /// translucent one over it composited in linear light, text ignored, and nothing
+    /// claimed where the point shows a picture or a shape.
+    #[test]
+    fn the_flat_colour_at_a_point_is_what_the_surfaces_over_it_composite_to() {
+        let at = Point::new(50.0, 99.5);
+        let page = Color::rgb(245.0 / 255.0, 246.0 / 255.0, 248.0 / 255.0);
+        let scaffold = Color::rgb(245.0 / 255.0, 245.0 / 255.0, 247.0 / 255.0);
+        let mut scene = Scene::new();
+        assert_eq!(scene.flat_color_at(at), None, "nothing painted");
+        scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), page);
+        scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), scaffold);
+        // A rectangle elsewhere and a line of text over the point change nothing.
+        scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 50.0), Color::rgb(1.0, 0.0, 0.0));
+        scene.text(
+            Point::new(0.0, 90.0),
+            "Label",
+            &ResolvedTextStyle::exact(14.0),
+            Color::rgb(0.0, 0.0, 0.0),
+        );
+        assert!(near(scene.flat_color_at(at), scaffold));
+
+        // Half black over white, in linear light: not sRGB 0.5.
+        let mut scene = Scene::new();
+        scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), Color::rgb(1.0, 1.0, 1.0));
+        scene.fill_rect(
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            Color::rgba(0.0, 0.0, 0.0, 0.5),
+        );
+        let grey = Color::rgba(0.5, 0.5, 0.5, 1.0).to_srgb();
+        assert!(
+            near(scene.flat_color_at(at), grey),
+            "{:?}",
+            scene.flat_color_at(at)
+        );
+
+        // A group's opacity applies to what it paints.
+        let mut scene = Scene::new();
+        scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), Color::rgb(1.0, 1.0, 1.0));
+        scene.layer(0.5, |scene| {
+            scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), Color::rgb(0.0, 0.0, 0.0));
+        });
+        assert!(near(scene.flat_color_at(at), grey));
+
+        // A border band is the border's colour.
+        let mut scene = Scene::new();
+        scene.draw_rect(
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            Color::rgb(1.0, 1.0, 1.0),
+            0.0,
+            1.0,
+            Color::rgb(0.0, 0.0, 1.0),
+        );
+        assert!(near(scene.flat_color_at(at), Color::rgb(0.0, 0.0, 1.0)));
+
+        // A shape or a picture over the point is not a flat colour; an opaque surface
+        // over them is again.
+        let mut scene = Scene::new();
+        scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), page);
+        scene.fill_path(&Path::rect(Rect::new(0.0, 0.0, 100.0, 100.0)), scaffold);
+        assert_eq!(scene.flat_color_at(at), None);
+        let image = crate::ImageData::from_rgba(1, 1, vec![255; 4]).into_handle();
+        let mut scene = Scene::new();
+        scene.image(
+            &image,
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            crate::BoxFit::Fill,
+        );
+        assert_eq!(scene.flat_color_at(at), None);
+        scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), scaffold);
+        assert!(near(scene.flat_color_at(at), scaffold));
+
+        // A rectangle clipped away from the point does not count.
+        let mut scene = Scene::new();
+        scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), page);
+        scene.set_clip(Rect::new(0.0, 0.0, 100.0, 50.0));
+        scene.fill_rect(Rect::new(0.0, 0.0, 100.0, 100.0), scaffold);
+        assert!(near(scene.flat_color_at(at), page));
     }
 }
