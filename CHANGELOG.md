@@ -13,6 +13,8 @@ any release may break.
 
 ## [Unreleased]
 
+- **The website is frus.dev**: every crate's `homepage` points to https://frus.dev, and both
+  READMEs link to it first. The widget gallery stays at https://frus-rs.github.io/frus/.
 - **Plain open-source notices**: `NOTICE` keeps only the copyright, the two licenses and the
   contribution terms; the paragraph warning redistributors is gone. `TRADEMARKS.md` is removed,
   and the READMEs no longer point to it. frus stays MIT OR Apache-2.0.
