@@ -516,7 +516,11 @@ impl BoxShadow {
         [layer(0, 0.2), layer(1, 0.14), layer(2, 0.12)]
     }
 
-    /// The rectangle the shadow occupies around `rect` (offset + blur + spread).
+    /// The rectangle a shadow of `rect` is stated in (offset + blur + spread): its shape
+    /// grown by the blur, as [`Scene::shadow`](crate::Scene::shadow) takes it. The renderer
+    /// blurs the shape by a gaussian of deviation `0.57735 × blur + 0.5` and draws it out
+    /// to three deviations, so the faintest of the fade lies a little beyond this rectangle
+    /// (milestone 746).
     pub fn bounds(&self, rect: Rect) -> Rect {
         let grow = self.blur + self.spread;
         Rect::new(

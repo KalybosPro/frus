@@ -23,6 +23,12 @@ any release may break.
   compares a key with the application's ids), and a kept row whose item is removed is let go.
   Components inside a list's rows are now built before the row is laid out.
 
+- **Wide shadows fade the whole way out** (J746): a shadow is now its shape blurred by a
+  gaussian (deviation `0.57735 × blur + 0.5`), computed analytically and drawn out to three
+  deviations. It used to fade along a cubic that stopped one blur beyond the shape, so the
+  shadows of a surface twelve or twenty-four high ended on a visible rim around it, short of
+  where the blur ends. `Scene::shadow` and `BoxShadow` take the same values as before; blur
+  styles keep their meaning.
 - **The website is frus.dev**: every crate's `homepage` points to https://frus.dev, and both
   READMEs link to it first. The widget gallery stays at https://frus-rs.github.io/frus/.
 - **WebGL 2 where there is no WebGPU** (J745): on the web, frus drew through WebGPU alone, and a
