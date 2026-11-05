@@ -69,6 +69,15 @@ test("a hot launch asks frus run for hot reload", () => {
   assert.deepEqual(spawned.args, ["run", "--machine", "--hot"]);
 });
 
+test("hot: false asks frus run to restart instead, and no hot leaves it to frus", () => {
+  const off: { args?: string[] } = {};
+  session(off).request("launch", { frus: "frus", cwd: ".", hot: false });
+  assert.deepEqual(off.args, ["run", "--machine", "--no-hot"]);
+  const unset: { args?: string[] } = {};
+  session(unset).request("launch", { frus: "frus", cwd: "." });
+  assert.deepEqual(unset.args, ["run", "--machine"]);
+});
+
 test("the application's log reaches the Debug Console, errors as errors", async () => {
   const { frus, messages, request } = session();
   request("launch", { frus: "frus", cwd: "." });

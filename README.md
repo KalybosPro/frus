@@ -182,10 +182,12 @@ cd my_app
 frus run                        # on this computer; `frus run -d android`, `-d web`, `-d <device>`
 ```
 
-While it runs, the application's log is in the terminal on every platform, `r` reloads it with
-your change and its state kept, and `R` restarts it afresh. `frus run --hot` patches each saved
-change into the running application instead, on the desktop, the web and Android. Whatever a command needs and the
-machine lacks — a Rust target, the Android SDK, wasm-bindgen — it installs first.
+While it runs, the application's log is in the terminal on every platform, and each change you
+save is patched into the running application — on the desktop, the web and Android — with every
+state where it was; `R` restarts it afresh. The first run installs the patch engine (about twenty
+minutes, once). `frus run --no-hot` restarts to reload instead: `r` rebuilds and brings the
+application back with the state of every component that keeps one. Whatever a command needs and
+the machine lacks — a Rust target, the Android SDK, wasm-bindgen — it installs first.
 
 The generated project depends on the published [`frus`](https://crates.io/crates/frus) crate (`frus = "0.5"`). `frus create my_app --frus-path <checkout>` builds it against a checkout of this repository instead; [`docs/getting-started.md`](docs/getting-started.md) has the options.
 
@@ -196,7 +198,7 @@ The generated project depends on the published [`frus`](https://crates.io/crates
 | `frus create <dir>` | a new application for the desktops, Android and the web; `frus create .` in one restores the files it is missing |
 | `frus doctor` | the toolchain, part by part: what is ready and what is missing; `--fix` installs it |
 | `frus devices` | this computer, the phones and emulators, the browsers, and the simulated phones and tablets |
-| `frus run [-d <device>]` | build, start, and show the log; `--hot` for hot reload on the desktop, the web and Android |
+| `frus run [-d <device>]` | build, start, and show the log, with hot reload on the desktop, the web and Android; `--no-hot` to restart instead |
 | `frus build <apk\|web\|desktop>` | what you ship, in release |
 | `frus emulators` | list, `--launch` and `--create` emulators |
 | `frus clean` | delete the application's builds |
@@ -242,7 +244,7 @@ frus run -d iphone-15 --web    # the same, in a browser
 A debug build is laid out for the device's screen — its size and density, its safe areas, its
 notch, island or hole, its keyboard, its platform's conventions — and drawn inside its outline.
 `l` turns it on its side, `K` holds its keyboard up (a focused field brings it up anyway), `T`
-changes the text size, `b` switches light and dark, and `r` / `--hot` work as on the desktop.
+changes the text size, `b` switches light and dark, and hot reload and `r` work as on the desktop.
 Built in: iPhone SE, iPhone 15, iPhone 15 Pro Max, iPad and an Android phone. A project
 describes its own in `Cargo.toml`, and `frus devices` lists it:
 
@@ -311,9 +313,9 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) before your first non-trivial change —
 
 | Platform | State | Notes |
 |---|---|---|
-| **Desktop** (Windows / Linux / macOS) | Working | winit + wgpu, clipboard, screen readers and other assistive technology via AccessKit (activate, focus, fill a field), system notifications, a tray icon with its menu, the taskbar's badge and progress, global shortcuts, the system's file dialogs, files dropped onto the window; hot reload of the running application (`frus run --hot`) |
-| **Android** | Working | Native activity, Vulkan, real IME (composition & swipe), insets, system bars, the system clipboard, notifications with their permission, lifecycle — validated on device; hot reload of the running application (`frus run --hot -d <device>`) |
-| **Web** (wasm + WebGPU) | Functional | Rendering, input, animation, subscriptions, async effects & `fetch`, the clipboard (`navigator.clipboard`), the browser's notifications, and accessibility through a DOM bridge. Reload with the state kept under `frus run`; hot reload of the running page (`frus run --hot -d web`) |
+| **Desktop** (Windows / Linux / macOS) | Working | winit + wgpu, clipboard, screen readers and other assistive technology via AccessKit (activate, focus, fill a field), system notifications, a tray icon with its menu, the taskbar's badge and progress, global shortcuts, the system's file dialogs, files dropped onto the window; hot reload of the running application (`frus run`) |
+| **Android** | Working | Native activity, Vulkan, real IME (composition & swipe), insets, system bars, the system clipboard, notifications with their permission, lifecycle — validated on device; hot reload of the running application (`frus run -d <device>`) |
+| **Web** (wasm + WebGPU) | Functional | Rendering, input, animation, subscriptions, async effects & `fetch`, the clipboard (`navigator.clipboard`), the browser's notifications, and accessibility through a DOM bridge. Hot reload of the running page (`frus run -d web`); reload with the state kept under `--no-hot` |
 | **iOS / macOS native** | Not started | The shell layer is isolated, so adding a target is a contained job |
 
 **What works today:** flex/grid/wrap layout, 1D & 2D scrolling with fill-then-scroll, text input with IME, drag-and-drop reordering with live reflow, data tables, editable grids, charts, date/time pickers, dropdowns, trees, toasts, modals, drawers, navigation with spring transitions and back-gesture, an overridable theme, RTL and i18n, spring, implicit and explicit animations, a wheel picker, lifecycle, effects and subscriptions, async HTTP with typed JSON, SVG pictures and Lottie animations drawn as vector paths, badges, and golden-image testing (184 reference images).
@@ -333,7 +335,7 @@ real, open, and written up with where to look and how to know you are done:
 
 | | |
 |---|---|
-| 🟡 [Try `frus run --hot` on Linux or macOS](https://github.com/frus-rs/frus/issues/288) | True hot reload has only been run end to end on Windows. A report of what works is the whole contribution. |
+| 🟡 [Try hot reload (`frus run`) on Linux or macOS](https://github.com/frus-rs/frus/issues/288) | True hot reload has only been run end to end on Windows. A report of what works is the whole contribution. |
 | 🟡 The overscroll stretch effect | Current Android stretches the content instead of glowing. A render-target effect, and where to start reading is written down. |
 | 🔴 [An iOS shell](https://github.com/frus-rs/frus/labels/design%20first) | The architecture bets this is a contained job. Nobody has tested the bet. |
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
 
-//! `frus run --hot`: **true hot reload** on the desktop (milestone 670), the web (milestone 679)
+//! `frus run` (the default since milestone 754, `--hot` before): **true hot reload** on the desktop (milestone 670), the web (milestone 679)
 //! and Android (milestone 680). The application keeps
 //! running; each saved change is compiled into a patch and applied to it in place, with every
 //! state where it was.
@@ -76,7 +76,8 @@ pub(crate) fn engine() -> Result<PathBuf, String> {
         return Err(missing);
     }
     crate::report::say(
-        "Installing the hot-reload engine (dx 0.7.10 with fixes; cargo install, a few minutes, once)…",
+        "Installing the hot-reload engine (dx 0.7.10 with fixes; cargo install, about twenty \
+         minutes, once; `frus run --no-hot` runs without it)…",
     );
     crate::cargo::run(
         Command::new("cargo")

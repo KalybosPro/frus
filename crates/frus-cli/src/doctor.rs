@@ -506,8 +506,8 @@ fn hot_reload() -> Check {
         Finding::found(format!("the hot-reload engine at {}", engine.display()))
     } else {
         Finding::problem(
-            "the hot-reload engine is not installed (`frus run --hot` installs it, about 20 minutes \
-             once; so does `frus doctor --fix`)",
+            "the hot-reload engine is not installed (the first `frus run` installs it, about 20 \
+             minutes once; so does `frus doctor --fix`)",
         )
     };
     let mut findings = vec![finding];
@@ -516,12 +516,7 @@ fn hot_reload() -> Check {
             findings.push(Finding::problem(missing));
         }
     }
-    Check::from(
-        "Hot reload (frus run --hot)",
-        String::new(),
-        findings,
-        false,
-    )
+    Check::from("Hot reload (frus run)", String::new(), findings, false)
 }
 
 fn ios() -> Check {
