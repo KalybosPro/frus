@@ -230,6 +230,13 @@ web-sys = { version = "0.3", features = [
     # A page that cannot draw says so (milestone 745): the event the page listens to.
     "CustomEvent",
     "CustomEventInit",
+    # The page's background follows the application's (milestone 749): Chrome on Android
+    # paints the phone's navigation bar with it.
+    "CssStyleDeclaration",
+    # The on-screen keyboard, measured as what the visual viewport leaves out (milestone 749).
+    "VisualViewport",
+    # Whether the page is used with a finger, for where the editing element may sit.
+    "MediaQueryList",
 ] }
 
 # On Android, winit goes through the native activity (android-activity) and the logs

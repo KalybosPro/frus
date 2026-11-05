@@ -8,11 +8,15 @@
       /* The background is the application's first frame's, as on Android: #121418 is the
          default dark theme's. */
       html, body { margin: 0; height: 100%; background: #121418; overflow: hidden; }
-      /* winit appends its canvas to <body>; it fills the window. */
-      canvas { display: block; width: 100vw; height: 100vh; }
+      /* winit appends its canvas to <body>; it fills the part of the window the page is given,
+         and follows it when the browser's own bars come and go. Not 100vh: on a phone that is
+         the height with the address bar hidden, which a page that does not scroll never hides,
+         and the bottom of the application was cut off. */
+      canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; }
 
       #status {
-        position: fixed; inset: 0;
+        /* Over the canvas, which is fixed too and comes after it. */
+        position: fixed; inset: 0; z-index: 1;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
         gap: 0.9rem; padding: 24px; text-align: center;
         color: #e6e6ef; font: 15px/1.5 system-ui, sans-serif;
