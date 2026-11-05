@@ -139,6 +139,99 @@ pub(crate) fn browser_edits(
     printable || matches!(key, "Backspace" | "Delete") || (shift && key == "Insert")
 }
 
+/// What the browser did to a field's value, as the field's own typing: the stretch of `old`
+/// it replaced — `(start, end)` in characters — and the text it put there, found as the
+/// longest common start and end of the two values.
+pub(crate) fn splice(old: &str, new: &str) -> (usize, usize, String) {
+    let old: Vec<char> = old.chars().collect();
+    let new: Vec<char> = new.chars().collect();
+    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+    let room = old.len().min(new.len()) - prefix;
+    let suffix = old
+        .iter()
+        .rev()
+        .zip(new.iter().rev())
+        .take(room)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let inserted = new[prefix..new.len() - suffix].iter().collect();
+    (prefix, old.len() - suffix, inserted)
+}
+
+/// The message that puts what the browser left in the element, `value` with the caret state
+/// `browser`, into `field` — and the caret state the field is then left with (milestone 749).
+///
+/// **Through the field's own typing.** The change is replayed as the text typed over the
+/// stretch it replaced, so a field's filter, its length limit and its refusals apply to it as
+/// they do to a key: a field that takes upper case only gets upper case, whatever the
+/// browser's keyboard sent. The browser's caret, selection and composition are kept when the
+/// field took the change as it came; when it took something else — fewer characters, none —
+/// the caret is where the field's typing left it, and the next frame puts the field's own
+/// text back in the element.
+pub(crate) fn browser_change<Msg>(
+    field: &dyn frus_widgets::Widget<Msg>,
+    value: &str,
+    browser: Edit,
+) -> (Option<Msg>, Edit) {
+    let Some(old) = field.text_value() else {
+        return (None, browser);
+    };
+    if old == value {
+        return (None, browser);
+    }
+    if !field.takes_typing() {
+        return (None, Edit::default());
+    }
+    let (start, end, inserted) = splice(old, value);
+    let typed = inserted.chars().count();
+    let mut edit = Edit {
+        cursor: end,
+        anchor: (start < end).then_some(start),
+        composing: None,
+    };
+    let key = if inserted.is_empty() {
+        frus_widgets::Key::Backspace
+    } else {
+        frus_widgets::Key::Text(inserted)
+    };
+    let message = field.on_edit(&mut edit, &key);
+    // Taken as it came — a substitution keeps the length — so the browser's caret, its
+    // selection and its composition are the field's too.
+    let as_it_came = message.is_some() && edit.cursor == start + typed && edit.anchor.is_none();
+    (message, if as_it_came { browser } else { edit })
+}
+
+/// Where the editing element's top edge goes, in the page's CSS pixels, for a field whose top
+/// is at `field_top` and whose height is `height`, on a canvas from `canvas_top` to
+/// `canvas_bottom` (milestone 749).
+///
+/// Over the field, where an input method's candidates come up — except on a touch screen, where
+/// a keyboard comes up from below and covers the bottom of the page. A browser that sees the
+/// element it edits through about to be covered **pans the whole page** up to keep it in sight,
+/// and the application's top bar went off the top of the screen with it. The shell answers the
+/// keyboard itself, with an inset, and scrolls the field into view in its own layout; the
+/// element must not give the browser a reason to as well. So on a touch screen it stays in the
+/// top quarter of the canvas until the keyboard is up (`keyboard`, the CSS pixels it covers, is
+/// not zero), and then within what the keyboard leaves visible.
+pub(crate) fn element_top(
+    field_top: f64,
+    height: f64,
+    canvas_top: f64,
+    canvas_bottom: f64,
+    keyboard: f64,
+    touch: bool,
+) -> f64 {
+    if !touch {
+        return field_top;
+    }
+    let lowest = if keyboard > 0.0 {
+        canvas_bottom - keyboard - height
+    } else {
+        canvas_top + (canvas_bottom - canvas_top) / 4.0
+    };
+    field_top.min(lowest).max(canvas_top)
+}
+
 #[cfg(web)]
 pub(crate) use web::{Editor, Field};
 
@@ -196,6 +289,8 @@ mod web {
         live: Option<Live>,
         changes: Changes,
         mac: bool,
+        /// The page is used with a finger: a keyboard will come up over it.
+        touch: bool,
         _selection: Listener,
     }
 
@@ -208,6 +303,9 @@ mod web {
             let mac = web_sys::window()
                 .and_then(|w| w.navigator().platform().ok())
                 .is_some_and(|platform| platform.starts_with("Mac"));
+            let touch = web_sys::window()
+                .and_then(|w| w.match_media("(pointer: coarse)").ok().flatten())
+                .is_some_and(|query| query.matches());
             // A selection moved by the browser — a Shift+arrow it kept, a double-click it
             // made, an assistive technology's — is a change like any other. Asked of the
             // document, which every browser fires it on.
@@ -247,6 +345,7 @@ mod web {
                 live: None,
                 changes,
                 mac,
+                touch,
                 _selection: selection,
             })
         }
@@ -285,12 +384,21 @@ mod web {
                 return;
             };
             let bounds = self.canvas.get_bounding_client_rect();
+            let height = (field.rect.height * css).max(1.0);
+            let top = super::element_top(
+                bounds.top() + f64::from(field.rect.y * css),
+                f64::from(height),
+                bounds.top(),
+                bounds.bottom(),
+                crate::web_page::keyboard_cover_of(&self.canvas),
+                self.touch,
+            );
             let style = format!(
                 "{STYLE}left:{}px;top:{}px;width:{}px;height:{}px;",
                 bounds.left() + f64::from(field.rect.x * css),
-                bounds.top() + f64::from(field.rect.y * css),
+                top,
                 (field.rect.width * css).max(1.0),
-                (field.rect.height * css).max(1.0),
+                height,
             );
             if live.el.get_attribute("style").as_deref() != Some(style.as_str()) {
                 live.el.set_attribute("style", &style).ok();
@@ -773,5 +881,98 @@ mod tests {
         assert!(browser_edits("€", true, true, false, false, false, false));
         assert!(!browser_edits("f", false, true, false, false, false, false));
         assert!(browser_edits("ƒ", false, true, false, false, false, true));
+    }
+
+    /// On a touch screen the element stays where the coming keyboard will not cover it, so
+    /// that the browser does not pan the page (milestone 749).
+    #[test]
+    fn the_element_keeps_out_of_the_keyboard_s_way_on_a_touch_screen() {
+        // The phone: a canvas from 0 to 788, a field at 690, 50 high.
+        assert_eq!(element_top(690.0, 50.0, 0.0, 788.0, 0.0, false), 690.0);
+        // A finger, no keyboard yet: the top quarter.
+        assert_eq!(element_top(690.0, 50.0, 0.0, 788.0, 0.0, true), 197.0);
+        // A field already there stays over its field.
+        assert_eq!(element_top(120.0, 50.0, 0.0, 788.0, 0.0, true), 120.0);
+        // The keyboard up, 466 high: anywhere above it, and over the field once it is there.
+        assert_eq!(element_top(690.0, 50.0, 0.0, 788.0, 466.0, true), 272.0);
+        assert_eq!(element_top(200.0, 50.0, 0.0, 788.0, 466.0, true), 200.0);
+        // Never above the canvas.
+        assert_eq!(element_top(-80.0, 50.0, 0.0, 788.0, 466.0, true), 0.0);
+    }
+
+    #[test]
+    fn a_change_is_the_stretch_it_replaced() {
+        assert_eq!(splice("abc", "abXc"), (2, 2, "X".into()));
+        assert_eq!(splice("abc", "ac"), (1, 2, String::new()));
+        assert_eq!(splice("hello", "help"), (3, 5, "p".into()));
+        assert_eq!(splice("", "é😀"), (0, 0, "é😀".into()));
+        // A repeated letter: the common end never overlaps the common start.
+        assert_eq!(splice("aa", "aaa"), (2, 2, "a".into()));
+        assert_eq!(splice("same", "same"), (4, 4, String::new()));
+    }
+
+    /// What the browser types goes through the field's filter and its length limit, as a key
+    /// does (milestone 749). It went in as is: the gallery's upper-case code field held
+    /// lower case on a phone.
+    #[test]
+    fn the_browser_s_typing_goes_through_the_field_s_filter_and_limit() {
+        use frus_widgets::TextField;
+        let upper = TextField::new("X")
+            .on_input(|s: String| s)
+            .input_filter(|c| c.is_ascii_alphanumeric().then(|| c.to_ascii_uppercase()));
+        let typed = Edit {
+            cursor: 3,
+            anchor: None,
+            composing: Some((1, 3)),
+        };
+        let (message, edit) = browser_change(&upper, "Xyz", typed);
+        assert_eq!(message.as_deref(), Some("XYZ"));
+        // Taken with the same length: the browser's caret and composition stand.
+        assert_eq!(edit, typed);
+
+        // A character the filter drops: the field's own caret.
+        let (message, edit) = browser_change(
+            &upper,
+            "X-",
+            Edit {
+                cursor: 2,
+                ..Edit::default()
+            },
+        );
+        assert_eq!(message, None);
+        assert_eq!(edit.cursor, 1);
+
+        // The length limit, on a paste.
+        let short = TextField::new("ab").on_input(|s: String| s).max_length(3);
+        let (message, edit) = browser_change(
+            &short,
+            "abcdef",
+            Edit {
+                cursor: 6,
+                ..Edit::default()
+            },
+        );
+        assert_eq!(message.as_deref(), Some("abc"));
+        assert_eq!(edit.cursor, 3);
+
+        // A deletion, and a field that holds what it was given.
+        let (message, _) = browser_change(
+            &short,
+            "a",
+            Edit {
+                cursor: 1,
+                ..Edit::default()
+            },
+        );
+        assert_eq!(message.as_deref(), Some("a"));
+        let (message, _) = browser_change(
+            &short,
+            "ab",
+            Edit {
+                cursor: 2,
+                ..Edit::default()
+            },
+        );
+        assert_eq!(message, None);
     }
 }
