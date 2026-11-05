@@ -40,6 +40,12 @@ any release may break.
   instead of the browser panning the whole page and the application's top bar off the screen.
   What the browser types into a field goes through the field's filter and length limit, as a key
   does. A WebGL context the browser takes away is asked back, and drawn again.
+- **Wide shadows fade the whole way out** (J746): a shadow is now its shape blurred by a
+  gaussian (deviation `0.57735 × blur + 0.5`), computed analytically and drawn out to three
+  deviations. It used to fade along a cubic that stopped one blur beyond the shape, so the
+  shadows of a surface twelve or twenty-four high ended on a visible rim around it, short of
+  where the blur ends. `Scene::shadow` and `BoxShadow` take the same values as before; blur
+  styles keep their meaning.
 - **The website is frus.dev**: every crate's `homepage` points to https://frus.dev, and both
   READMEs link to it first. The widget gallery stays at https://frus-rs.github.io/frus/.
 - **WebGL 2 where there is no WebGPU** (J745): on the web, frus drew through WebGPU alone, and a
