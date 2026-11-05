@@ -33,7 +33,8 @@ wasm-bindgen --target web --no-typescript --out-dir web/pkg target/wasm32-unknow
 python -m http.server 8080 --directory web     # http://localhost:8080
 ```
 
-frus draws through WebGPU, which browsers offer on `https` pages and on `localhost`.
+frus draws through WebGPU where the browser offers it and through WebGL 2 elsewhere; WebGPU is
+only offered on `https` pages and on `localhost`.
 
 On the Web the router's location **is** the address: `http://localhost:8080/#/products/3` opens
 that page with the shop beneath it, and the browser's back and forward buttons move the router.

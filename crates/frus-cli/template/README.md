@@ -88,7 +88,8 @@ wasm-bindgen --target web --no-typescript --out-dir web/pkg target/wasm32-unknow
 python3 -m http.server 8080 --directory web     # http://localhost:8080
 ```
 
-frus draws through WebGPU, which browsers only offer on `https` pages and on `localhost`.
+frus draws through WebGPU where the browser offers it and through WebGL 2 elsewhere; WebGPU is
+only offered on `https` pages and on `localhost`.
 `web/` is the whole site: put it on any static host, and serve the `.wasm` compressed.
 
 ## Permissions
