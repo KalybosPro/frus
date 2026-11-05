@@ -54,8 +54,11 @@ Browse [good first issues](https://github.com/frus-rs/frus/labels/good%20first%2
 | Target | Needs |
 |---|---|
 | Linux desktop | `libxkbcommon-dev`, `libwayland-dev` (or X11 headers), plus Vulkan drivers (`mesa-vulkan-drivers`) |
-| Android | Android SDK + NDK, `ANDROID_HOME` / `ANDROID_NDK_ROOT`, `cargo install cargo-apk`, `rustup target add aarch64-linux-android` |
-| Web | `rustup target add wasm32-unknown-unknown`, `cargo install wasm-bindgen-cli`, a WebGPU browser (Chrome/Edge 113+) |
+| Android | Android SDK + NDK, Java, cargo-apk, the `aarch64-linux-android` target: `frus doctor --fix` installs them |
+| Web | the `wasm32-unknown-unknown` target and wasm-bindgen (installed by `frus run -d web`), a WebGPU browser (Chrome/Edge 113+) |
+
+The `frus` tool comes from `cargo install frus-cli` (or `cargo install --path crates/frus-cli`
+to try your own changes to it); `frus doctor` says what this machine has and lacks.
 
 ```sh
 git clone https://github.com/frus-rs/frus
@@ -67,20 +70,23 @@ If that's green, you're set.
 
 ## Running things
 
-```sh
-cargo run -p frus-hello           # minimal counter — read this first
-cargo run -p frus-demo            # broad app: todos, kanban, tables, pickers
-cargo run -p frus-transforms      # animation / transform showcase
-cargo run -p frus-fetch-example   # async HTTP + RemoteData states
-```
-
-Android:
+Each sample application is run from its own directory:
 
 ```sh
-cargo apk run -p frus-demo --lib
+cd crates/frus-hello && frus run          # minimal counter — read this first
+cd crates/frus-demo && frus run           # broad app: todos, kanban, tables, pickers
+cd crates/frus-transforms && frus run     # animation / transform showcase
+cd crates/frus-fetch-example && frus run  # async HTTP + RemoteData states
 ```
 
-Web: see [`crates/frus-hello/web/README.md`](crates/frus-hello/web/README.md).
+Android and the web, from `crates/frus-demo`:
+
+```sh
+frus run -d android      # the connected phone, or an emulator
+frus run -d web          # in a browser
+```
+
+By hand, the web build is in [`crates/frus-hello/web/README.md`](crates/frus-hello/web/README.md).
 
 Logs go to the console with nothing to set up: the terminal on desktop, logcat on Android
 (`adb logcat -s frus_demo`, the application's crate name), the browser's console on the web.
@@ -89,7 +95,7 @@ build, and the graphics and windowing crates from `warn` up. On desktop, `RUST_L
 that default:
 
 ```sh
-RUST_LOG=frus_shell=debug,frus_gpu=info cargo run -p frus-demo
+RUST_LOG=frus_shell=debug,frus_gpu=info frus run      # in crates/frus-demo
 ```
 
 How smooth the frames are, and where a slow one went, is measured by the shell itself when
@@ -237,7 +243,7 @@ These are the standing rules the codebase is built on. A PR that violates one ne
 
 **5. Dependencies point downward.** `core` → `layout`/`text`/`gpu` → `widgets` → `shell` → app. Nothing below `shell` may know what platform it's running on.
 
-**6. cargo-native.** No bespoke CLI, no code generation step, no project format. If a feature needs a tool, it should be an existing one.
+**6. One command, cargo underneath.** The `frus` tool is how an application is created, run, built and tested (`frus create`, `frus run`, `frus build`, `frus test`), and it installs what a step needs. It drives the tools that already work — cargo, cargo-apk, wasm-bindgen — and never stands in for them: no code generation step, no project format, no build system of its own, and everything it does can still be done by hand. An application stays an ordinary cargo package.
 
 **7. Small, sharp dependencies.** We lean on best-in-class Rust crates (`taffy`, `cosmic-text`, `wgpu`, `lyon`, `fluent`) rather than reinventing them — and write everything else ourselves. Adding a dependency needs a reason.
 

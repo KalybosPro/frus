@@ -2,7 +2,7 @@
 
 Most of what an application decides is plain Rust: what a button does to the state, whether a
 form is valid, which page a link opens. Written as methods and functions, it is tested with
-`cargo test` — no window, no GPU, no device. What the screen looks like is tested by
+`frus test` — no window, no GPU, no device. What the screen looks like is tested by
 rendering it offscreen and comparing pixels.
 
 ## Tests live in `tests/`
@@ -12,8 +12,11 @@ per module it tests (`tests/counterstate_test.rs` for `src/…/counterstate.rs`)
 application as a library, the way any other crate would, so they test what is public.
 
 ```sh
-cargo test
+frus test            # a summary, then each failure at its place
+frus test cart       # only the tests whose name holds `cart`
 ```
+
+`frus test` runs `cargo test` underneath, which works as well.
 
 ## The state: methods, and the tests of them
 
@@ -149,6 +152,6 @@ if let Some(shot) = render_widget(&badge, 40, 40, &Theme::light()) {
 
 `shot.assert_golden("tests/goldens/badge.png")` compares the whole picture with a reference
 image kept in the repository. The first run writes the reference — look at it, then commit it;
-`FRUS_UPDATE_GOLDENS=1 cargo test` writes it again after a change you meant. Text is drawn a
+`FRUS_UPDATE_GOLDENS=1 frus test` writes it again after a change you meant. Text is drawn a
 little differently by different graphics drivers, so goldens are made and compared on the same
 kind of machine (frus makes its own with a software renderer).

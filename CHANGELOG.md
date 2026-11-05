@@ -13,6 +13,15 @@ any release may break.
 
 ## [Unreleased]
 
+- **The documentation says `frus`, not cargo, wherever a `frus` command does the job.** The
+  README (English and French), the getting-started page, the testing guide, CONTRIBUTING, the
+  template `frus create` writes (its README, manifest comments and code comments), the sample
+  crates and the eight example projects now run applications with `frus run` (`-d android`,
+  `-d web`), ship them with `frus build`, and test them with `frus test`; the cargo, cargo-apk and
+  wasm-bindgen commands stay, as the same steps by hand. `frus create` ends by suggesting
+  `frus run` (`-d android`, `-d web`), no longer `cargo run` and `cargo apk run --lib`. The README's
+  "cargo-native: no `frus doctor`" row and CONTRIBUTING's "No bespoke CLI" principle now
+  describe the tool as it is: one command over cargo, which adds no build system of its own.
 - **The page fits the phone's screen, and its keyboard** (J749): on a phone, a web application's canvas was sized
   `100vh`, the height with the browser's address bar hidden — which a page that does not scroll
   never hides — so the bottom 56 CSS pixels of the application were drawn below the screen. Every

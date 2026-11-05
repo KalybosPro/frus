@@ -8,7 +8,7 @@ use crate::features::posts::pages::postspage::PostsPage;
 /// Every page of the app, by address.
 ///
 /// On the desktop, a location given on the command line opens the app there:
-/// `cargo run -- /posts/1`, or `cargo run -- /posts/new`. (On the Web the address bar
+/// `frus run -- /posts/1`, or `frus run -- /posts/new`. (On the Web the address bar
 /// does the same.)
 pub fn router() -> GoRouter {
     let start = std::env::args()

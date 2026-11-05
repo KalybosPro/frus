@@ -15,7 +15,8 @@ is hit-testing through the inverse matrix, shown rather than claimed. See
 ## Running it
 
 ```sh
-cargo run -p frus-transforms
+cd crates/frus-transforms
+frus run
 ```
 
 ## Part of frus

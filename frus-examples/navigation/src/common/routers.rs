@@ -98,7 +98,7 @@ pub fn router(cart: Cart) -> GoRouter {
 /// Where the app opens.
 ///
 /// On the desktop a location given on the command line opens the app there —
-/// `cargo run -- /products/3`, `cargo run -- "/search?q=shoes"` — which is handy while
+/// `frus run -- /products/3`, `frus run -- "/search?q=shoes"` — which is handy while
 /// working on one page. On the web the address bar does this on its own.
 pub fn start_location() -> String {
     std::env::args()

@@ -5,9 +5,9 @@ A page that remembers something: a `StatefulWidget`, its `State`, and the handle
 ## Run it
 
 ```sh
-cargo run                       # desktop
-cargo apk run --lib             # Android
-cargo test                      # the state's rules, with no window
+frus run                        # desktop
+frus run -d android             # Android
+frus test                       # the state's rules, with no window
 ```
 
 ## What to read
@@ -31,7 +31,12 @@ cargo test                      # the state's rules, with no window
 
 ## Web
 
-Once: `rustup target add wasm32-unknown-unknown` and
+```sh
+frus run -d web          # build, serve on http://localhost:8080 and open the browser
+frus build web           # release: web/, with the application compiled into web/pkg/
+```
+
+By hand, once: `rustup target add wasm32-unknown-unknown` and
 `cargo install wasm-bindgen-cli --version 0.2.127` (the version must match `wasm-bindgen` in
 `Cargo.lock`). Then build, generate the JavaScript glue into `web/pkg/`, and serve `web/`:
 

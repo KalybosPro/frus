@@ -12,11 +12,11 @@ OpenSSL) and runs it on a thread of its own. Any other client fits the same shap
 ## Run it
 
 ```sh
-cargo run                                  # desktop, against wss://echo.websocket.org
-cargo run -- wss://another.server/path     # start with another server
-cargo apk run --lib                        # Android
-# Web: see below
-cargo test                                 # the state machine, the backoff, the model
+frus run                                   # desktop, against wss://echo.websocket.org
+frus run -- wss://another.server/path      # start with another server
+frus run -d android                        # Android
+frus run -d web                            # in the browser: see below
+frus test                                  # the state machine, the backoff, the model
 cargo test -- --ignored                    # a real round trip to the echo server (network)
 ```
 
@@ -30,6 +30,9 @@ On the Web the same `Connection` API is the browser's own `WebSocket`
 (`src/features/chat/controllers/browser.rs`, through `web-sys`): no thread, no TLS crate.
 The browser calls back on the page's only thread, so `onmessage` hands each event straight
 to the page.
+
+`frus run -d web` builds it, serves it and opens the browser; `frus build web` makes the site.
+By hand:
 
 ```sh
 cargo build --lib --target wasm32-unknown-unknown --profile web-release

@@ -6,7 +6,7 @@
 //! `State`, a router that maps a location to a screen, and `FrusApp` to run it.
 //!
 //! Two entry points for the same code:
-//! - desktop: `cargo run -p frus-demo` → the `src/bin/frus-demo.rs` binary → `run()`;
+//! - desktop: `frus run` in `crates/frus-demo` → the `src/bin/frus-demo.rs` binary → `run()`;
 //! - Android: the `cdylib` library exposes `android_main`, called by the native activity.
 //!
 //! Where things are kept:

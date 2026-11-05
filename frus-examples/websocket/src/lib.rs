@@ -1,7 +1,7 @@
 //! `websocket` — a live, long-lived connection: an echo chat over a WebSocket.
 //!
-//! - Desktop: `cargo run` (or `cargo run -- wss://another.server` to start elsewhere)
-//! - Android: `cargo apk run --lib`
+//! - Desktop: `frus run` (or `frus run -- wss://another.server` to start elsewhere)
+//! - Android: `frus run -d android`
 //! - Web: see README.md ("The Web")
 //!
 //! frus draws the interface; the network is any Rust crate you like. Natively this example

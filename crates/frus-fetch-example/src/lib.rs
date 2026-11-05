@@ -15,8 +15,8 @@
 //! It all fits in the Elm model: a **pure** `update` — the one impurity, the network, is
 //! banished into a `Command` — and a `view` that displays nothing but the current state.
 //!
-//! Run it on the desktop with `cargo run -p frus-fetch-example`; add `RUST_LOG=info` for
-//! logs.
+//! Run it on the desktop with `frus run` in `crates/frus-fetch-example`; add `RUST_LOG=info`
+//! for logs.
 
 #![deny(missing_docs)]
 

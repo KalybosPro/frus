@@ -38,15 +38,20 @@ page that shows what was saved.
 ## Running it
 
 ```sh
-cargo run                   # desktop
-cargo run -- "/?errors"     # the form as it looks after a failed submit
-cargo run -- /summary       # the summary page, with sample data
-cargo apk run --lib         # Android
+frus run                    # desktop
+frus run -- "/?errors"      # the form as it looks after a failed submit
+frus run -- /summary        # the summary page, with sample data
+frus run -d android         # Android
 ```
 
 ## Web
 
-Once: `rustup target add wasm32-unknown-unknown` and
+```sh
+frus run -d web          # build, serve on http://localhost:8080 and open the browser
+frus build web           # release: web/, with the application compiled into web/pkg/
+```
+
+By hand, once: `rustup target add wasm32-unknown-unknown` and
 `cargo install wasm-bindgen-cli --version 0.2.127` (the version must match `wasm-bindgen` in
 `Cargo.lock`). Then build, generate the JavaScript glue into `web/pkg/`, and serve `web/`:
 
@@ -92,4 +97,4 @@ src/
       pages/summarypage.rs        what was saved
 ```
 
-`cargo test` runs the rules and the state's behaviour without opening a window.
+`frus test` runs the rules and the state's behaviour without opening a window.

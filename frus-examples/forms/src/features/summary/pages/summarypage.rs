@@ -14,7 +14,7 @@ use crate::models::profile::Profile;
 ///
 /// A `StatelessWidget`: it remembers nothing, it shows the profile it is given. The profile
 /// came with the navigation (`push_with_extra`); opened any other way — a typed address,
-/// `cargo run -- /summary` — there is none, and the page shows sample data under a notice
+/// `frus run -- /summary` — there is none, and the page shows sample data under a notice
 /// rather than an empty card.
 pub struct SummaryPage {
     profile: Option<Rc<Profile>>,

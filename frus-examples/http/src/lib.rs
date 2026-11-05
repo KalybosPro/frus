@@ -1,8 +1,8 @@
 //! `http` — talking to an HTTP API from a frus app, the same code on the desktop, Android
 //! and the Web.
 //!
-//! - Desktop: `cargo run` (or `cargo run -- /posts/1` to open a post directly)
-//! - Android: `cargo apk run --lib`
+//! - Desktop: `frus run` (or `frus run -- /posts/1` to open a post directly)
+//! - Android: `frus run -d android`
 //!
 //! A client for the public test API at <https://jsonplaceholder.typicode.com>: a list of
 //! posts, a post with its author and comments, and a form that creates a post.

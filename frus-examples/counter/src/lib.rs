@@ -1,7 +1,7 @@
 //! `counter` — a page that remembers something: a `StatefulWidget` and its `State`.
 //!
-//! - Desktop: `cargo run`
-//! - Android: `cargo apk run --lib`
+//! - Desktop: `frus run`
+//! - Android: `frus run -d android`
 //!
 //! What to look at:
 //!

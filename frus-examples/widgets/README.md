@@ -8,10 +8,10 @@ from `master` by [`.github/workflows/pages.yml`](../../.github/workflows/pages.y
 ## Run it
 
 ```sh
-cargo run                                  # desktop: opens on the list of categories
-cargo run -- /widget/button                # straight to one widget's demo
-cargo run -- "/widget/button?tab=code"     # ... on its code tab
-cargo apk run --lib                        # Android
+frus run                                   # desktop: opens on the list of categories
+frus run -- /widget/button                 # straight to one widget's demo
+frus run -- "/widget/button?tab=code"      # ... on its code tab
+frus run -d android                        # Android
 ```
 
 Each demo page has two tabs: **Example**, the widget running, and **Code**, the file that builds it.
@@ -47,11 +47,16 @@ and nothing else of interest; that file is exactly what the Code tab shows.
    Demo::new("my-widget", "MyWidget", "What it is for.", include_str!("my_widget.rs"), my_widget::example)
    ```
 
-Ids must be unique across the gallery; `cargo test` checks it.
+Ids must be unique across the gallery; `frus test` checks it.
 
 ## Web
 
-Once: `rustup target add wasm32-unknown-unknown` and
+```sh
+frus run -d web          # build, serve on http://localhost:8080 and open the browser
+frus build web           # release: web/, with the application compiled into web/pkg/
+```
+
+By hand, once: `rustup target add wasm32-unknown-unknown` and
 `cargo install wasm-bindgen-cli --version 0.2.127` (the version must match `wasm-bindgen` in
 `Cargo.lock`). Then build, generate the JavaScript glue into `web/pkg/`, and serve `web/`:
 
