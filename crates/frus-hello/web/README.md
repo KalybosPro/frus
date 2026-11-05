@@ -1,6 +1,7 @@
-# frus-hello — the Web target (wasm + WebGPU)
+# frus-hello — the Web target (wasm + WebGPU or WebGL 2)
 
-`frus-hello` runs in the browser through **WebGPU** without a single line of the app
+`frus-hello` runs in the browser through **WebGPU** — or **WebGL 2** where the browser has no
+WebGPU — without a single line of the app
 changing: the **single entry point** `frus::main!(Counter::default())` generates the
 Web entry `#[wasm_bindgen(start)]` itself — which calls `frus_shell::run_web` — exactly
 as it generates the desktop and Android ones. The app writes **nothing**
@@ -13,8 +14,9 @@ rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.127   # exactly the version in Cargo.lock
 ```
 
-A browser with **WebGPU**: Chrome or Edge 113+, or Firefox with WebGPU enabled. WebGPU
-requires a **secure context** (`https` or `localhost`).
+A browser with **WebGPU** (Chrome or Edge 113+, Safari 26+, Firefox 141+) or, failing that,
+**WebGL 2** (every current browser). WebGPU requires a **secure context** (`https` or
+`localhost`).
 
 ## Building
 

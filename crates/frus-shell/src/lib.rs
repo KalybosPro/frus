@@ -120,6 +120,8 @@ mod title_bar;
 mod web_clipboard;
 #[cfg(any(web, test))]
 mod web_editing;
+#[cfg(any(web, test))]
+mod web_failure;
 #[cfg(web)]
 mod web_icon;
 #[cfg(any(web, test))]
@@ -369,8 +371,9 @@ pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
     use winit::platform::web::EventLoopExtWebSys;
     startup::begin();
 
-    // Panics → the browser console, instead of an opaque "unreachable".
-    console_error_panic_hook::set_once();
+    // Panics → the browser console, instead of an opaque "unreachable" — and the page, which
+    // would otherwise stay as it was, silent (milestone 745).
+    web_failure::install_panic_hook();
     // The application's `log` output, in the browser's console (milestone 604).
     logging::init::<A>();
     // The browser's operating system, before any theme is built: a web build is built for

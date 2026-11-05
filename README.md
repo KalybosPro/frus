@@ -13,12 +13,13 @@ One codebase → desktop, Android, and the web. GPU-rendered. Built from compone
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Status](https://img.shields.io/badge/status-pre--alpha-yellow.svg)](#project-status)
 
+[![Website](https://img.shields.io/badge/🌐_frus.dev-e8352b?style=for-the-badge)](https://frus.dev)
 [![Read the guide](https://img.shields.io/badge/📖_Read_the_guide-2ea44f?style=for-the-badge)](docs/guide/README.md)
 [![Getting started](https://img.shields.io/badge/🚀_Getting_started-0969da?style=for-the-badge)](docs/getting-started.md)
 [![Widget gallery](https://img.shields.io/badge/🧩_Widget_gallery-8250df?style=for-the-badge)](https://frus-rs.github.io/frus/)
 [![API reference](https://img.shields.io/badge/📚_API_reference-bf8700?style=for-the-badge)](https://docs.rs/frus)
 
-[Quick start](#quick-start) · [Learn](#learn-frus) · [Guide](docs/guide/README.md) · [Gallery](#what-it-looks-like) · [Live widget gallery](https://frus-rs.github.io/frus/) · [Architecture](#architecture) · [Status](#project-status) · [Contributing](CONTRIBUTING.md) · [Français](README.fr.md)
+[Website](https://frus.dev) · [Quick start](#quick-start) · [Learn](#learn-frus) · [Guide](docs/guide/README.md) · [Gallery](#what-it-looks-like) · [Live widget gallery](https://frus-rs.github.io/frus/) · [Architecture](#architecture) · [Status](#project-status) · [Contributing](CONTRIBUTING.md) · [Français](README.fr.md)
 
 <br>
 

@@ -6,6 +6,7 @@ rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/frus-shell"
 keywords = ["gui", "winit", "window", "event-loop", "wasm"]
@@ -226,6 +227,9 @@ web-sys = { version = "0.3", features = [
     "console",
     # The page's clock, which counts from the navigation (milestone 683).
     "Performance",
+    # A page that cannot draw says so (milestone 745): the event the page listens to.
+    "CustomEvent",
+    "CustomEventInit",
 ] }
 
 # On Android, winit goes through the native activity (android-activity) and the logs

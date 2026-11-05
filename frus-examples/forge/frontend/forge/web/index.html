@@ -18,6 +18,8 @@
         color: #e6e6ef; font: 15px/1.5 system-ui, sans-serif;
       }
       #status[hidden] { display: none; }
+      /* The error's details come on their own paragraph. */
+      #message { white-space: pre-line; max-width: 40rem; }
       #spinner {
         width: 28px; height: 28px; border-radius: 50%;
         border: 3px solid #33334a; border-top-color: #9fd3ff;
@@ -35,21 +37,27 @@
     <script type="module">
       const status = document.getElementById('status');
       const message = document.getElementById('message');
+      let failed = false;
       const fail = (text) => {
+        failed = true;
         document.getElementById('spinner').hidden = true;
         message.textContent = text;
+        status.hidden = false;
       };
 
-      if (!('gpu' in navigator)) {
-        fail('This application draws through WebGPU. Open it in a recent browser ' +
-             '(Chrome or Edge 113+, Safari 26+, Firefox 141+ on Windows) over https or localhost.');
-      } else {
-        // The module wasm-bindgen wrote; its `start()` runs the application on init.
-        import('./pkg/forge.js')
-          .then((module) => module.default())
-          .then(() => { status.hidden = true; })
-          .catch((err) => fail('The application could not start: ' + err));
-      }
+      // When nothing can be drawn — the browser offers neither WebGPU nor WebGL 2 — the
+      // application says why through this event, and the page shows it.
+      window.addEventListener('frus-error', (event) => {
+        event.preventDefault();
+        fail(event.detail);
+      });
+
+      // The module wasm-bindgen wrote; its `start()` runs the application on init. It draws
+      // through WebGPU where the browser offers it, and through WebGL 2 elsewhere.
+      import('./pkg/forge.js')
+        .then((module) => module.default())
+        .then(() => { if (!failed) status.hidden = true; })
+        .catch((err) => fail('The application could not start: ' + err));
     </script>
   </body>
 </html>

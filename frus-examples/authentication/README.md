@@ -37,7 +37,8 @@ wasm-bindgen --target web --no-typescript --out-dir web/pkg target/wasm32-unknow
 python -m http.server 8080 --directory web     # http://localhost:8080
 ```
 
-frus draws through WebGPU, which browsers offer on `https` pages and on `localhost`.
+frus draws through WebGPU where the browser offers it and through WebGL 2 elsewhere; WebGPU is
+only offered on `https` pages and on `localhost`.
 
 The guard works the same in the browser: opening `http://localhost:8080/#/profile` signed out
 lands on `#/login?from=/profile`.
