@@ -30,6 +30,12 @@ anything into that parcel.
   - `TextField::restoration_id(id)`: the caret and the selection (and a multi-line field's
     scroll);
   - `SingleChildScrollView::restoration_id(id)`, `ListView::restoration_id(id)`: the offset;
+  - **rows of a `ListView`**: a row is built during the layout (milestone 748), after the
+    page's build has returned, so the list keeps the scope it was made in and builds each row
+    in a scope of its own, `row <index>`, below the list's restoration id when it has one. The
+    same id can then be used in every row. A row that scrolls out of view and is not kept alive
+    disposes its components, and what their hooks kept goes with them, as a row's state does;
+    a row restored but not scrolled into view yet keeps its values until it is built;
   - the **router**: its stack of pages, by itself, as `g<location>` / `p<location>` lines —
     the pages a `go` made and the ones pushed on top, which is what replaying it needs.
 - **Scopes**: what a component builds belongs to the scope the component was made in (the
@@ -86,16 +92,16 @@ and the journal's list.
   empty ids and non-Latin text, malformed bytes rejected, `RestorableValue` round trips, the
   caret and offset formats, nothing registered while off, live values read and gone ones
   dropped, unclaimed values kept, and a scroll offset restored, kept and forgotten.
-- **Driver tests** (`frus-shell`, `restoration_tests`, 4): an application with a router is
+- **Driver tests** (`frus-shell`, `restoration_tests`, 5): an application with a router is
   driven — two taps on a restorable count, a list dragged, a page pushed, a draft typed, a count
   in a `restoration_scope` raised — its data taken, and a **second application, made afresh**,
   handed it: it opens on `/compose` with the stack `["/", "/compose"]`, the draft, the scope's
   own count, and the caret at 11; back on `/`, the count is 2 and the list is at the offset it
   was dragged to; the popped page's scope is gone from the data. Also: nothing is kept without a
   scope id; another application's data or garbage starts afresh; a `State` with a restoration id
-  gets its count back before `init_state`.
+  gets its count back before `init_state`; and counts kept in the keyed rows of a `ListView` built on demand come back to their rows.
 
-- The whole of `frus-widgets`' unit tests (2106) and `frus-shell`'s (411) pass; clippy is clean
+- The whole of `frus-widgets`' unit tests (2112, after merging milestone 748) and `frus-shell`'s (421) pass; clippy is clean
   for the workspace, for `frus-shell` on `aarch64-linux-android` and on `wasm32`, and for
   `frus-widgets` with `serde`; `cargo check -p frus-shell --target aarch64-apple-ios` passes.
 - **On the Android emulator** (Android 16, API 36, x86_64, `-feature -Vulkan`), the demo as a
@@ -114,12 +120,18 @@ and the journal's list.
 ## Not done
 
 - **Android before 10**: nothing is kept (see above).
+- **Android 10 itself** (API 29, the first level the path needs: both
+  `Activity.registerActivityLifecycleCallbacks` and `onActivityPostSaveInstanceState` arrived
+  in it) was not run: the emulator here has an Android 16 image only, and the phone was in use.
+  Nothing in the path is newer than API 29, and the key NativeActivity reads is the same since
+  API 9, but it has to be checked on an Android 10 device.
 - **iOS**: not implemented; TODO in `frus-shell/src/restoration.rs`.
 - **Other widgets**: `PageView`'s page, a `TabController`'s tab, an `ExpansionTile`'s state,
   `Navigator` used without the router — none has a `restoration_id` yet. An application keeps
   them with `use_restorable_state`.
-- **Lazy rows**: a field or a list inside a row a `ListView` builds on demand was not tested; the
-  restoration ids register when the walk builds a widget, and such rows are built later.
+- **Rows follow their index, not their key**: a list's rows have restoration scopes named
+  `row <index>`; a value kept in a keyed row comes back to the row at the same index, which is
+  the same row as long as the data is the same after the restart.
 - **"Don't keep activities"** could not be exercised: `settings put global
   always_finish_activities 1` took effect once on the emulator and not again. That once, the
   activity's `onDestroy` never returned and the system killed the application as not

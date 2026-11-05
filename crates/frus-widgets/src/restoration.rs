@@ -719,7 +719,7 @@ fn read_edit(saved: &str) -> Option<Edit> {
     Some(Edit {
         cursor,
         anchor,
-        composing: None,
+        ..Edit::default()
     })
 }
 
@@ -959,11 +959,12 @@ mod tests {
 
     #[test]
     fn edits_and_offsets_round_trip() {
-        let edit = Edit {
+        let mut edit = Edit {
             cursor: 4,
             anchor: Some(1),
-            composing: Some((1, 2)),
+            ..Edit::default()
         };
+        edit.composing = Some((1, 2));
         let back = read_edit(&write_edit(&edit)).unwrap();
         assert_eq!(
             (back.cursor, back.anchor, back.composing),
@@ -971,8 +972,7 @@ mod tests {
         );
         let caret = read_edit(&write_edit(&Edit {
             cursor: 9,
-            anchor: None,
-            composing: None,
+            ..Edit::default()
         }))
         .unwrap();
         assert_eq!((caret.cursor, caret.anchor), (9, None));

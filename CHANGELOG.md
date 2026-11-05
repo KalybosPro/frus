@@ -24,6 +24,29 @@ any release may break.
   page has a scope of its own, and `restoration_scope(id, build)` makes more. Android keeps the
   data in the activity's saved instance state (Android 10 and later), the web in the tab's
   session storage per history entry; the desktop keeps nothing, and iOS is not done yet.
+- **The page fits the phone's screen, and its keyboard** (J749): on a phone, a web application's canvas was sized
+  `100vh`, the height with the browser's address bar hidden — which a page that does not scroll
+  never hides — so the bottom 56 CSS pixels of the application were drawn below the screen. Every
+  `index.html` (template, hello, examples) now pins the canvas to the window the page is given
+  (`position: fixed; inset: 0`), as tall as what is seen, following the browser's bars. And
+  Chrome on Android paints the phone's navigation bar with the page's background, which was the
+  loading screen's dark one: under a light application it showed as a dark band. The shell now
+  keeps the page's background the colour the application asks for its navigation bar — the
+  region at the bottom of the frame, then the theme — as it does for the system bars on Android.
+  On a phone the on-screen keyboard is now the window's bottom inset (the part of the canvas the
+  visual viewport leaves out), so the layout lifts the focused field above it as on Android,
+  instead of the browser panning the whole page and the application's top bar off the screen.
+  What the browser types into a field goes through the field's filter and length limit, as a key
+  does. A WebGL context the browser takes away is asked back, and drawn again.
+- **Rows that keep their state** (J748): a row of `ListView::new` or `ListView::builder` with a
+  key (`keyed(..)`, `Keyed::new`, `Component::with_key`) is identified by its key rather than its
+  index, so the state of its components, its hooks and a selection in its words follow it when
+  items are inserted or removed above it. `ListView::keep_alive(bool)` says whether rows scrolled
+  out of view keep their state by default (they do not); a row asks for itself with
+  `KeepAlive::new(..)` (`.keep(false)` declines) or, from a component, `BuildContext::keep_alive`.
+  `ListView::find_child_index` tells the list where a kept row's item went (`ChildKey::is`
+  compares a key with the application's ids), and a kept row whose item is removed is let go.
+  Components inside a list's rows are now built before the row is laid out.
 - **Wide shadows fade the whole way out** (J746): a shadow is now its shape blurred by a
   gaussian (deviation `0.57735 × blur + 0.5`), computed analytically and drawn out to three
   deviations. It used to fade along a cubic that stopped one blur beyond the shape, so the

@@ -111,6 +111,7 @@ mod interaction;
 mod interactive;
 mod kanban;
 mod kbd;
+mod keepalive;
 mod keyed;
 mod layoutbuilder;
 mod lazy;
@@ -360,7 +361,8 @@ pub use interaction::{Cursor, InputState, Interaction, Key, KeyResponse, Status,
 pub use interactive::{InteractiveView, InteractiveViewer};
 pub use kanban::{kanban_slot, Kanban};
 pub use kbd::Kbd;
-pub use keyed::Keyed;
+pub use keepalive::KeepAlive;
+pub use keyed::{ChildKey, Keyed};
 pub use layoutbuilder::LayoutBuilder;
 pub use licenses::{AboutDialog, AboutListTile, LicenseNotice, LicensePage, Package};
 pub use list::{ListView, VirtualList};

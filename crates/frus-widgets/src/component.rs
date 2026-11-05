@@ -233,11 +233,25 @@ pub struct StateStore {
     services: RefCell<HashMap<TypeId, Rc<dyn Any>>>,
     /// What a restart handed over and no component has taken yet: by place, then type name.
     restoring: RefCell<HashMap<(StateKey, String), String>>,
+    /// The rows of lists built on demand that are being built now, innermost last
+    /// (milestone 748): the state a component makes is owned by the row it is built in.
+    rows: RefCell<Vec<WidgetId>>,
+    /// The row each row that owns state was built in, if it was built in one: a row of a
+    /// list inside a row of another list.
+    row_parents: RefCell<HashMap<WidgetId, Option<WidgetId>>>,
+    /// What the row asked of its list about its state while it was built: `true` when
+    /// something in it asked to be kept alive, `false` when something only declined.
+    row_wishes: RefCell<HashMap<WidgetId, bool>>,
+    /// The rows a list keeps alive this frame although it did not build them: what they
+    /// own survives the sweep.
+    held: RefCell<std::collections::HashSet<WidgetId>>,
 }
 
 struct Entry {
     kind: TypeId,
     epoch: u64,
+    /// The row of a list built on demand this state was last built in, if any.
+    owner: Option<WidgetId>,
     state: Option<Rc<dyn Any>>,
     hooks: Rc<Hooks>,
     dispose: Option<Box<dyn FnOnce()>>,
@@ -291,7 +305,74 @@ impl StateStore {
         if self.building.replace(false) {
             self.sweep();
         }
+        // A list holds its rows again each frame it lays out: a list that has gone holds
+        // nothing.
+        self.held.borrow_mut().clear();
         self.flush_effects();
+    }
+
+    /// A list built on demand is building its row `row` (milestone 748): the states the
+    /// components in it make or reach until the returned guard drops are the row's, and
+    /// what they ask with [`BuildContext::keep_alive`] is asked of this row. `fresh` says
+    /// this is the first time the row is entered this frame, which forgets what it asked
+    /// the last time.
+    pub(crate) fn enter_row(&self, row: WidgetId, fresh: bool) -> RowScope<'_> {
+        let parent = self.rows.borrow().last().copied();
+        self.row_parents.borrow_mut().insert(row, parent);
+        if fresh {
+            self.row_wishes.borrow_mut().remove(&row);
+        }
+        self.rows.borrow_mut().push(row);
+        RowScope { store: self }
+    }
+
+    /// Something in the row being built asks for it to be kept, or not, while its list has
+    /// scrolled it out of view. A `true` from anything in the row wins.
+    pub(crate) fn want_keep_alive(&self, keep: bool) {
+        let Some(row) = self.rows.borrow().last().copied() else {
+            return;
+        };
+        let mut wishes = self.row_wishes.borrow_mut();
+        let wish = wishes.entry(row).or_insert(keep);
+        *wish |= keep;
+    }
+
+    /// The row being built now, if a list is building one.
+    fn row(&self) -> Option<WidgetId> {
+        self.rows.borrow().last().copied()
+    }
+
+    /// What the row `row` asked when it was last built: `None` if nothing in it spoke.
+    pub(crate) fn row_wish(&self, row: WidgetId) -> Option<bool> {
+        self.row_wishes.borrow().get(&row).copied()
+    }
+
+    /// The list keeps `row` alive this frame without building it: the states it owns are
+    /// not let go at the end of the frame.
+    pub(crate) fn hold(&self, row: WidgetId) {
+        self.held.borrow_mut().insert(row);
+    }
+
+    /// Whether a state owned by `owner` is held by a list: its row, or a row it was built
+    /// in, is kept alive this frame.
+    fn is_held(&self, owner: Option<WidgetId>) -> bool {
+        let held = self.held.borrow();
+        if held.is_empty() {
+            return false;
+        }
+        let parents = self.row_parents.borrow();
+        let mut row = owner;
+        // A chain of rows is as deep as lists are nested; the bound only guards a cycle.
+        for _ in 0..64 {
+            let Some(at) = row else {
+                return false;
+            };
+            if held.contains(&at) {
+                return true;
+            }
+            row = parents.get(&at).copied().flatten();
+        }
+        false
     }
 
     /// What every live state that opts in ([`State::save`]) wants kept across a restart, as
@@ -371,12 +452,31 @@ impl StateStore {
             let mut entries = self.entries.borrow_mut();
             let keys: Vec<StateKey> = entries
                 .iter()
-                .filter(|(_, entry)| entry.epoch < epoch)
+                .filter(|(_, entry)| entry.epoch < epoch && !self.is_held(entry.owner))
                 .map(|(key, _)| *key)
                 .collect();
-            keys.into_iter()
+            let stale = keys
+                .into_iter()
                 .filter_map(|key| entries.remove(&key))
-                .collect()
+                .collect();
+            // The rows still owning something, and the rows they were built in, are all the
+            // rows worth remembering.
+            let mut parents = self.row_parents.borrow_mut();
+            let mut owning = std::collections::HashSet::new();
+            for entry in entries.values() {
+                let mut row = entry.owner;
+                while let Some(at) = row {
+                    if !owning.insert(at) {
+                        break;
+                    }
+                    row = parents.get(&at).copied().flatten();
+                }
+            }
+            parents.retain(|row, _| owning.contains(row));
+            self.row_wishes
+                .borrow_mut()
+                .retain(|row, _| owning.contains(row));
+            stale
         };
         for entry in stale {
             entry.dispose_all();
@@ -406,6 +506,7 @@ impl StateStore {
             match entries.get_mut(&key) {
                 Some(entry) if entry.kind == kind => {
                     entry.epoch = self.epoch.get();
+                    entry.owner = self.row();
                     return entry.hooks.clone();
                 }
                 Some(_) => entries.remove(&key),
@@ -421,6 +522,7 @@ impl StateStore {
             Entry {
                 kind,
                 epoch: self.epoch.get(),
+                owner: self.row(),
                 state: None,
                 hooks: hooks.clone(),
                 dispose: None,
@@ -441,6 +543,7 @@ impl StateStore {
                 .filter(|entry| entry.kind == kind)
                 .map(|entry| {
                     entry.epoch = self.epoch.get();
+                    entry.owner = self.row();
                     (entry.state.clone(), entry.hooks.clone())
                 })
         };
@@ -478,6 +581,7 @@ impl StateStore {
             Entry {
                 kind,
                 epoch: self.epoch.get(),
+                owner: self.row(),
                 state: Some(cell.clone() as Rc<dyn Any>),
                 hooks: hooks.clone(),
                 dispose: Some(Box::new(move || {
@@ -528,6 +632,17 @@ fn restore_state<S: State>(cx: &BuildContext, cell: &Rc<StateCell<S>>) {
             None => Reading::Nothing,
         }
     });
+}
+
+/// A row of a list being built: dropped when the list is done building it.
+pub(crate) struct RowScope<'s> {
+    store: &'s StateStore,
+}
+
+impl Drop for RowScope<'_> {
+    fn drop(&mut self) {
+        self.store.rows.borrow_mut().pop();
+    }
 }
 
 struct Mounted<W: StatefulWidget> {
@@ -847,6 +962,34 @@ impl<'a> BuildContext<'a> {
             .hooks()
             .value(self.next_slot(), || RefCell::new(init()));
         UseState { cell }
+    }
+
+    /// Asks the list this component is a row of — or is somewhere inside a row of — to keep
+    /// the row's state while the row is scrolled out of view, rather than let it go and
+    /// start afresh when the row comes back (milestone 748).
+    ///
+    /// A list built on demand only builds the rows in view, and by default what the
+    /// components of a row keep is let go when the row leaves. A row holding something
+    /// worth keeping — a half-typed reply, a played video's position, an expanded
+    /// section — calls this with `true` on every build for as long as it wants to be
+    /// kept, and with `false` (or not at all) once it no longer does. A `true` from
+    /// anything in the row wins; a `false` declines what the list keeps by default
+    /// ([`ListView::keep_alive`](crate::ListView::keep_alive)). Outside a list it does
+    /// nothing.
+    ///
+    /// Unlike the hooks it may be called conditionally, and more than once.
+    ///
+    /// ```
+    /// use frus_widgets::{text, BuildContext, Widget};
+    ///
+    /// fn reply(cx: &BuildContext) -> Box<dyn Widget> {
+    ///     let draft = cx.use_state(String::new);
+    ///     cx.keep_alive(!draft.with(|d| d.is_empty()));
+    ///     Box::new(text(draft.get()))
+    /// }
+    /// ```
+    pub fn keep_alive(&self, keep: bool) {
+        self.runtime.states.want_keep_alive(keep);
     }
 
     /// A value that lives as long as this component does and does *not* ask for a
@@ -1383,9 +1526,7 @@ impl<Msg> Component<Msg> {
     /// Gives this component an identity that does not depend on where it sits: its state
     /// follows the key when its siblings move.
     pub fn with_key(mut self, key: impl Hash) -> Self {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        key.hash(&mut hasher);
-        self.key = Some(hasher.finish());
+        self.key = Some(crate::keyed::hash_key(&key));
         self
     }
 

@@ -13,9 +13,50 @@
 //! [`Keyed::wrap`] is that widget's own constructor for the case where somebody else's
 //! children are being keyed in bulk.
 
-use std::hash::{Hash, Hasher};
+use std::hash::{Hash, Hasher as _};
 
 use crate::widget::Widget;
+
+/// What every key is reduced to: the one hashing [`Keyed::new`],
+/// [`Component::with_key`](crate::Component::with_key) and [`ChildKey::is`] share, so that
+/// a key given to one is recognised by the others.
+pub(crate) fn hash_key(key: &impl Hash) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    key.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The key of a row a list built on demand is looking for, as
+/// [`ListView::find_child_index`](crate::ListView::find_child_index) hands it over: the key
+/// the row was given with [`Keyed::new`] (or `keyed(..)`, or
+/// [`Component::with_key`](crate::Component::with_key)).
+///
+/// A key is kept reduced to a number, so it is asked rather than read: [`ChildKey::is`]
+/// says whether it is the key made of a given value.
+///
+/// ```
+/// use frus_widgets::{keyed, ChildKey, ListView, Text};
+///
+/// let ids = vec![17u32, 4, 9];
+/// let rows = ids.clone();
+/// let list: ListView = ListView::builder(ids.len(), move |i| keyed(rows[i], Text::new(format!("#{}", rows[i]))))
+///     .find_child_index(move |key: ChildKey| ids.iter().position(|id| key.is(id)));
+/// # let _ = list;
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ChildKey(pub(crate) u64);
+
+impl ChildKey {
+    /// Whether this is the key made of `key`.
+    pub fn is(&self, key: &impl Hash) -> bool {
+        hash_key(key) == self.0
+    }
+
+    /// The number the key is kept as — what [`Widget::key`] answers.
+    pub fn as_u64(&self) -> u64 {
+        self.0
+    }
+}
 
 /// Wraps a widget in a stable identity key, delegating everything else.
 pub struct Keyed<Msg = crate::callback::Callback> {
@@ -26,10 +67,8 @@ pub struct Keyed<Msg = crate::callback::Callback> {
 impl<Msg> Keyed<Msg> {
     /// Wraps `inner` with the key `key`, which may be any hashable type.
     pub fn new(key: impl Hash, inner: impl Widget<Msg> + 'static) -> Self {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        key.hash(&mut hasher);
         Self {
-            key: hasher.finish(),
+            key: hash_key(&key),
             inner: Box::new(inner),
         }
     }

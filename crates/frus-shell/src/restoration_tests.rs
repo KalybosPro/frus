@@ -288,3 +288,57 @@ fn a_state_with_a_restoration_id_is_restored_before_init() {
         second.texts()
     );
 }
+
+/// Values kept inside the rows of a list built on demand — keyed rows, whose state follows
+/// their key (milestone 748) — come back to the same rows: each row has a scope of its own
+/// below the list's, so the same id in every row does not collide.
+#[test]
+fn values_in_keyed_list_rows_come_back_to_their_rows() {
+    let make = || {
+        let router = GoRouter::new(vec![GoRoute::new("/", |_, _| {
+            ListView::new(6, 60.0, |i| {
+                frus_widgets::keyed(
+                    ("item", i),
+                    component(move |cx| {
+                        let taps = cx.use_restorable_state("taps", || 0u32);
+                        let tap = taps.clone();
+                        Box::new(column![
+                            Text::new(format!("Row {i}: {}", taps.get())),
+                            Button::new(format!("Tap {i}"))
+                                .on_press(move || tap.update(|n| *n += 1)),
+                        ]) as Box<dyn Widget>
+                    }),
+                )
+            })
+            .height(400.0)
+            .restoration_id("items")
+        })])
+        .animate(false);
+        FrusApp::router(router).restoration_scope_id("app")
+    };
+    let mut first = Driver::new(make(), W, H);
+    settle(&mut first);
+    tap(&mut first, "Tap 2");
+    tap(&mut first, "Tap 2");
+    tap(&mut first, "Tap 0");
+    assert!(shows(&first, "Row 2: 2"), "{:?}", first.texts());
+    let data = first.restoration_data().unwrap();
+    let kept = bucket(&data);
+    let page = kept
+        .children()
+        .find(|(name, _)| name.starts_with("route 0 "))
+        .map(|(_, b)| b.clone())
+        .expect("the page has a scope");
+    assert_eq!(
+        page.get(&["items".into(), "row 2".into(), "taps".into()]),
+        Some("2"),
+        "{page:?}"
+    );
+
+    let mut second = Driver::new(make(), W, H);
+    assert!(second.restore(&data));
+    settle(&mut second);
+    assert!(shows(&second, "Row 2: 2"), "{:?}", second.texts());
+    assert!(shows(&second, "Row 0: 1"));
+    assert!(shows(&second, "Row 1: 0"));
+}

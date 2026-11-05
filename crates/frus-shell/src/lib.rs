@@ -130,6 +130,8 @@ mod web_failure;
 mod web_icon;
 #[cfg(any(web, test))]
 mod web_keys;
+#[cfg(any(web, test))]
+mod web_page;
 mod widget_app;
 
 /// A windowless driver for tests. Hidden: not part of what an application builds on.
