@@ -1,22 +1,12 @@
 frus
 Copyright (c) 2026 KalybosPro <kalyboskokou1@gmail.com>
 
-This product includes software developed by KalybosPro.
-
-Original project: https://github.com/frus-rs/frus
-First published: July 2026 (git history), September 2026 (crates.io).
-
 This software is dual-licensed under either of:
 
   * Apache License, Version 2.0 (see LICENSE-APACHE), or
   * MIT license (see LICENSE-MIT)
 
 at your option.
-
-Under the Apache License, Version 2.0, any redistribution of this software
-or of derivative works must retain this NOTICE file and the copyright,
-patent, trademark, and attribution notices it contains. Removing or altering
-these notices while redistributing the code is a violation of the license.
 
 Unless you explicitly state otherwise, any contribution intentionally
 submitted for inclusion in this work by you, as defined in the Apache-2.0
