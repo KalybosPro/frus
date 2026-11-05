@@ -163,6 +163,7 @@ mod remote;
 mod reorder;
 mod reorderable;
 mod responsive;
+mod restoration;
 mod richtext;
 mod rotatedbox;
 mod router;
@@ -428,6 +429,7 @@ pub use reorder::{
 };
 pub use reorderable::{settled_index, ReorderGrab, ReorderableList};
 pub use responsive::{responsive, Responsive};
+pub use restoration::{restoration_scope, RestorableValue, Restoration, RestorationBucket};
 pub use richtext::RichText;
 pub use rotatedbox::RotatedBox;
 pub use router::{GoRoute, GoRouter, GoRouterState};

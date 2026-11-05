@@ -8,11 +8,22 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 751 so far, each documenting the objective, the alternatives
+> record — one per step, 753 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **State restoration** (J753): an application the system ends in the background — a phone
+  short of memory does — comes back on the page it was on, scrolled where it was, with what was
+  typed. Opt in with `FrusApp::restoration_scope_id("app")` (`Application::restoration_scope_id`);
+  the router's stack is then kept on its own, and a page keeps what it registers:
+  `BuildContext::use_restorable_state`, `use_restorable_text_controller`, `use_restorable_serde`
+  (new `serde` feature), a `State` that returns a `restoration_id()` (its `save`/`restore`),
+  `TextField::restoration_id` (caret and selection), `SingleChildScrollView::restoration_id` and
+  `ListView::restoration_id` (offset). Values live in a `RestorationBucket` tree; every router
+  page has a scope of its own, and `restoration_scope(id, build)` makes more. Android keeps the
+  data in the activity's saved instance state (Android 10 and later), the web in the tab's
+  session storage per history entry; the desktop keeps nothing, and iOS is not done yet.
 - **The page around a web application, and the way back through it** (J751): the safe areas
   (`env(safe-area-inset-*)`, read through a probe element) are the window's insets on the Web,
   the keyboard's cover raised over the bottom one, as a phone's own build reports them. The
@@ -75,7 +86,6 @@ any release may break.
   `ListView::find_child_index` tells the list where a kept row's item went (`ChildKey::is`
   compares a key with the application's ids), and a kept row whose item is removed is let go.
   Components inside a list's rows are now built before the row is laid out.
-
 - **Wide shadows fade the whole way out** (J746): a shadow is now its shape blurred by a
   gaussian (deviation `0.57735 × blur + 0.5`), computed analytically and drawn out to three
   deviations. It used to fade along a cubic that stopped one blur beyond the shape, so the

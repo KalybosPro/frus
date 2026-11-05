@@ -927,6 +927,27 @@ fn install_ambient<A: Application>(app: &A, preferred: &[frus_widgets::Locale]) 
     }
 }
 
+/// Hands the platform what is to be kept for restoration, when it changed since the last
+/// frame (milestone 753). `published` is what it was last handed.
+fn publish_restoration(
+    runtime: &Runtime,
+    published: &mut Option<Vec<u8>>,
+    #[cfg(web)] index: usize,
+) {
+    if !runtime.restoration.is_enabled() {
+        return;
+    }
+    let data = runtime.restoration.data(runtime);
+    if data == *published {
+        return;
+    }
+    #[cfg(android)]
+    crate::restoration::publish(data.clone());
+    #[cfg(web)]
+    crate::restoration::publish(index, data.as_deref());
+    *published = data;
+}
+
 fn build_view<A: Application>(
     app: &A,
     theme: &Theme,
@@ -1294,6 +1315,8 @@ pub struct App<A: Application> {
     /// change (#46).
     #[cfg(android)]
     system_bars: Option<frus_widgets::SystemBars>,
+    /// What was last handed to the platform to keep for restoration (milestone 753).
+    restoration_published: Option<Vec<u8>>,
     /// The page's background as it was last painted, on the Web (milestone 749).
     #[cfg(web)]
     page_background: Option<frus_widgets::Color>,
@@ -1468,11 +1491,35 @@ impl<A: Application> App<A> {
             soft_input_shown: false,
             #[cfg(android)]
             system_bars: None,
+            restoration_published: None,
             #[cfg(web)]
             page_background: None,
             #[cfg(web)]
             page_toolbar: None,
         }
+        .with_restoration()
+    }
+
+    /// Turns restoration on when the application asks for it, and takes what the platform
+    /// handed back from the process before (milestone 753). In a browser that waits for the
+    /// address, which says which entry of the history the page is.
+    fn with_restoration(self) -> Self {
+        let Some(id) = self.app.restoration_scope_id() else {
+            return self;
+        };
+        self.runtime.restoration.enable(id);
+        #[cfg(web)]
+        self.runtime.restoration.set_restores_router(false);
+        #[cfg(android)]
+        if let Some(bytes) = crate::restoration::take_restored() {
+            if self.runtime.restoration.restore(&bytes) {
+                log::info!(
+                    "restoring the state the system kept ({} bytes)",
+                    bytes.len()
+                );
+            }
+        }
+        self
     }
 
     /// What an assistive technology's click on widget `id` does: what a pointer click on it
@@ -3150,6 +3197,9 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     // `AppBar` would silently never mount, never fade in and never fade out.
                     let build_start = timed.then(Instant::now);
                     let tree = build_view(&self.app, &theme, &self.runtime);
+                    // What restoration handed back for the widgets this build registered:
+                    // in place before the layout, so a restored page opens where it was.
+                    self.runtime.apply_restored();
                     if let Some(at) = build_start {
                         let took = at.elapsed();
                         self.frame_costs.build = Some(took.as_secs_f32() * 1000.0);
@@ -3450,6 +3500,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // effects it asked for run. An effect that changed something asks for the
                 // frame that shows it.
                 self.runtime.states.end_frame();
+                publish_restoration(
+                    &self.runtime,
+                    &mut self.restoration_published,
+                    #[cfg(web)]
+                    self.history.index(),
+                );
                 crate::startup::laid_out(layout_took);
                 #[cfg(web)]
                 crate::web_dev::keep(|| self.runtime.states.snapshot());
@@ -6294,6 +6350,13 @@ impl<A: Application> App<A> {
         let base = crate::address::base();
         let (location, index) = crate::address::current(strategy, &base);
         self.history.opened(location.clone(), index);
+        // What the tab kept for this entry of its history, the last time the page was here
+        // (milestone 753): a reload, or a tab the browser discarded and opened again.
+        if self.runtime.restoration.is_enabled() {
+            if let Some(bytes) = crate::restoration::load(self.history.index()) {
+                self.runtime.restoration.restore(&bytes);
+            }
+        }
         crate::address::listen(window.clone(), strategy, base.clone());
         self.address = (strategy, base);
         if let Some(location) = location {
@@ -11925,6 +11988,18 @@ pub mod testing {
             }
         }
 
+        /// What the application keeps for restoration, as the platform would be handed it
+        /// now: `None` when it has not turned restoration on (milestone 753).
+        pub fn restoration_data(&self) -> Option<Vec<u8>> {
+            self.shell.runtime.restoration.data(&self.shell.runtime)
+        }
+
+        /// Hands the application what a process before it kept — as the platform does when
+        /// it starts one again. Before the first frame. Whether it held anything for it.
+        pub fn restore(&mut self, data: &[u8]) -> bool {
+            self.shell.runtime.restoration.restore(data)
+        }
+
         /// The system's **Back** — Android's back button, the browser's Back — as the shell
         /// handles it, short of leaving: whether it went back from anything.
         pub fn system_back(&mut self) -> bool {
@@ -12442,6 +12517,7 @@ pub mod testing {
                 s.tree.is_none() || s.runtime.switching(),
             ) {
                 s.tree = Some(build_view(&s.app, &theme, &s.runtime));
+                s.runtime.apply_restored();
             }
             s.build_dirty = false;
             s.autoscroll_carried(dt);

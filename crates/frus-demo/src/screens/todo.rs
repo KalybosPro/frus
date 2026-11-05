@@ -155,7 +155,8 @@ impl State for HomeState {
         // **clickable** "✕" suffix icon that clears it (milestone 198: a positional click on
         // the suffix). The text is held by a controller, which is what the field is driven by
         // and what the buttons read.
-        let draft = cx.use_text_controller("");
+        // Restored (milestone 753): a draft the system ended the process on comes back.
+        let draft = cx.use_restorable_text_controller("draft", "");
         let add = {
             let (demo, draft) = (demo.clone(), draft.clone());
             on(move || {
@@ -170,6 +171,7 @@ impl State for HomeState {
             // reader, which otherwise heard only "edit" (milestone 710).
             .placeholder("New task")
             .controller(&draft)
+            .restoration_id("draft-field")
             .on_submit(add.clone());
         if !draft.is_empty() {
             // Blank, `demo.add` refuses and clears nothing — so this is only reachable
@@ -425,7 +427,12 @@ impl State for HomeState {
                     .flex(1.0)
                     .child(about_section(theme)),
             ),
-            _ => Box::new(SingleChildScrollView::new().flex(1.0).child(tasks_body)),
+            _ => Box::new(
+                SingleChildScrollView::new()
+                    .flex(1.0)
+                    .restoration_id("tasks")
+                    .child(tasks_body),
+            ),
         };
 
         // The screen's skeleton: the Scaffold pins the top bar and the navigation, places the

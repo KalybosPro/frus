@@ -647,6 +647,9 @@ pub struct Runtime {
     /// What every [`Component`](crate::Component) keeps between rebuilds: the state of a
     /// [`StatefulWidget`](crate::StatefulWidget), and the values a component's hooks hold.
     pub states: crate::component::StateStore,
+    /// What the application keeps for the system to hand back after it ended the process
+    /// (milestone 753). See [`Restoration`](crate::Restoration).
+    pub restoration: crate::restoration::Restoration,
     /// **Motion is off**: the user has asked for animations to be reduced or removed,
     /// and the shell has passed that on from the platform.
     ///
@@ -845,6 +848,16 @@ pub struct Runtime {
     /// (milestone 594). Behind a `RefCell` for the same reason as the layout cache: the
     /// layout sees a child's new size, and it holds only a shared reference.
     pub(crate) size_anims: RefCell<crate::animatedsize::SizeAnims>,
+}
+
+impl Runtime {
+    /// Hands the scroll offsets, carets and selections restored for the widgets the last
+    /// build registered to the state they live in. The shell calls it after every build,
+    /// before laying out, so the first frame of a restored page is already where it was.
+    /// Whether anything was handed over.
+    pub fn apply_restored(&mut self) -> bool {
+        self.restoration.apply(&mut self.scroll, &mut self.edits)
+    }
 }
 
 impl Runtime {
