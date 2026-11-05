@@ -12568,13 +12568,23 @@ pub mod testing {
                     })
                     .collect()
             };
+            // The paged views that turned a page, as the window's frame reports them: without
+            // it `on_page_changed` never reached an application here (milestone 756).
+            let turned: Vec<A::Message> = s
+                .runtime
+                .page_changes(&paged)
+                .into_iter()
+                .filter_map(|(id, page)| {
+                    find_widget(tree, id).and_then(|w| w.on_page_changed(page))
+                })
+                .collect();
             s.ui = Some(ui);
             s.sync_regions(false);
             s.follow_autoscrolled_selection();
             // As the shell does after every frame: focus that vanished goes back, and a
             // widget that takes the focus on appearing takes it (milestone 605).
             s.reconcile_focus();
-            for message in scrolled {
+            for message in scrolled.into_iter().chain(turned) {
                 s.dispatch(message);
             }
             self.ghost = ghost;
