@@ -8,11 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 745 so far, each documenting the objective, the alternatives
+> record — one per step, 746 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **Wide shadows fade the whole way out** (J746): a shadow is now its shape blurred by a
+  gaussian (deviation `0.57735 × blur + 0.5`), computed analytically and drawn out to three
+  deviations. It used to fade along a cubic that stopped one blur beyond the shape, so the
+  shadows of a surface twelve or twenty-four high ended on a visible rim around it, short of
+  where the blur ends. `Scene::shadow` and `BoxShadow` take the same values as before; blur
+  styles keep their meaning.
 - **The website is frus.dev**: every crate's `homepage` points to https://frus.dev, and both
   READMEs link to it first. The widget gallery stays at https://frus-rs.github.io/frus/.
 - **WebGL 2 where there is no WebGPU** (J745): on the web, frus drew through WebGPU alone, and a
