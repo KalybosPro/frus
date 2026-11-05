@@ -8,10 +8,28 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 750 so far, each documenting the objective, the alternatives
+> record — one per step, 752 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The keyboard covers the bottom bar; focus rings follow the input; a swipe on a field
+  scrolls** (J752). With the on-screen keyboard up, `Scaffold` held its bottom navigation bar
+  and persistent footer *above* the keyboard, so in landscape the page kept about 60 px and the
+  floating button was pushed over the status bar. The keyboard now covers the widgets below the
+  body where they stand, and the body stops at whichever reaches higher, the keyboard or those
+  widgets; the floating button sits above that and never goes above the status bar.
+  `resize_to_avoid_bottom_inset(false)` still lets the keyboard cover everything. Focus rings
+  follow the kind of input used last: a touch or a click hides them, a key from a keyboard or a
+  remote shows them, and neither the system's Back nor the keys an on-screen keyboard types
+  count as keyboard use — a page popped with Back on a phone no longer leaves a ring on the
+  button the focus falls back to. New `FocusHighlightMode`, `FocusHighlightStrategy`
+  (`Application::focus_highlight_strategy`: `Automatic`, `AlwaysTouch`, `AlwaysTraditional`) and
+  `Runtime::focus_highlight_mode`. A focus moved by `Command::focus` no longer turns the rings on.
+  On a touch screen a finger on a text field or a selectable text no longer focuses it and
+  places the caret when it comes down: a tap does that when it lifts, a hold focuses and selects
+  the word, and a drag scrolls what the field sits in instead of selecting text. A mouse press
+  still focuses at once and a mouse drag still selects.
 
 - **Scrolling with the keyboard up keeps it up** (J750): on a touch screen a press outside the
   focused field took the focus away the moment the finger came down, so any scroll that started
