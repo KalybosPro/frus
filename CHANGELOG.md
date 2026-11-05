@@ -27,6 +27,8 @@ any release may break.
   instead of the browser panning the whole page and the application's top bar off the screen.
   What the browser types into a field goes through the field's filter and length limit, as a key
   does. A WebGL context the browser takes away is asked back, and drawn again.
+- **The website is frus.dev**: every crate's `homepage` points to https://frus.dev, and both
+  READMEs link to it first. The widget gallery stays at https://frus-rs.github.io/frus/.
 - **WebGL 2 where there is no WebGPU** (J745): on the web, frus drew through WebGPU alone, and a
   browser without it — Chrome on Android before Android 12, a GPU the browser blocks — showed an
   empty, dark page. The renderer now draws through WebGPU where the browser gives an adapter and a

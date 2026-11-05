@@ -13,12 +13,13 @@ Un seul code → bureau, Android et le Web. Rendu GPU. Construit à partir de co
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 [![Statut](https://img.shields.io/badge/statut-pré--alpha-yellow.svg)](#état-du-projet)
 
+[![Site web](https://img.shields.io/badge/🌐_frus.dev-e8352b?style=for-the-badge)](https://frus.dev)
 [![Lire le guide](https://img.shields.io/badge/📖_Lire_le_guide-2ea44f?style=for-the-badge)](docs/guide/README.md)
 [![Démarrer](https://img.shields.io/badge/🚀_Démarrer-0969da?style=for-the-badge)](docs/getting-started.md)
 [![Galerie de widgets](https://img.shields.io/badge/🧩_Galerie_de_widgets-8250df?style=for-the-badge)](https://frus-rs.github.io/frus/)
 [![Référence de l'API](https://img.shields.io/badge/📚_Référence_API-bf8700?style=for-the-badge)](https://docs.rs/frus)
 
-[Démarrer](#démarrer) · [Apprendre](#apprendre-frus) · [Guide](docs/guide/README.md) · [Galerie](#à-quoi-ça-ressemble) · [Galerie de widgets en ligne](https://frus-rs.github.io/frus/) · [Architecture](#architecture) · [État](#état-du-projet) · [Contribuer](CONTRIBUTING.md) · [English](README.md)
+[Site web](https://frus.dev) · [Démarrer](#démarrer) · [Apprendre](#apprendre-frus) · [Guide](docs/guide/README.md) · [Galerie](#à-quoi-ça-ressemble) · [Galerie de widgets en ligne](https://frus-rs.github.io/frus/) · [Architecture](#architecture) · [État](#état-du-projet) · [Contribuer](CONTRIBUTING.md) · [English](README.md)
 
 <br>
 
