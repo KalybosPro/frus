@@ -16,14 +16,17 @@ pub fn router() -> GoRouter {
         .filter(|location| location.starts_with('/'))
         .unwrap_or_else(|| HOME.to_string());
 
-    GoRouter::new(vec![
-        GoRoute::new(HOME, |_, _| HomePage.into_widget()),
-        GoRoute::new(CATEGORY, |_, state| {
-            CategoryPage::new(state.param("id").unwrap_or_default()).into_widget()
-        }),
-        GoRoute::new(DEMO, |_, state| {
-            DemoPage::new(state.param("id").unwrap_or_default(), state.query("tab")).into_widget()
-        }),
-    ])
+    // The pages are routes **under** the home page: a link straight to a category or a demo
+    // opens it with the home page beneath, so its app bar has a way back.
+    GoRouter::new(vec![GoRoute::new(HOME, |_, _| HomePage.into_widget())
+        .routes(vec![
+            GoRoute::new(CATEGORY, |_, state| {
+                CategoryPage::new(state.param("id").unwrap_or_default()).into_widget()
+            }),
+            GoRoute::new(DEMO, |_, state| {
+                DemoPage::new(state.param("id").unwrap_or_default(), state.query("tab"))
+                    .into_widget()
+            }),
+        ])])
     .initial_location(start)
 }

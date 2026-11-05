@@ -225,9 +225,13 @@ fn is_text_field<M>(widget: &dyn Widget<M>) -> bool {
     widget.text_value().is_some()
 }
 
-/// How far apart two presses may be and still be a double click on words in a selection area, in
-/// logical pixels.
-const REGION_DOUBLE_CLICK_SLOP: f32 = 8.0;
+/// How far apart two clicks of a mouse may be and still be a double click on words — in a
+/// field or in a selection area — in logical pixels. A finger, less precise, has the double
+/// tap's slop.
+const DOUBLE_CLICK_SLOP: f32 = 8.0;
+
+/// How soon a second click must follow the first to make a double click on words, in seconds.
+const DOUBLE_CLICK_TIME: f32 = 0.4;
 
 /// How long a first tap waits for a second one to make a double tap: the reference's
 /// `kDoubleTapTimeout`.
@@ -1141,6 +1145,11 @@ pub struct App<A: Application> {
     /// A finger came down on words in a selection area: a hold there selects the word under it
     /// and opens the bar (milestone 576).
     pending_region_hold: bool,
+    /// A finger came down outside the focused widget (milestone 750): where the focus goes
+    /// if the press turns out to be a tap — lifted within the slop of where it landed,
+    /// without having become a scroll or any other drag. A press that becomes one leaves
+    /// the focus, and the on-screen keyboard, where they were.
+    pending_tap_focus: Option<PendingFocus>,
     /// The focused field's caret blink (milestone 513).
     caret: crate::caret::CaretBlink,
     /// The form last shown to the platform's autofill service, as it was shown
@@ -1170,11 +1179,14 @@ pub struct App<A: Application> {
     /// other carries itself to a slot — but the reason they wait is the same, and it is
     /// the reason a list can still be scrolled.
     pending_reorder: Option<(WidgetId, usize, Point)>,
-    /// The last click's instant, for double-click detection.
-    last_click_time: Option<Instant>,
+    /// When, on [`App::click_clock`], and where the last press placed a field's caret, and in
+    /// which field: a second one soon after, close by and in the same field is a double click.
+    last_click: Option<(f32, Point, WidgetId)>,
     /// When and where the last press began a selection in a selection area: a second one soon
     /// after and close by is a double click.
-    last_region_click: Option<(Instant, Point)>,
+    last_region_click: Option<(f32, Point)>,
+    /// What [`App::click_clock`] counts from in an application.
+    clock_origin: Instant,
     /// The texts a selection area's selection has been worked out over, in reading order,
     /// with their words — kept while texts leave the frame (milestone 739): a selection dragged
     /// down a scrolling area, which scrolls under it, would otherwise lose its beginning as
@@ -1270,6 +1282,13 @@ pub struct App<A: Application> {
     /// the bottom of the screen, and a field under it is a field the reader cannot see
     /// while typing in it.
     reveal_after_keyboard: bool,
+    /// Until when frames keep coming after the on-screen keyboard was asked to open or
+    /// close (milestone 750). The keyboard slides in and out over a few hundred
+    /// milliseconds, and on Android winit drops the content-rect changes that say so: with
+    /// nothing else animating — a field that has just let the focus go has no caret left to
+    /// blink — the window kept the keyboard's inset, the bottom of the screen empty, until
+    /// the next touch.
+    keyboard_settle: Option<Instant>,
     /// What the **platform** last said about the person using it: the font-size slider,
     /// the night setting, the accessibility switches.
     ///
@@ -1301,6 +1320,9 @@ pub struct App<A: Application> {
     /// The page's background as it was last painted, on the Web (milestone 749).
     #[cfg(web)]
     page_background: Option<frus_widgets::Color>,
+    /// The page's `theme-color` as it was last set, on the Web (milestone 751).
+    #[cfg(web)]
+    page_toolbar: Option<frus_widgets::Color>,
 }
 
 impl<A: Application> App<A> {
@@ -1406,6 +1428,7 @@ impl<A: Application> App<A> {
             long_press_msg: None,
             pending_word: None,
             pending_region_hold: false,
+            pending_tap_focus: None,
             caret: crate::caret::CaretBlink::new(),
             #[cfg(android)]
             autofill_reported: Vec::new(),
@@ -1416,8 +1439,9 @@ impl<A: Application> App<A> {
             last_edit_at: None,
             pending_lift: None,
             pending_reorder: None,
-            last_click_time: None,
+            last_click: None,
             last_region_click: None,
+            clock_origin: Instant::now(),
             region_known: None,
             region_autoscrolled: false,
             pending_tap: None,
@@ -1456,6 +1480,7 @@ impl<A: Application> App<A> {
             shortcuts_refused: Default::default(),
             window_icon: None,
             reveal_after_keyboard: false,
+            keyboard_settle: None,
             platform: PlatformSettings::default(),
             inset_baseline: None,
             // The app starts out detached; `resumed` will move it to `Resumed`.
@@ -1469,6 +1494,8 @@ impl<A: Application> App<A> {
             restoration_published: None,
             #[cfg(web)]
             page_background: None,
+            #[cfg(web)]
+            page_toolbar: None,
         }
         .with_restoration()
     }
@@ -1531,6 +1558,7 @@ impl<A: Application> App<A> {
         self.runtime.edits.insert(
             id,
             Edit {
+                affinity: Default::default(),
                 cursor: value.chars().count(),
                 anchor: None,
                 composing: None,
@@ -1687,7 +1715,11 @@ impl<A: Application> App<A> {
     /// On the Web the browser owns the bars, but Chrome on Android paints the phone's
     /// navigation bar with the page's background: the page is given the navigation bar's
     /// colour (milestone 749), or it shows as a band of the loading screen's colour under
-    /// the application.
+    /// the application. The browser's toolbar, and the status bar over it, take the page's
+    /// `theme-color`, which follows the top edge the same way (milestone 751). The bars
+    /// there stand against the page's own edges, and where no region states a colour they
+    /// take the one the frame paints at that edge, not the theme's, which a scaffold may
+    /// paint over in a colour of its own.
     fn sync_system_bars(&mut self, theme: &Theme) {
         #[cfg(any(android, web))]
         {
@@ -1700,23 +1732,43 @@ impl<A: Application> App<A> {
             let scale = self.total_scale();
             let size = window.inner_size();
             let (width, height) = (size.width as f32 / scale, size.height as f32 / scale);
-            let edges = self.last_insets.padding;
-            let bars = ui
-                .system_ui_style(
-                    frus_widgets::Point::new(width / 2.0, edges.top + 0.5),
-                    frus_widgets::Point::new(width / 2.0, height - edges.bottom - 0.5),
-                )
-                .resolve(theme);
             #[cfg(android)]
-            if self.system_bars != Some(bars) && crate::android_system_bars::apply(bars) {
-                self.system_bars = Some(bars);
+            {
+                let edges = self.last_insets.padding;
+                let bars = ui
+                    .system_ui_style(
+                        frus_widgets::Point::new(width / 2.0, edges.top + 0.5),
+                        frus_widgets::Point::new(width / 2.0, height - edges.bottom - 0.5),
+                    )
+                    .resolve(theme);
+                if self.system_bars != Some(bars) && crate::android_system_bars::apply(bars) {
+                    self.system_bars = Some(bars);
+                }
             }
             #[cfg(web)]
             {
-                let page =
-                    crate::web_page::page_background(bars.navigation_bar_color, theme.background);
+                // The browser's bars are outside the page, against its very edges.
+                let (top, bottom) = (
+                    frus_widgets::Point::new(width / 2.0, 0.5),
+                    frus_widgets::Point::new(width / 2.0, height - 0.5),
+                );
+                let stated = ui.system_ui_style(top, bottom);
+                let scene = ui.scene();
+                let page = crate::web_page::bar_color(
+                    stated.navigation_bar_color,
+                    scene.flat_color_at(bottom),
+                    theme.background,
+                );
                 if self.page_background != Some(page) && crate::web_page::paint_behind(page) {
                     self.page_background = Some(page);
+                }
+                let toolbar = crate::web_page::bar_color(
+                    stated.status_bar_color,
+                    scene.flat_color_at(top),
+                    theme.background,
+                );
+                if self.page_toolbar != Some(toolbar) && crate::web_page::paint_toolbar(toolbar) {
+                    self.page_toolbar = Some(toolbar);
                 }
             }
         }
@@ -1764,6 +1816,8 @@ impl<A: Application> App<A> {
                 .is_some_and(wants_keyboard);
             if editing != self.soft_input_shown {
                 self.soft_input_shown = editing;
+                self.keyboard_settle = Some(Instant::now() + KEYBOARD_SETTLE);
+                self.request_redraw();
                 self.end_composition();
                 if crate::android_ime::installed() {
                     // The InputConnection bridge: the Java view captures the IME.
@@ -1843,6 +1897,7 @@ impl<A: Application> App<A> {
                 return;
             }
             self.soft_input_shown = true;
+            self.keyboard_settle = Some(Instant::now() + KEYBOARD_SETTLE);
             self.end_composition();
             if crate::android_ime::installed() {
                 if let Some(id) = self.runtime.input.focused {
@@ -2001,6 +2056,7 @@ impl<A: Application> App<A> {
                         cursor: value.chars().count(),
                         anchor: None,
                         composing: None,
+                        affinity: Default::default(),
                     },
                 );
                 self.dispatch_edit(message);
@@ -2059,8 +2115,9 @@ impl<A: Application> App<A> {
     }
 
     /// The system insets — the safe area — in **logical** px. On Android they are
-    /// derived from the activity's content rect, outside the system bars; on the Web the
-    /// bottom one is the on-screen keyboard's cover of the canvas; zero elsewhere.
+    /// derived from the activity's content rect, outside the system bars; on the Web they
+    /// are the page's safe area (`env(safe-area-inset-*)`, milestone 751), the bottom one
+    /// raised to the on-screen keyboard's cover of the canvas; zero elsewhere.
     ///
     /// The content rect is what the system leaves the activity, so it excludes
     /// **any** decoration the theme asks for — a title bar included. An app whose
@@ -2088,8 +2145,11 @@ impl<A: Application> App<A> {
             use winit::platform::web::WindowExtWebSys;
             window.canvas()
         }) {
-            let cover = crate::web_page::keyboard_cover_of(&canvas) as f32;
-            return Insets::new(0.0, 0.0, cover * self.scale / scale, 0.0);
+            let cover = crate::web_page::keyboard_cover_of(&canvas);
+            let [top, right, bottom, left] =
+                crate::web_page::window_insets(crate::web_page::safe_area(), cover)
+                    .map(|css| css as f32 * self.scale / scale);
+            return Insets::new(top, right, bottom, left);
         }
         let _ = (phys_w, phys_h, scale);
         Insets::ZERO
@@ -2972,6 +3032,15 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     Some(simulated) => simulated.insets(),
                     None => WindowInsets::from_baseline(baseline, raw),
                 };
+                // A keyboard on its way in or out: the next frame reads the insets again,
+                // nothing else telling the shell when they have moved (milestone 750).
+                if let Some(until) = self.keyboard_settle {
+                    if Instant::now() < until {
+                        self.request_redraw();
+                    } else {
+                        self.keyboard_settle = None;
+                    }
+                }
                 if self.last_insets != insets {
                     if insets.view_insets.bottom > self.last_insets.view_insets.bottom {
                         self.reveal_after_keyboard = true;
@@ -4720,6 +4789,7 @@ impl<A: Application> App<A> {
                 {
                     // The long press evicted the tap, so the release is swallowed.
                     self.drag = None;
+                    self.pending_tap_focus = None;
                     self.runtime.input.pressed = None;
                     self.request_redraw();
                 } else {
@@ -4728,6 +4798,8 @@ impl<A: Application> App<A> {
             }
             PointerKind::Cancel => {
                 self.press.cancel();
+                // A cancelled press was no tap: the focus stays (milestone 750).
+                self.pending_tap_focus = None;
                 self.pending_lift = None;
                 self.pending_reorder = None;
                 self.pending_word = None;
@@ -5107,6 +5179,7 @@ impl<A: Application> App<A> {
     /// scrolling when no other gesture captures the press.
     fn pointer_down(&mut self, touch: bool) {
         self.pointer_touch = touch;
+        self.pending_tap_focus = None;
         // A first tap still waiting for its second is a tap after all if this press is not
         // that second one: somewhere else, or too late.
         self.poll_pending_tap(Instant::now());
@@ -5300,8 +5373,35 @@ impl<A: Application> App<A> {
                 self.dispatch(message);
             }
         }
-        self.runtime.input.focused = focus.map(|(id, _)| id);
-        if let Some((id, rect)) = focus {
+        // Where the press sends the focus (milestone 750). On the focused widget itself, or
+        // on a field — which places its caret now — it goes there at once. Anywhere else the
+        // focused widget's `tap_outside` decides, and a finger is not yet a tap: the decision
+        // waits for the release, so that a scroll begun outside a field keeps the field, and
+        // its keyboard. A mouse press is already the click.
+        let target = focus.map(|(id, _)| id);
+        let decided = match previously_focused {
+            Some(held) if target != Some(held) && !self.takes_caret(focus) => {
+                let policy = self
+                    .ui
+                    .as_ref()
+                    .map_or(frus_widgets::TapOutside::Unfocus, |ui| ui.tap_outside(held));
+                let after = focus_after_tap_outside(held, target, policy);
+                if touch {
+                    self.pending_tap_focus = Some(PendingFocus {
+                        target: after,
+                        at: self.cursor,
+                    });
+                    previously_focused
+                } else {
+                    after
+                }
+            }
+            _ => target,
+        };
+        self.runtime.input.focused = decided;
+        // A press that left the focus where it was places no caret in the widget it hit.
+        let placed = focus.filter(|(id, _)| decided == Some(*id));
+        if let Some((id, rect)) = placed {
             let local_x = self.cursor.x - rect.x;
             // The retained vertical scroll, in a multi-line field, is part of the
             // content coordinate: we add it so the click lands on the right line.
@@ -5322,15 +5422,18 @@ impl<A: Application> App<A> {
                 .as_ref()
                 .and_then(|tree| find_widget(tree.as_ref(), id))
                 .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, scroll_cursor));
-            if let Some(cursor) = cursor {
+            if let Some(at) = cursor {
                 // Placing the caret with the mouse forgets the vertical goal column.
                 self.goal_x = None;
+                // On the side of its boundary that was pressed: beside a change of
+                // direction, or past the end of a wrapped line, that is where it is drawn.
                 self.runtime.edits.insert(
                     id,
                     Edit {
-                        cursor,
+                        cursor: at.offset,
                         anchor: None,
                         composing: None,
+                        affinity: at.affinity,
                     },
                 );
                 self.drag = Some(Drag::TextSelect { id, rect });
@@ -5346,23 +5449,25 @@ impl<A: Application> App<A> {
                 // `request_soft_input`.
                 self.request_soft_input();
 
-                // A double click selects the word under the pointer.
-                let now = Instant::now();
-                let double = self
-                    .last_click_time
-                    .map(|t| (now - t).as_secs_f32() < 0.4)
-                    .unwrap_or(false);
-                self.last_click_time = Some(now);
+                // A double click selects the word under the pointer: a second press soon
+                // after the first, close to it and in the same field. Timed by the clock the
+                // gestures keep, which in a driven test is the frames run (milestone 747).
+                let (now, here) = (self.click_clock(), self.cursor);
+                let double = self.last_click.is_some_and(|(then, there, field)| {
+                    field == id && self.is_double_click(then, there, now, here)
+                });
+                self.last_click = Some((now, here, id));
                 if double {
                     if let Some((start, end)) = self
                         .tree
                         .as_ref()
                         .and_then(|tree| find_widget(tree.as_ref(), id))
-                        .and_then(|widget| widget.word_at(cursor))
+                        .and_then(|widget| widget.word_at(at.offset))
                     {
                         self.runtime.edits.insert(
                             id,
                             Edit {
+                                affinity: Default::default(),
                                 cursor: end,
                                 anchor: Some(start),
                                 composing: None,
@@ -5546,6 +5651,23 @@ impl<A: Application> App<A> {
         self.request_redraw();
     }
 
+    /// Whether a press on `hit` places a caret there — a field, a selectable text — and so
+    /// takes the focus at once, whatever the focused widget says of a tap outside it.
+    fn takes_caret(&self, hit: Option<(WidgetId, Rect)>) -> bool {
+        let Some((id, rect)) = hit else {
+            return false;
+        };
+        let local_y = self.cursor.y - rect.y + self.runtime.scroll.get(&id).map_or(0.0, |s| s.1);
+        self.tree
+            .as_ref()
+            .and_then(|tree| find_widget(tree.as_ref(), id))
+            .is_some_and(|widget| {
+                widget
+                    .cursor_at(self.cursor.x - rect.x, local_y, rect.width, 0)
+                    .is_some()
+            })
+    }
+
     /// A pointer release, mouse or finger: it ends a drag, or commits a click or tap
     /// when the release lands back on the widget that was pressed.
     /// What widget `id` emits for a click at the pointer on one of its sub-regions — see
@@ -5564,6 +5686,16 @@ impl<A: Application> App<A> {
 
     fn pointer_up(&mut self) {
         let ended = self.drag.take();
+        // A finger that came down outside the focused widget and lifted as a tap: the focus
+        // goes where the widget's `tap_outside` said (milestone 750).
+        if let Some(pending) = self.pending_tap_focus.take() {
+            let still =
+                (self.cursor.x - pending.at.x).hypot(self.cursor.y - pending.at.y) <= TOUCH_SLOP;
+            if still && (ended.is_none() || gesture_was_a_tap(ended.as_ref())) {
+                self.runtime.input.focused = pending.target;
+                self.request_redraw();
+            }
+        }
         if let Some(Drag::Back { .. }) = ended {
             // The app decides — commit or cancel — from the velocity, which it wants
             // in **fractions of the screen** per second, not pixels.
@@ -6591,12 +6723,13 @@ impl<A: Application> App<A> {
                     .and_then(|widget| {
                         widget.cursor_at(local_x, local_y, rect.width, scroll_cursor)
                     });
-                if let Some(cursor) = cursor {
+                if let Some(at) = cursor {
                     let edit = self.runtime.edits.entry(*id).or_default();
                     if edit.anchor.is_none() {
                         edit.anchor = Some(edit.cursor);
                     }
-                    edit.cursor = cursor;
+                    edit.cursor = at.offset;
+                    edit.affinity = at.affinity;
                 }
             }
             Drag::SelectionHandle {
@@ -6617,7 +6750,7 @@ impl<A: Application> App<A> {
                     .as_ref()
                     .and_then(|tree| find_widget(tree.as_ref(), *id))
                     .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, edit.cursor))
-                    .and_then(|to| crate::selection::drag(edit, *handle, to));
+                    .and_then(|to| crate::selection::drag(edit, *handle, to.offset));
                 if let Some(moved) = moved {
                     self.runtime.edits.insert(*id, moved);
                 }
@@ -6867,6 +7000,21 @@ impl<A: Application> App<A> {
                         ));
                     } else {
                         *axis = Some(down);
+                    }
+                    // The scroll has begun: an area that puts the keyboard away on a drag
+                    // lets the focus go now (milestone 750).
+                    let on_drag = self
+                        .ui
+                        .as_ref()
+                        .and_then(|ui| ui.scroll_region(*id))
+                        .is_some_and(|area| {
+                            area.keyboard_dismiss == frus_widgets::KeyboardDismissBehavior::OnDrag
+                        });
+                    if on_drag {
+                        self.pending_tap_focus = None;
+                        if self.runtime.input.focused.take().is_some() {
+                            self.request_redraw();
+                        }
                     }
                 }
                 // Only the claimed axis moves. The other delta is not held back for later:
@@ -7130,6 +7278,29 @@ impl<A: Application> App<A> {
             Some((now, start)) => now - start,
             None => (Instant::now() - self.gesture_start).as_secs_f32(),
         }
+    }
+
+    /// Seconds on the clock clicks are counted by: the test driver's frames when there is
+    /// one, as for the gestures, and the wall's in an application. A driver's events are
+    /// microseconds apart on the wall, which made every second click of a test a double
+    /// click wherever it landed (milestone 747).
+    fn click_clock(&self) -> f32 {
+        match self.gesture_clock {
+            Some((now, _)) => now,
+            None => (Instant::now() - self.clock_origin).as_secs_f32(),
+        }
+    }
+
+    /// Whether a press at `here`, at `now`, makes a double click of the one at `there`,
+    /// at `then`: soon enough after it and close enough to it — a mouse's slop, or a
+    /// finger's, which lands less precisely.
+    fn is_double_click(&self, then: f32, there: Point, now: f32, here: Point) -> bool {
+        let slop = if self.pointer_touch {
+            DOUBLE_TAP_SLOP
+        } else {
+            DOUBLE_CLICK_SLOP
+        };
+        now - then < DOUBLE_CLICK_TIME && (here.x - there.x).hypot(here.y - there.y) <= slop
     }
 
     /// Starts a fresh gesture: the history of the previous one must not leak into
@@ -8412,7 +8583,12 @@ impl<A: Application> App<A> {
             .and_then(|ui| ui.widget_rect(id))
             .map(|r| r.width)
             .unwrap_or(0.0);
-        let cursor = self.runtime.edits.get(&id).map(|e| e.cursor).unwrap_or(0);
+        let cursor = self
+            .runtime
+            .edits
+            .get(&id)
+            .map(|e| e.position())
+            .unwrap_or_default();
         let moved = self
             .tree
             .as_ref()
@@ -8430,7 +8606,8 @@ impl<A: Application> App<A> {
         } else {
             edit.anchor = None;
         }
-        edit.cursor = new_cursor;
+        edit.cursor = new_cursor.offset;
+        edit.affinity = new_cursor.affinity;
         // Remember the goal column for the next vertical jump.
         self.goal_x = Some(goal);
         self.reveal_caret(id, new_cursor);
@@ -8457,6 +8634,7 @@ impl<A: Application> App<A> {
         self.runtime.edits.insert(
             id,
             Edit {
+                affinity: Default::default(),
                 cursor: end,
                 anchor: Some(start),
                 composing: None,
@@ -8517,10 +8695,29 @@ impl<A: Application> App<A> {
         // `dispatch_edit` rebuilds the tree: a plain keystroke leaves it unused, since
         // `on_edit` answers `None` for one and the announcement below is never spoken.
         let announce = widget.and_then(|widget| widget.announce());
-        let message = widget.and_then(|widget| widget.on_edit(&mut edit, &key));
+        // The caret keys move over the text as it is drawn, when the widget can say how;
+        // everything else — and those, when it cannot — is the widget's edit.
+        let caret_key = matches!(
+            key,
+            Key::Left { .. } | Key::Right { .. } | Key::Home { .. } | Key::End { .. }
+        );
+        let width = self
+            .ui
+            .as_ref()
+            .and_then(|ui| ui.widget_rect(id))
+            .map(|r| r.width);
+        let moved = caret_key
+            && width.is_some_and(|width| {
+                widget.is_some_and(|widget| widget.caret_key(width, &mut edit, &key))
+            });
+        let message = if moved {
+            None
+        } else {
+            widget.and_then(|widget| widget.on_edit(&mut edit, &key))
+        };
         self.runtime.edits.insert(id, edit);
         // In a multi-line field, make the retained scroll follow the caret and reveal it.
-        self.reveal_caret(id, edit.cursor);
+        self.reveal_caret(id, edit.position());
         if let Some(message) = message {
             self.dispatch_edit(message);
             if let Some(announce) = announce {
@@ -8625,7 +8822,7 @@ impl<A: Application> App<A> {
         // The caret goes back with the text — an undo that restores the value and leaves
         // the caret at the end has done half the job.
         self.runtime.edits.insert(id, target.edit);
-        self.reveal_caret(id, target.edit.cursor);
+        self.reveal_caret(id, target.edit.position());
         if let Some(message) = message {
             self.dispatch_edit(message);
         }
@@ -8663,7 +8860,7 @@ impl<A: Application> App<A> {
     /// Makes a multi-line field's retained scroll **follow the caret**: adjusts
     /// `runtime.scroll[id]` just enough to keep the caret visible, the way an editor
     /// re-centres as you type. A no-op for a field that does not scroll.
-    fn reveal_caret(&mut self, id: WidgetId, cursor: usize) {
+    fn reveal_caret(&mut self, id: WidgetId, cursor: frus_widgets::TextPosition) {
         let Some(vp) = self.ui.as_ref().and_then(|ui| ui.scrollable_viewport(id)) else {
             return;
         };
@@ -8777,12 +8974,10 @@ impl<A: Application> App<A> {
             return;
         };
         let index = self.region_index(&stop, self.cursor);
-        let now = Instant::now();
-        let here = self.cursor;
-        let double = self.last_region_click.is_some_and(|(then, there)| {
-            (now - then).as_secs_f32() < 0.4
-                && (here.x - there.x).hypot(here.y - there.y) <= REGION_DOUBLE_CLICK_SLOP
-        });
+        let (now, here) = (self.click_clock(), self.cursor);
+        let double = self
+            .last_region_click
+            .is_some_and(|(then, there)| self.is_double_click(then, there, now, here));
         self.last_region_click = Some((now, here));
         // A new selection is worked out over the texts on screen, not the last one's.
         self.region_known = None;
@@ -9148,6 +9343,7 @@ impl<A: Application> App<A> {
         self.runtime.edits.insert(
             id,
             Edit {
+                affinity: Default::default(),
                 cursor: usize::MAX,
                 anchor: Some(0),
                 composing: None,
@@ -9316,7 +9512,7 @@ impl<A: Application> App<A> {
                 )
             });
         // Only a text field has a bar; a button under the pointer is not one.
-        let Some(cursor) = cursor else {
+        let Some(at) = cursor else {
             self.hide_selection_toolbar();
             return;
         };
@@ -9326,7 +9522,7 @@ impl<A: Application> App<A> {
                 .edits
                 .get(&id)
                 .and_then(|edit| edit.selection_range())
-                .is_some_and(|(start, end)| cursor >= start && cursor <= end);
+                .is_some_and(|(start, end)| at.offset >= start && at.offset <= end);
         self.runtime.input.focused = Some(id);
         self.runtime.selection_handles = None;
         if !inside {
@@ -9334,9 +9530,10 @@ impl<A: Application> App<A> {
             self.runtime.edits.insert(
                 id,
                 Edit {
-                    cursor,
+                    cursor: at.offset,
                     anchor: None,
                     composing: None,
+                    affinity: at.affinity,
                 },
             );
             self.runtime.close_edit_run(id);
@@ -9360,6 +9557,7 @@ impl<A: Application> App<A> {
 fn collapsed_to_end(edit: Edit) -> Edit {
     let cursor = edit.selection_range().map_or(edit.cursor, |(_, end)| end);
     Edit {
+        affinity: Default::default(),
         cursor,
         anchor: None,
         composing: None,
@@ -9414,6 +9612,34 @@ fn mask_pan(axis: frus_widgets::PanAxis, value: Point) -> Point {
         frus_widgets::PanAxis::Vertical => Point::new(0.0, value.y),
     }
 }
+
+/// Where a press outside the focused widget sends the focus, by that widget's
+/// `tap_outside` (milestone 750): where the press went, or nowhere new.
+fn focus_after_tap_outside(
+    held: WidgetId,
+    target: Option<WidgetId>,
+    policy: frus_widgets::TapOutside,
+) -> Option<WidgetId> {
+    match policy {
+        frus_widgets::TapOutside::Unfocus => target,
+        frus_widgets::TapOutside::Keep => Some(held),
+    }
+}
+
+/// A finger's press outside the focused widget, waiting to be known as a tap (milestone
+/// 750).
+#[derive(Clone, Copy, Debug)]
+struct PendingFocus {
+    /// Where the focus goes if it is one.
+    target: Option<WidgetId>,
+    /// Where the finger came down.
+    at: Point,
+}
+
+/// How long frames keep coming after the on-screen keyboard was asked to open or close, for
+/// the insets to be read as it slides (milestone 750): the system's animation, with room.
+#[cfg_attr(not(android), allow(dead_code))]
+const KEYBOARD_SETTLE: std::time::Duration = std::time::Duration::from_millis(1000);
 
 fn gesture_was_a_tap(ended: Option<&Drag>) -> bool {
     matches!(
@@ -10040,16 +10266,19 @@ mod tests {
     fn a_copy_collapses_the_selection_to_its_end() {
         use frus_widgets::Edit;
         let forwards = Edit {
+            affinity: Default::default(),
             cursor: 11,
             anchor: Some(6),
             composing: None,
         };
         let backwards = Edit {
+            affinity: Default::default(),
             cursor: 6,
             anchor: Some(11),
             composing: None,
         };
         let expect = Edit {
+            affinity: Default::default(),
             cursor: 11,
             anchor: None,
             composing: None,
@@ -10058,6 +10287,7 @@ mod tests {
         assert_eq!(super::collapsed_to_end(backwards), expect);
         // Nothing selected: the caret stays where it is.
         let caret = Edit {
+            affinity: Default::default(),
             cursor: 3,
             anchor: None,
             composing: None,
@@ -10065,6 +10295,7 @@ mod tests {
         assert_eq!(super::collapsed_to_end(caret), caret);
         // An anchor on the caret is no selection either.
         let empty = Edit {
+            affinity: Default::default(),
             cursor: 3,
             anchor: Some(3),
             composing: Some((1, 2)),
@@ -10740,6 +10971,7 @@ mod tests {
             reverse_y: false,
             host: None,
             keep_visible: None,
+            keyboard_dismiss: Default::default(),
         }
     }
 
@@ -11190,6 +11422,7 @@ mod scroll_request_tests {
             reverse_y: false,
             keep_visible: None,
             host: None,
+            keyboard_dismiss: Default::default(),
         }
     }
 
@@ -11906,6 +12139,14 @@ pub mod testing {
         /// The widget with the keyboard focus, if one has it.
         pub fn focused(&self) -> Option<WidgetId> {
             self.shell.runtime.input.focused
+        }
+
+        /// The selection in the focused field, as its first and last character boundaries,
+        /// when one is selected.
+        #[cfg(test)]
+        pub(crate) fn field_selection(&self) -> Option<(usize, usize)> {
+            let id = self.focused()?;
+            self.shell.runtime.edits.get(&id)?.selection_range()
         }
 
         /// Makes the shell stand in for a built-in device, as `FRUS_DEVICE` does
@@ -16672,6 +16913,223 @@ mod listview_selection_tests {
             copy(&mut d).as_deref(),
             Some("cell 00\ncell 01\ncell 02\ncell 03")
         );
+    }
+}
+
+/// **Scrolling with the keyboard up keeps it up** (milestone 750): a finger that comes down
+/// outside the focused field and scrolls leaves the field focused and the keyboard where it
+/// was; only a tap outside lets them go, as the field's `tap_outside` says; a scrollable
+/// that puts the keyboard away on a drag does so when the drag starts; and a mouse press
+/// outside is the click it always was.
+#[cfg(test)]
+mod keyboard_stays_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{
+        Button, Flex, KeyboardDismissBehavior, Point, SingleChildScrollView, TapOutside, Text,
+        TextField, Theme, Widget,
+    };
+
+    const W: f32 = 393.0;
+    const H: f32 = 852.0;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Typed,
+        Pressed,
+    }
+
+    #[derive(Default)]
+    struct Form {
+        /// The scroll view's answer to a drag, when it has one.
+        dismiss: Option<KeyboardDismissBehavior>,
+        /// The field's answer to a tap outside, when it has one.
+        outside: Option<TapOutside>,
+        pressed: usize,
+    }
+
+    impl Application for Form {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            if message == Msg::Pressed {
+                self.pressed += 1;
+            }
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            let mut field = TextField::new("the field").on_input(|_| Msg::Typed);
+            if let Some(outside) = self.outside {
+                field = field.tap_outside(outside);
+            }
+            let mut column = Flex::column()
+                .child(field)
+                .child(Button::new("the button").on_press(Msg::Pressed));
+            for row in 0..60 {
+                column = column.child(Text::new(format!("row {row:02}")).size(16.0));
+            }
+            let mut scroll = SingleChildScrollView::new()
+                .width(W)
+                .height(H)
+                .child(column);
+            if let Some(dismiss) = self.dismiss {
+                scroll = scroll.keyboard_dismiss_behavior(dismiss);
+            }
+            Box::new(scroll)
+        }
+    }
+
+    fn driver(form: Form) -> Driver<Form> {
+        let mut d = Driver::new(form, W, H);
+        d.simulate("android-phone");
+        d.run(0.2);
+        d
+    }
+
+    /// A point inside the text reading `label`.
+    fn at(d: &Driver<Form>, label: &str) -> Point {
+        let (_, r) = d
+            .texts()
+            .into_iter()
+            .find(|(t, _)| t.contains(label))
+            .unwrap_or_else(|| panic!("{label}: {:?}", d.texts()));
+        Point::new(r.x + 5.0, r.y + r.height * 0.5)
+    }
+
+    fn tap(d: &mut Driver<Form>, at: Point) {
+        d.press(at);
+        d.release(at);
+        d.run(0.1);
+    }
+
+    /// The field focused by a tap, with its keyboard up.
+    fn focus_the_field(d: &mut Driver<Form>) {
+        let field = at(d, "the field");
+        tap(d, field);
+        assert!(d.focused().is_some(), "the tap focused the field");
+        assert!(d.simulated_keyboard(), "and brought the keyboard up");
+    }
+
+    /// The scroll view's offset down.
+    fn offset(d: &Driver<Form>) -> f32 {
+        d.offsets().first().map_or(0.0, |(_, o)| o.1)
+    }
+
+    /// A finger from `from` upwards by `by`, in steps, still down at the end.
+    fn drag_up(d: &mut Driver<Form>, from: Point, by: f32) {
+        d.press(from);
+        d.run(0.02);
+        for step in 1..=10 {
+            d.move_to(Point::new(from.x, from.y - by * step as f32 / 10.0));
+            d.run(0.02);
+        }
+    }
+
+    /// **A scroll begun outside the field keeps the field and its keyboard**, and the page
+    /// moves. Before, the press itself took the focus away, and the keyboard with it.
+    #[test]
+    fn a_scroll_outside_the_field_keeps_the_keyboard() {
+        let mut d = driver(Form::default());
+        focus_the_field(&mut d);
+        let field = d.focused();
+        let from = at(&d, "row 10");
+        drag_up(&mut d, from, 200.0);
+        assert_eq!(d.focused(), field, "still focused while the finger scrolls");
+        let end = Point::new(from.x, from.y - 200.0);
+        d.release(end);
+        d.run(0.3);
+        assert_eq!(d.focused(), field, "still focused after the scroll");
+        assert!(d.simulated_keyboard(), "the keyboard stayed up");
+        assert!(offset(&d) > 100.0, "the page scrolled: {}", offset(&d));
+    }
+
+    /// **A tap outside the field lets it go**, and the keyboard with it, when the finger
+    /// lifts, not when it comes down.
+    #[test]
+    fn a_tap_outside_lets_the_field_go() {
+        let mut d = driver(Form::default());
+        focus_the_field(&mut d);
+        let field = d.focused();
+        let row = at(&d, "row 05");
+        d.press(row);
+        d.run(0.05);
+        assert_eq!(d.focused(), field, "a finger down is not a tap yet");
+        d.release(row);
+        d.run(0.1);
+        assert_eq!(d.focused(), None, "the tap let the field go");
+        assert!(!d.simulated_keyboard(), "and the keyboard");
+    }
+
+    /// **A field that keeps its focus keeps it through a tap outside**, and a tap on a button
+    /// still presses the button.
+    #[test]
+    fn a_field_told_to_keep_the_focus_keeps_it() {
+        let mut d = driver(Form {
+            outside: Some(TapOutside::Keep),
+            ..Form::default()
+        });
+        focus_the_field(&mut d);
+        let field = d.focused();
+        let row = at(&d, "row 05");
+        tap(&mut d, row);
+        assert_eq!(d.focused(), field, "a tap on a row keeps the field");
+        let button = at(&d, "the button");
+        tap(&mut d, button);
+        assert_eq!(d.app().pressed, 1, "the button was pressed");
+        assert_eq!(d.focused(), field, "and the field kept the focus");
+        assert!(d.simulated_keyboard(), "and its keyboard");
+    }
+
+    /// **A button tapped with the keyboard up is pressed**, and the focus goes to it, by the
+    /// default `tap_outside`.
+    #[test]
+    fn a_button_tapped_with_the_keyboard_up_is_pressed() {
+        let mut d = driver(Form::default());
+        focus_the_field(&mut d);
+        let field = d.focused();
+        let button = at(&d, "the button");
+        tap(&mut d, button);
+        assert_eq!(d.app().pressed, 1, "the button was pressed");
+        assert_ne!(d.focused(), field, "the field let the focus go");
+        assert!(!d.simulated_keyboard(), "and the keyboard");
+    }
+
+    /// **A scroll view that puts the keyboard away on a drag** lets the field go as soon as
+    /// the finger starts scrolling, before it lifts.
+    #[test]
+    fn a_scroll_view_told_to_dismiss_on_drag_lets_the_field_go() {
+        let mut d = driver(Form {
+            dismiss: Some(KeyboardDismissBehavior::OnDrag),
+            ..Form::default()
+        });
+        focus_the_field(&mut d);
+        let field = d.focused();
+        let from = at(&d, "row 10");
+        d.press(from);
+        d.run(0.02);
+        assert_eq!(d.focused(), field, "a finger down is not a drag yet");
+        d.release(from);
+        d.run(0.02);
+        focus_the_field(&mut d);
+        drag_up(&mut d, from, 200.0);
+        assert_eq!(d.focused(), None, "the drag let the field go");
+        assert!(!d.simulated_keyboard(), "and the keyboard");
+        d.release(Point::new(from.x, from.y - 200.0));
+        d.run(0.3);
+        assert!(offset(&d) > 100.0, "the page scrolled: {}", offset(&d));
+    }
+
+    /// **A mouse press outside is the click**: the field lets the focus go when the button
+    /// goes down, as on a desktop.
+    #[test]
+    fn a_mouse_press_outside_lets_the_field_go_at_once() {
+        let mut d = driver(Form::default());
+        focus_the_field(&mut d);
+        let row = at(&d, "row 05");
+        d.press_mouse(row);
+        assert_eq!(d.focused(), None, "the press let the field go");
+        d.release_mouse(row);
     }
 }
 

@@ -278,6 +278,78 @@ mod tests {
         assert!(tester.shows("Home"));
     }
 
+    /// A home page, and a form pushed on it whose field keeps what is typed in its
+    /// component's state.
+    fn form_pages(keep: usize) -> GoRouter {
+        GoRouter::new(vec![
+            GoRoute::new("/", |cx, _| {
+                let router = cx.router();
+                Scaffold::new()
+                    .app_bar(AppBar::new().title(Text::new("Home")))
+                    .body(Button::new("Open").on_press(move || router.push("/form")))
+            }),
+            GoRoute::new("/form", |_, _| {
+                Scaffold::new()
+                    .app_bar(AppBar::new().title(Text::new("Form")))
+                    .body(component(|cx| {
+                        let name = cx.use_state(String::new);
+                        let typed = name.clone();
+                        Box::new(
+                            Column::new()
+                                .child(
+                                    TextField::new(name.get())
+                                        .label("Name")
+                                        .on_input(move |t: String| typed.set(t)),
+                                )
+                                .child(Text::new(format!("Typed: {}", name.get()))),
+                        ) as Box<dyn Widget>
+                    }))
+            }),
+        ])
+        .keep_popped_pages(keep)
+    }
+
+    /// The browser's Back, then its Forward, to a page that was filled in: the page comes
+    /// back as it was left (milestone 751). The shell hands both to the router as locations,
+    /// through `open`.
+    #[test]
+    fn a_page_returned_to_through_the_history_keeps_what_was_typed() {
+        let router = form_pages(4);
+        let mut tester = Tester::new(FrusApp::router(router.clone()));
+        tester.tap("Open").enter_text("Name", "Ada");
+        assert!(tester.shows("Typed: Ada"), "{:?}", tester.texts());
+        router.open("/");
+        tester.settle();
+        assert!(
+            tester.shows("Home") && !tester.shows("Typed"),
+            "{:?}",
+            tester.texts()
+        );
+        router.open("/form");
+        tester.settle();
+        assert!(tester.shows("Typed: Ada"), "{:?}", tester.texts());
+        // The page's own Back arrow is a way back too, and Forward finds the page again.
+        tester.tap(BACK);
+        router.open("/form");
+        tester.settle();
+        assert!(tester.shows("Typed: Ada"), "{:?}", tester.texts());
+    }
+
+    /// A router asked to keep nothing lets a popped page go, as a phone's back button
+    /// expects: the same location builds it afresh.
+    #[test]
+    fn a_page_a_router_did_not_keep_comes_back_empty() {
+        let router = form_pages(0);
+        let mut tester = Tester::new(FrusApp::router(router.clone()));
+        tester.tap("Open").enter_text("Name", "Ada");
+        router.open("/");
+        tester.settle();
+        router.open("/form");
+        tester.settle();
+        assert!(tester.shows("Typed: "), "{:?}", tester.texts());
+        assert!(!tester.shows("Typed: Ada"), "{:?}", tester.texts());
+    }
+
     #[test]
     fn a_function_component_picks_a_destination_with_a_plain_closure() {
         let mut tester = Tester::new(app(|| {

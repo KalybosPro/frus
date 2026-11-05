@@ -45,6 +45,10 @@ type Root = Rc<dyn Fn(&BuildContext) -> Box<dyn Widget>>;
 /// What goes around the root: called on every rebuild, with the root to put inside.
 type Wrap = Rc<dyn Fn(&BuildContext, Box<dyn Widget>) -> Box<dyn Widget>>;
 
+/// How many popped pages a router keeps on the Web, for the browser's Forward button.
+#[cfg(web)]
+const WEB_KEPT_PAGES: usize = 4;
+
 /// An application: a root component, and how it is dressed.
 ///
 /// ```
@@ -113,7 +117,15 @@ impl FrusApp {
     /// let app = FrusApp::router(router).title("Pages");
     /// # let _ = app;
     /// ```
+    ///
+    /// On the Web, a router that keeps no popped page is made to keep a few
+    /// ([`GoRouter::keep_popped_pages`]): the browser's Forward button returns to a page the
+    /// person went back from, and finds it as it was left — its fields filled in.
     pub fn router(router: GoRouter) -> Self {
+        #[cfg(web)]
+        if router.popped_pages_kept() == 0 {
+            router.set_keep_popped_pages(WEB_KEPT_PAGES);
+        }
         let building = router.clone();
         let mut app = Self::with_root(Rc::new(move |cx| building.build(cx)));
         app.router = Some(router);

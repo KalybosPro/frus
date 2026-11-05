@@ -188,6 +188,8 @@ pub struct ListView<Msg = crate::callback::Callback> {
     sized: (bool, bool),
     flex_grow: f32,
     physics: Option<ScrollPhysics>,
+    /// What a finger dragging it does to the focus; `None` follows the scroll behaviour.
+    keyboard_dismiss: Option<crate::KeyboardDismissBehavior>,
     /// Whether it is the page's primary scroll view; see [`ListView::primary`].
     primary: Option<bool>,
     reverse: bool,
@@ -235,6 +237,7 @@ impl<Msg> ListView<Msg> {
             sized: (false, false),
             flex_grow: 0.0,
             physics: None,
+            keyboard_dismiss: None,
             primary: None,
             reverse: false,
             padding: Insets::ZERO,
@@ -375,6 +378,17 @@ impl<Msg> ListView<Msg> {
     /// [`crate::scroll::SingleChildScrollView::physics`].
     pub fn physics(mut self, physics: ScrollPhysics) -> Self {
         self.physics = Some(physics);
+        self
+    }
+
+    /// What a finger **dragging the list** does to the focus (milestone 750):
+    /// [`KeyboardDismissBehavior::OnDrag`](crate::KeyboardDismissBehavior::OnDrag) lets the
+    /// focused field, and the on-screen keyboard, go as soon as it starts scrolling;
+    /// [`Manual`](crate::KeyboardDismissBehavior::Manual) keeps them. Unset, the
+    /// [`ScrollBehavior`](crate::ScrollBehavior) in force decides — `Manual` unless told
+    /// otherwise.
+    pub fn keyboard_dismiss_behavior(mut self, behavior: crate::KeyboardDismissBehavior) -> Self {
+        self.keyboard_dismiss = Some(behavior);
         self
     }
 
@@ -563,6 +577,10 @@ impl<Msg> Widget<Msg> for ListView<Msg> {
                 .unwrap_or(self.axis == Axis::Vertical)
                 .then_some(ScrollPhysics::ALWAYS)
         })
+    }
+
+    fn keyboard_dismiss_behavior(&self) -> Option<crate::KeyboardDismissBehavior> {
+        self.keyboard_dismiss
     }
 
     fn scroll_reverse(&self) -> bool {
