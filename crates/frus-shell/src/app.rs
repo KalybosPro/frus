@@ -16598,3 +16598,127 @@ mod listview_selection_tests {
         );
     }
 }
+
+/// A selection over a list whose rows have keys (milestone 748): an item inserted above the
+/// selected row leaves the selection on that row.
+#[cfg(all(test, desktop))]
+mod keyed_row_selection_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{
+        keyed, ChildKey, Container, Flex, KeyStroke, ListView, Point, Rect, SelectionArea,
+        ShortcutKey, Text, Theme, Widget,
+    };
+
+    const W: f32 = 400.0;
+    const H: f32 = 320.0;
+
+    /// Twenty rows in a selection area, keyed by their label or not; a message puts a new
+    /// row at the top.
+    struct Rows {
+        items: Vec<String>,
+        keyed: bool,
+    }
+
+    impl Application for Rows {
+        type Message = ();
+
+        fn update(&mut self, _message: ()) -> Command<()> {
+            self.items.insert(0, "new row".to_string());
+            Command::none()
+        }
+
+        fn theme(&self) -> Theme {
+            Theme::default().with_platform(frus_widgets::TargetPlatform::Android)
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<()>> {
+            let (items, found) = (self.items.clone(), self.items.clone());
+            let keyed_rows = self.keyed;
+            let list = ListView::builder(items.len(), move |i| -> Box<dyn Widget<()>> {
+                let row = Text::new(items[i].clone()).no_wrap();
+                match keyed_rows {
+                    true => Box::new(keyed(items[i].clone(), row)),
+                    false => Box::new(row),
+                }
+            })
+            .estimated_extent(20.0)
+            .find_child_index(move |key: ChildKey| found.iter().position(|item| key.is(item)))
+            .width(W)
+            .height(200.0);
+            Box::new(
+                Container::new()
+                    .width(W)
+                    .height(H)
+                    .child(Flex::column().child(SelectionArea::around(list))),
+            )
+        }
+    }
+
+    fn driver(keyed: bool) -> Driver<Rows> {
+        let items = (0..20).map(|i| format!("item {i:02}")).collect();
+        let mut d = Driver::new(Rows { items, keyed }, W, H);
+        d.run(0.2);
+        d
+    }
+
+    fn drawn(d: &Driver<Rows>, label: &str) -> Rect {
+        d.texts()
+            .into_iter()
+            .find(|(text, _)| text == label)
+            .map(|(_, rect)| rect)
+            .unwrap_or_else(|| panic!("{label:?} is drawn"))
+    }
+
+    /// Selects the whole of the row reading `label` with a drag across it.
+    fn select_row(d: &mut Driver<Rows>, label: &str) {
+        let rect = drawn(d, label);
+        let (from, to) = (
+            Point::new(rect.x + 0.5, rect.y + rect.height / 2.0),
+            Point::new(W - 20.0, rect.y + rect.height / 2.0),
+        );
+        d.press_mouse(from);
+        d.run(0.05);
+        d.move_mouse(Point::new(from.x + 30.0, from.y));
+        d.run(0.05);
+        d.move_mouse(to);
+        d.run(0.05);
+        d.release_mouse(to);
+        d.run(0.05);
+    }
+
+    fn copy(d: &mut Driver<Rows>) -> Option<String> {
+        d.key(KeyStroke::new(ShortcutKey::Char('c')).ctrl());
+        d.clipboard()
+    }
+
+    /// **A row inserted above a selected keyed row leaves the selection on the row**, which
+    /// has moved down one: Copy still gives its words. Before, the list knew its rows by
+    /// index, and the selection stayed at the index — on the row that came down into it.
+    #[test]
+    fn the_selection_stays_on_a_keyed_row_when_a_row_is_inserted_above() {
+        let mut d = driver(true);
+        select_row(&mut d, "item 03");
+        assert_eq!(copy(&mut d).as_deref(), Some("item 03"));
+        let before = drawn(&d, "item 03");
+        d.update(());
+        d.run(0.1);
+        assert!(drawn(&d, "item 03").y > before.y, "the row moved down");
+        assert_eq!(
+            copy(&mut d).as_deref(),
+            Some("item 03"),
+            "the selection moved with it"
+        );
+    }
+
+    /// Without keys, a row is its index, and the selection stays where it was: on the row
+    /// that is now there. That is what a key is for.
+    #[test]
+    fn without_keys_the_selection_stays_at_the_index() {
+        let mut d = driver(false);
+        select_row(&mut d, "item 03");
+        d.update(());
+        d.run(0.1);
+        assert_eq!(copy(&mut d).as_deref(), Some("item 02"));
+    }
+}
