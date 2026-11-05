@@ -1484,6 +1484,10 @@ impl Scene {
     }
 
     /// Adds a soft shadow — a rounded rectangle with a blurred edge, no border.
+    ///
+    /// `rect` and `radius` are the shape grown by `blur`. The shape is blurred by a gaussian
+    /// of deviation `0.57735 × blur + 0.5`, drawn out to three deviations: a little beyond
+    /// `rect`, where the fade has truly ended (milestone 746).
     pub fn shadow(&mut self, rect: Rect, color: Color, radius: impl Into<BorderRadius>, blur: f32) {
         self.styled_shadow(rect, color, radius, blur, BlurStyle::Normal);
     }
