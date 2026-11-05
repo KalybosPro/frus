@@ -31,7 +31,7 @@ use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
 use crate::selectiontoolbar::{ToolbarContext, ToolbarItem};
 use crate::text::{area_bar, paint_grips, paint_highlight, AreaBars, Selection};
-use crate::textinput::{handles_in, move_caret, selection_box_in, word_range};
+use crate::textinput::{caret_key_in, handles_in, move_caret, selection_box_in, word_range};
 use crate::theme::Theme;
 use crate::widget::Widget;
 
@@ -587,6 +587,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for RichText {
         range: (usize, usize),
     ) -> Option<(Rect, &dyn Widget<Msg>)> {
         let edit = Edit {
+            affinity: Default::default(),
             cursor: range.1,
             anchor: Some(range.0),
             composing: None,
@@ -607,9 +608,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for RichText {
         local_y: f32,
         width: f32,
         _scroll_cursor: usize,
-    ) -> Option<usize> {
+    ) -> Option<frus_core::TextPosition> {
         let layout = self.selection_layout(width)?;
-        Some(layout.hit_test(Point::new(local_x, local_y)))
+        Some(layout.position_at(Point::new(local_x, local_y)))
     }
 
     fn word_at(&self, index: usize) -> Option<(usize, usize)> {
@@ -637,8 +638,19 @@ impl<Msg: Clone + 'static> Widget<Msg> for RichText {
         if move_caret(&chars, &mut cursor, &mut anchor, key) {
             edit.cursor = cursor;
             edit.anchor = anchor;
+            edit.affinity = frus_core::TextAffinity::Downstream;
         }
         None
+    }
+
+    /// The caret's keys over the words as they are drawn: on screen through a line that
+    /// mixes directions, and to the ends of the line the caret is on.
+    fn caret_key(&self, width: f32, edit: &mut Edit, key: &Key) -> bool {
+        let Some(layout) = self.selection_layout(width) else {
+            return false;
+        };
+        let chars: Vec<char> = self.plain.chars().collect();
+        caret_key_in(&chars, &layout, edit, key)
     }
 
     fn selection_handles(
@@ -971,6 +983,7 @@ mod tests {
     fn a_selectable_paragraph_selects_across_its_runs() {
         let rich = mixed().selectable();
         let edit = Edit {
+            affinity: Default::default(),
             cursor: 8,
             anchor: Some(3),
             composing: None,
@@ -1098,6 +1111,7 @@ mod tests {
         assert!(rects[0].x + rects[0].width <= 310.0 + 0.5, "{rects:?}");
         assert_eq!(hit(&rich, 5.0, 200.0), Some(len));
         let edit = Edit {
+            affinity: Default::default(),
             cursor: len,
             anchor: Some(0),
             composing: None,

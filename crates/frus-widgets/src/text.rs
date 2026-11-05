@@ -17,8 +17,8 @@ use crate::interaction::{Key, Status};
 use crate::runtime::Edit;
 use crate::selectiontoolbar::{SelectionToolbar, ToolbarContext, ToolbarItem};
 use crate::textinput::{
-    handle_at, handles_in, move_caret, paint_handle, paint_handles, selection_box_in, word_range,
-    ToolbarBuild,
+    caret_key_in, handle_at, handles_in, move_caret, paint_handle, paint_handles, selection_box_in,
+    word_range, ToolbarBuild,
 };
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -246,6 +246,7 @@ pub(crate) fn paint_grips(
         return;
     };
     let edit = Edit {
+        affinity: Default::default(),
         cursor: end,
         anchor: Some(start),
         composing: None,
@@ -1119,6 +1120,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
         let layout = self.text_layout(width);
         let len = self.content.chars().count();
         let edit = Edit {
+            affinity: Default::default(),
             cursor: range.1,
             anchor: Some(range.0),
             composing: None,
@@ -1134,9 +1136,9 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
         local_y: f32,
         width: f32,
         _scroll_cursor: usize,
-    ) -> Option<usize> {
+    ) -> Option<frus_core::TextPosition> {
         let layout = self.selection_layout(width)?;
-        Some(layout.hit_test(Point::new(local_x, local_y)))
+        Some(layout.position_at(Point::new(local_x, local_y)))
     }
 
     fn word_at(&self, index: usize) -> Option<(usize, usize)> {
@@ -1165,8 +1167,19 @@ impl<Msg: Clone + 'static> Widget<Msg> for Text {
         if move_caret(&chars, &mut cursor, &mut anchor, key) {
             edit.cursor = cursor;
             edit.anchor = anchor;
+            edit.affinity = frus_core::TextAffinity::Downstream;
         }
         None
+    }
+
+    /// The caret's keys over the words as they are drawn: on screen through a line that
+    /// mixes directions, and to the ends of the line the caret is on.
+    fn caret_key(&self, width: f32, edit: &mut Edit, key: &Key) -> bool {
+        let Some(layout) = self.selection_layout(width) else {
+            return false;
+        };
+        let chars: Vec<char> = self.content.chars().collect();
+        caret_key_in(&chars, &layout, edit, key)
     }
 
     fn selection_handles(
@@ -2215,11 +2228,12 @@ mod selectable_tests {
     const WORDS: &str = "one two three four five six seven eight nine ten";
 
     fn hit(text: &Text, x: f32, y: f32, width: f32) -> Option<usize> {
-        Widget::<()>::cursor_at(text, x, y, width, 0)
+        Widget::<()>::cursor_at(text, x, y, width, 0).map(|p| p.offset)
     }
 
     fn selected(cursor: usize, anchor: Option<usize>) -> Edit {
         Edit {
+            affinity: Default::default(),
             cursor,
             anchor,
             composing: None,

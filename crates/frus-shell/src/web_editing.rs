@@ -80,6 +80,7 @@ pub(crate) fn read(element: &Element) -> (String, Edit) {
         (length > 0 && length <= end).then(|| (end - length, end))
     });
     let edit = Edit {
+        affinity: Default::default(),
         cursor,
         anchor: (anchor != cursor).then_some(anchor),
         composing,
@@ -187,6 +188,7 @@ pub(crate) fn browser_change<Msg>(
         cursor: end,
         anchor: (start < end).then_some(start),
         composing: None,
+        affinity: Default::default(),
     };
     let key = if inserted.is_empty() {
         frus_widgets::Key::Backspace
@@ -771,18 +773,21 @@ mod tests {
         };
         assert_eq!(selection("a😀b", &caret), (3, 3, false));
         let backwards = Edit {
+            affinity: Default::default(),
             cursor: 0,
             anchor: Some(2),
             composing: None,
         };
         assert_eq!(selection("a😀b", &backwards), (0, 3, true));
         let forwards = Edit {
+            affinity: Default::default(),
             cursor: 3,
             anchor: Some(1),
             composing: None,
         };
         assert_eq!(selection("a😀b", &forwards), (1, 4, false));
         let past = Edit {
+            affinity: Default::default(),
             cursor: 9,
             anchor: Some(7),
             composing: None,
@@ -920,6 +925,7 @@ mod tests {
             cursor: 3,
             anchor: None,
             composing: Some((1, 3)),
+            affinity: Default::default(),
         };
         let (message, edit) = browser_change(&upper, "Xyz", typed);
         assert_eq!(message.as_deref(), Some("XYZ"));
