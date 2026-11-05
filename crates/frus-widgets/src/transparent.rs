@@ -204,6 +204,14 @@ macro_rules! forward_transparent {
                 self.inner.on_tap_outside()
             }
 
+            fn tap_outside(&self, theme: &$crate::Theme) -> $crate::TapOutside {
+                self.inner.tap_outside(theme)
+            }
+
+            fn keyboard_dismiss_behavior(&self) -> Option<$crate::KeyboardDismissBehavior> {
+                self.inner.keyboard_dismiss_behavior()
+            }
+
             fn paint_over(
                 &self,
                 bounds: frus_core::Rect,
@@ -246,17 +254,26 @@ macro_rules! forward_transparent {
                 self.inner.on_edit(edit, key)
             }
 
+            fn caret_key(
+                &self,
+                width: f32,
+                edit: &mut $crate::runtime::Edit,
+                key: &$crate::interaction::Key,
+            ) -> bool {
+                self.inner.caret_key(width, edit, key)
+            }
+
             fn cursor_at(
                 &self,
                 local_x: f32,
                 local_y: f32,
                 width: f32,
                 scroll_cursor: usize,
-            ) -> Option<usize> {
+            ) -> Option<frus_core::TextPosition> {
                 self.inner.cursor_at(local_x, local_y, width, scroll_cursor)
             }
 
-            fn text_metrics(&self, width: f32, cursor: usize) -> Option<(f32, f32, f32, f32)> {
+            fn text_metrics(&self, width: f32, cursor: frus_core::TextPosition) -> Option<(f32, f32, f32, f32)> {
                 self.inner.text_metrics(width, cursor)
             }
 
@@ -267,11 +284,11 @@ macro_rules! forward_transparent {
             fn caret_vertical(
                 &self,
                 width: f32,
-                cursor: usize,
+                cursor: frus_core::TextPosition,
                 down: bool,
                 page: bool,
                 goal_x: Option<f32>,
-            ) -> Option<(usize, f32)> {
+            ) -> Option<(frus_core::TextPosition, f32)> {
                 self.inner
                     .caret_vertical(width, cursor, down, page, goal_x)
             }

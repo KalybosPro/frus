@@ -25,6 +25,7 @@ use std::hash::{Hash, Hasher};
 
 use frus_core::{TargetPlatform, VelocityStrategy, VelocityTracker};
 
+use crate::keyboarddismiss::KeyboardDismissBehavior;
 use crate::physics::{OverscrollIndicator, ScrollDecelerationRate, ScrollPhysics, Scrollbars};
 use crate::theme::Theme;
 use crate::widget::Widget;
@@ -63,6 +64,7 @@ pub struct ScrollBehavior {
     overscroll: bool,
     physics: Option<ScrollPhysics>,
     platform: Option<TargetPlatform>,
+    keyboard_dismiss: KeyboardDismissBehavior,
 }
 
 impl Default for ScrollBehavior {
@@ -84,6 +86,7 @@ impl ScrollBehavior {
             overscroll: true,
             physics: None,
             platform: None,
+            keyboard_dismiss: KeyboardDismissBehavior::Manual,
         }
     }
 
@@ -126,6 +129,25 @@ impl ScrollBehavior {
     pub const fn with_platform(mut self, platform: TargetPlatform) -> Self {
         self.platform = Some(platform);
         self
+    }
+
+    /// The same behaviour, with scrollables that do `behavior` to the focus when a finger
+    /// drags them (milestone 750) — [`KeyboardDismissBehavior::OnDrag`] for every list of a
+    /// subtree that should put the keyboard away as it scrolls.
+    #[must_use]
+    pub const fn with_keyboard_dismiss_behavior(
+        mut self,
+        behavior: KeyboardDismissBehavior,
+    ) -> Self {
+        self.keyboard_dismiss = behavior;
+        self
+    }
+
+    /// What a drag on a scrollable under this behaviour does to the focus, when the
+    /// scrollable has no answer of its own: [`KeyboardDismissBehavior::Manual`], nothing,
+    /// unless the behaviour was given another.
+    pub const fn keyboard_dismiss_behavior(&self) -> KeyboardDismissBehavior {
+        self.keyboard_dismiss
     }
 
     /// The platform this behaviour follows under `theme`: the one it was given, else the

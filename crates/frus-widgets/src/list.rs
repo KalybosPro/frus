@@ -188,6 +188,8 @@ pub struct ListView<Msg = crate::callback::Callback> {
     sized: (bool, bool),
     flex_grow: f32,
     physics: Option<ScrollPhysics>,
+    /// What a finger dragging it does to the focus; `None` follows the scroll behaviour.
+    keyboard_dismiss: Option<crate::KeyboardDismissBehavior>,
     /// Whether it is the page's primary scroll view; see [`ListView::primary`].
     primary: Option<bool>,
     reverse: bool,
@@ -200,6 +202,11 @@ pub struct ListView<Msg = crate::callback::Callback> {
     build: Box<dyn Fn(usize) -> Box<dyn Widget<Msg>>>,
     /// Each item as long as it needs; `item_extent` the guess for those not seen yet.
     variable: bool,
+    /// Where the offset is kept for restoration; see [`ListView::restoration_id`].
+    restoration: Option<Vec<String>>,
+    /// The restoration scope the rows are built in: the list's own, below which each row
+    /// has a scope `row <index>` (milestone 753).
+    rows_scope: std::rc::Rc<std::cell::RefCell<crate::restoration::Scope>>,
     /// Whether rows out of view keep their state by default; see [`ListView::keep_alive`].
     keep_alive: bool,
     /// See [`ListView::find_child_index`].
@@ -218,6 +225,9 @@ impl<Msg> ListView<Msg> {
         item_extent: f32,
         build: impl Fn(usize) -> W + 'static,
     ) -> Self {
+        let rows_scope =
+            std::rc::Rc::new(std::cell::RefCell::new(crate::restoration::current_scope()));
+        let rows = rows_scope.clone();
         Self {
             count,
             item_extent,
@@ -227,13 +237,23 @@ impl<Msg> ListView<Msg> {
             sized: (false, false),
             flex_grow: 0.0,
             physics: None,
+            keyboard_dismiss: None,
             primary: None,
             reverse: false,
             padding: Insets::ZERO,
             on_scroll: None,
             grain: 0.0,
-            build: Box::new(move |index| Box::new(build(index)) as Box<dyn Widget<Msg>>),
+            build: Box::new(move |index| {
+                // A row is built during the layout, after the page's build has returned:
+                // it is put back in the scope the list was made in, in a bucket of its own.
+                let scope =
+                    crate::restoration::scope_below(&rows.borrow(), &format!("row {index}"));
+                let _scope = crate::restoration::enter_scope(scope);
+                Box::new(build(index)) as Box<dyn Widget<Msg>>
+            }),
             variable: false,
+            restoration: None,
+            rows_scope,
             keep_alive: false,
             find_child_index: None,
         }
@@ -272,6 +292,21 @@ impl<Msg> ListView<Msg> {
         if self.variable {
             self.item_extent = extent;
         }
+        self
+    }
+
+    /// Keeps how far the list is scrolled across the end of the process (milestone 753):
+    /// when the application has restoration on, the offset is kept under `id` and a process
+    /// the system started again opens the list where it was. `id` must be unique within its
+    /// scope — the page, or a [`restoration_scope`](crate::restoration_scope).
+    ///
+    /// The rows are built in a restoration scope of their own, `row <index>` — below this
+    /// id when the list has one — so a field in a row is given a `restoration_id` that is
+    /// unique within its row. What a row keeps follows its index.
+    pub fn restoration_id(mut self, id: &str) -> Self {
+        let path = crate::restoration::path_here(id);
+        *self.rows_scope.borrow_mut() = std::rc::Rc::from(path.clone());
+        self.restoration = Some(path);
         self
     }
 
@@ -343,6 +378,17 @@ impl<Msg> ListView<Msg> {
     /// [`crate::scroll::SingleChildScrollView::physics`].
     pub fn physics(mut self, physics: ScrollPhysics) -> Self {
         self.physics = Some(physics);
+        self
+    }
+
+    /// What a finger **dragging the list** does to the focus (milestone 750):
+    /// [`KeyboardDismissBehavior::OnDrag`](crate::KeyboardDismissBehavior::OnDrag) lets the
+    /// focused field, and the on-screen keyboard, go as soon as it starts scrolling;
+    /// [`Manual`](crate::KeyboardDismissBehavior::Manual) keeps them. Unset, the
+    /// [`ScrollBehavior`](crate::ScrollBehavior) in force decides — `Manual` unless told
+    /// otherwise.
+    pub fn keyboard_dismiss_behavior(mut self, behavior: crate::KeyboardDismissBehavior) -> Self {
+        self.keyboard_dismiss = Some(behavior);
         self
     }
 
@@ -456,6 +502,19 @@ impl<Msg> ListView<Msg> {
 }
 
 impl<Msg> Widget<Msg> for ListView<Msg> {
+    /// Registers the offset under its restoration id, if it has one (milestone 753).
+    fn build_in(
+        &self,
+        id: crate::interaction::WidgetId,
+        runtime: &crate::runtime::Runtime,
+        theme: &crate::theme::Theme,
+    ) {
+        if let Some(path) = &self.restoration {
+            runtime.restoration.register_scroll(path.clone(), id);
+        }
+        self.build_themed(theme)
+    }
+
     fn style(&self) -> Style {
         Style {
             width: self.width,
@@ -518,6 +577,10 @@ impl<Msg> Widget<Msg> for ListView<Msg> {
                 .unwrap_or(self.axis == Axis::Vertical)
                 .then_some(ScrollPhysics::ALWAYS)
         })
+    }
+
+    fn keyboard_dismiss_behavior(&self) -> Option<crate::KeyboardDismissBehavior> {
+        self.keyboard_dismiss
     }
 
     fn scroll_reverse(&self) -> bool {

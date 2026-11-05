@@ -297,6 +297,7 @@ mod tests {
             reverse_y: false,
             keep_visible: None,
             host: None,
+            keyboard_dismiss: Default::default(),
         }
     }
 
