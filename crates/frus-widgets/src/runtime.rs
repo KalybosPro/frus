@@ -819,8 +819,11 @@ pub struct Runtime {
     /// Time elapsed (seconds) since start-up, for continuous animations.
     pub time: f32,
     /// Was the last interaction a **keyboard** one? The generic focus ring is only
-    /// painted in that case (`FocusHighlightMode`: a click must not flash a ring).
-    /// The focus itself stays active.
+    /// painted in that case — [`FocusHighlightMode::Traditional`](crate::FocusHighlightMode):
+    /// a tap or a click must not leave a ring. The focus itself stays active. The shell
+    /// sets it from the last input and the application's
+    /// [`FocusHighlightStrategy`](crate::FocusHighlightStrategy); read it as a mode with
+    /// [`Runtime::focus_highlight_mode`].
     pub focus_visible: bool,
     /// Relayout-boundary cache (rects retained per layout root, from one frame to
     /// the next). Interior mutability: `build_ui` updates it while holding only a
@@ -836,6 +839,16 @@ pub struct Runtime {
 }
 
 impl Runtime {
+    /// Whether the focus is shown now: [`Traditional`](crate::FocusHighlightMode::Traditional)
+    /// after a key, [`Touch`](crate::FocusHighlightMode::Touch) after a touch or a click.
+    pub fn focus_highlight_mode(&self) -> crate::FocusHighlightMode {
+        if self.focus_visible {
+            crate::FocusHighlightMode::Traditional
+        } else {
+            crate::FocusHighlightMode::Touch
+        }
+    }
+
     /// A widget's animated hover progress.
     pub fn hover_progress(&self, id: WidgetId) -> f32 {
         self.anims.get(&id).map(|a| a.hover).unwrap_or(0.0)

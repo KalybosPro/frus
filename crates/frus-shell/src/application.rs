@@ -372,6 +372,17 @@ pub trait Application {
         frus_widgets::ScrollBehavior::material()
     }
 
+    /// **When the focus is shown** — a ring around the widget that holds it (milestone 752).
+    ///
+    /// The default, [`frus_widgets::FocusHighlightStrategy::Automatic`], follows the last
+    /// input: a touch or a click hides the rings, a key from a keyboard or a remote shows
+    /// them. The system's Back and the keys an on-screen keyboard types are not keyboard
+    /// use. An application driven by a remote alone may answer `AlwaysTraditional`; one
+    /// that draws its own focus, `AlwaysTouch`.
+    fn focus_highlight_strategy(&self) -> frus_widgets::FocusHighlightStrategy {
+        frus_widgets::FocusHighlightStrategy::Automatic
+    }
+
     /// **The languages this application has** (`app.dart`'s `supportedLocales`), best
     /// first — the answer to *what can I actually show this reader?*
     ///
