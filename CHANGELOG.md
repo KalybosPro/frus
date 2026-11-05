@@ -13,6 +13,8 @@ any release may break.
 
 ## [Unreleased]
 
+- **The website is frus.dev**: every crate's `homepage` points to https://frus.dev, and both
+  READMEs link to it first. The widget gallery stays at https://frus-rs.github.io/frus/.
 - **WebGL 2 where there is no WebGPU** (J745): on the web, frus drew through WebGPU alone, and a
   browser without it — Chrome on Android before Android 12, a GPU the browser blocks — showed an
   empty, dark page. The renderer now draws through WebGPU where the browser gives an adapter and a
