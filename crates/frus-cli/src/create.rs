@@ -1121,4 +1121,39 @@ mod tests {
             }
         }
     }
+
+    /// Every page lays itself under a notch and the rounded corners (milestone 751):
+    /// without `viewport-fit=cover`, a browser reports every safe-area inset as zero and
+    /// letterboxes the page instead, so the shell has nothing to give the application.
+    #[test]
+    fn every_page_asks_for_the_whole_screen_and_its_safe_areas() {
+        let checkout = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+        let mut pages = vec![
+            checkout.join("crates/frus-cli/template/web/index.html"),
+            checkout.join("crates/frus-hello/web/index.html"),
+            checkout.join("crates/frus-demo/web/index.html"),
+            checkout.join("frus-examples/forge/frontend/forge/web/index.html"),
+        ];
+        for example in fs::read_dir(checkout.join("frus-examples")).unwrap() {
+            let page = example.unwrap().path().join("web").join("index.html");
+            if page.exists() {
+                pages.push(page);
+            }
+        }
+        assert!(pages.len() >= 12, "{pages:?}");
+        for path in pages {
+            let page = fs::read_to_string(&path).unwrap();
+            let viewport = page
+                .lines()
+                .find(|line| line.contains("name=\"viewport\""))
+                .unwrap_or_else(|| panic!("{}: no viewport meta", path.display()));
+            for wanted in [
+                "width=device-width",
+                "initial-scale=1",
+                "viewport-fit=cover",
+            ] {
+                assert!(viewport.contains(wanted), "{}: {viewport}", path.display());
+            }
+        }
+    }
 }
