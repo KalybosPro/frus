@@ -38,10 +38,10 @@ offline (airplane mode), too slow, not found, a server error.
 ## Run it
 
 ```sh
-cargo run                    # the list
-cargo run -- /posts/1        # opens a post directly (the list is beneath it)
-cargo run -- /posts/new      # opens the form
-cargo apk run --lib          # Android
+frus run                     # the list
+frus run -- /posts/1         # opens a post directly (the list is beneath it)
+frus run -- /posts/new       # opens the form
+frus run -d android          # Android
 ```
 
 On Android the app must ask for the `INTERNET` permission — `Cargo.toml` does, under
@@ -49,12 +49,17 @@ On Android the app must ask for the `INTERNET` permission — `Cargo.toml` does,
 were offline. On the Web the address bar plays the part of the command line.
 
 ```sh
-cargo test                   # URLs, JSON decoding, error mapping, page state — no network
+frus test                    # URLs, JSON decoding, error mapping, page state — no network
 ```
 
 ## Web
 
-Once: `rustup target add wasm32-unknown-unknown` and
+```sh
+frus run -d web          # build, serve on http://localhost:8080 and open the browser
+frus build web           # release: web/, with the application compiled into web/pkg/
+```
+
+By hand, once: `rustup target add wasm32-unknown-unknown` and
 `cargo install wasm-bindgen-cli --version 0.2.127` (the version must match `wasm-bindgen` in
 `Cargo.lock`). Then build, generate the JavaScript glue into `web/pkg/`, and serve `web/`:
 

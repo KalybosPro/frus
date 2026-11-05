@@ -7,6 +7,18 @@ Web entry `#[wasm_bindgen(start)]` itself — which calls `frus_shell::run_web` 
 as it generates the desktop and Android ones. The app writes **nothing**
 platform-specific.
 
+## With the `frus` tool
+
+From `crates/frus-hello`:
+
+```bash
+frus run -d web      # build, serve on http://localhost:8080 and open the browser
+frus build web       # the site in release: web/, with the application in web/pkg/
+```
+
+It installs the wasm target and the matching `wasm-bindgen` itself. The rest of this page is
+the same by hand.
+
 ## Prerequisites (once)
 
 ```bash

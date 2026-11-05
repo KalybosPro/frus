@@ -9,6 +9,9 @@ application made of a router looks like on the web:
   `…/#/task/3` — comes back to the same screen, with home underneath.
 - **The tasks are kept in the page's `localStorage`**, there being no disk to write to.
 
+From `crates/frus-demo`, `frus run -d web` builds it, serves it and opens the browser, and
+`frus build web` makes the site. By hand:
+
 See the [`frus-hello` page](../../frus-hello/web/README.md) for the prerequisites (the wasm
 target and a matching `wasm-bindgen-cli`) and for serving; the demo differs only in its names:
 

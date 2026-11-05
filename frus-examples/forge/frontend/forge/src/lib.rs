@@ -1,7 +1,7 @@
 //! `forge` — a frus application: a counter, built from a component.
 //!
-//! - Desktop: `cargo run`
-//! - Android: `cargo apk run`   (see https://… the getting-started guide)
+//! - Desktop: `frus run`
+//! - Android: `frus run -d android`   (see https://… the getting-started guide)
 
 // A **single** dependency: the `frus` facade provides everything (framework layer +
 // widgets + DSL).

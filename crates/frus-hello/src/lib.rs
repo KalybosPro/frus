@@ -8,7 +8,7 @@
 //! `StatefulWidget`: the widget is its configuration, its `State` is what stays between
 //! rebuilds, and a button runs a closure that changes it.
 //!
-//! Run it on the desktop with `cargo run -p frus-hello`.
+//! Run it on the desktop with `frus run` in `crates/frus-hello`.
 
 #![deny(missing_docs)]
 

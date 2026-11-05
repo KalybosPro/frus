@@ -13,6 +13,15 @@ any release may break.
 
 ## [Unreleased]
 
+- **The documentation says `frus`, not cargo, wherever a `frus` command does the job.** The
+  README (English and French), the getting-started page, the testing guide, CONTRIBUTING, the
+  template `frus create` writes (its README, manifest comments and code comments), the sample
+  crates and the eight example projects now run applications with `frus run` (`-d android`,
+  `-d web`), ship them with `frus build`, and test them with `frus test`; the cargo, cargo-apk and
+  wasm-bindgen commands stay, as the same steps by hand. `frus create` ends by suggesting
+  `frus run` (`-d android`, `-d web`), no longer `cargo run` and `cargo apk run --lib`. The README's
+  "cargo-native: no `frus doctor`" row and CONTRIBUTING's "No bespoke CLI" principle now
+  describe the tool as it is: one command over cargo, which adds no build system of its own.
 - **State restoration** (J753): an application the system ends in the background — a phone
   short of memory does — comes back on the page it was on, scrolled where it was, with what was
   typed. Opt in with `FrusApp::restoration_scope_id("app")` (`Application::restoration_scope_id`);

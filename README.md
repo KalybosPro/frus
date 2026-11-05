@@ -57,7 +57,7 @@ fn counter(cx: &BuildContext) -> Box<dyn Widget> {
 frus::main!(FrusApp::from_fn(counter));
 ```
 
-That is a complete, runnable application. `cargo run` on desktop, `cargo apk run` on Android, `wasm-bindgen` for the browser — the source does not change.
+That is a complete, runnable application. `frus run` on the desktop, `frus run -d android` on a phone, `frus run -d web` in the browser — the source does not change.
 
 ### Components, state, controllers, routes
 
@@ -94,7 +94,7 @@ The router keeps a stack of pages, slides between them, answers the back gesture
 | **Components you can test without a window** | A component is a value that says what it looks like, and its state is plain Rust beside it. Made, updated, disposed: the whole lifecycle runs in tests with no GPU and no window — as do more than 1,900 of this repo's tests. |
 | **GPU-native rendering** | `wgpu` targets Vulkan, Metal, DX12, and WebGPU from one backend. Vector paths are tessellated with `lyon`; text is shaped by `cosmic-text`. |
 | **Everything is overridable** | Widgets ship themed defaults, never hardcoded ones. If a widget paints it, you can restyle it or swap the slot. |
-| **cargo-native** | No `frus doctor`, no custom package manager, no generated build directory. `cargo build`, `cargo test`, `cargo apk run`. |
+| **One command, cargo underneath** | `frus run`, `frus build`, `frus test` on every platform, and whatever the machine lacks is installed on the way. An application stays an ordinary crate: no custom package manager, no generated build directory, and `cargo build` / `cargo test` still work. |
 
 ## Learn frus
 
@@ -160,13 +160,14 @@ They are regenerated after a change rather than slowly going stale.</sub>
 **Prerequisites:** Rust **1.88** or newer — the minimum supported version, checked in CI — and a GPU with Vulkan, Metal, or DX12 drivers.
 
 ```sh
+cargo install frus-cli                 # once: the `frus` command
 git clone https://github.com/frus-rs/frus
 cd frus
 
-cargo run -p frus-hello        # the counter above
-cargo run -p frus-demo         # a larger todo/kanban app
-cargo run -p frus-transforms   # animation and transform showcase
-cargo test --workspace         # ~2,180 tests; the rendering ones need a GPU
+cd crates/frus-hello && frus run       # the counter above (`-d android`, `-d web` too)
+cd ../frus-demo && frus run            # a larger todo/kanban app
+cd ../frus-transforms && frus run      # animation and transform showcase
+cd ../.. && cargo test --workspace     # ~2,180 tests; the rendering ones need a GPU
 ```
 
 ### Start your own app
@@ -219,7 +220,7 @@ frus run -d android            # build, install, start, and show logcat
 ```
 
 The first run installs what is missing: the Android SDK and NDK, Java, the Rust target,
-cargo-apk. Without the tool: `cargo apk run --lib`, with `ANDROID_HOME` / `ANDROID_NDK_ROOT` set.
+cargo-apk. `frus build apk` makes the package you ship.
 
 ### Web
 

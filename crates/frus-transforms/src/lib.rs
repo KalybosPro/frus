@@ -14,7 +14,7 @@
 //! The full Elm model: a small state, a pure `update`, a subscription keeping time
 //! (about 60 fps, silent when paused), and a pure `view`.
 //!
-//! Run on desktop with `cargo run -p frus-transforms`.
+//! Run on desktop with `frus run` in `crates/frus-transforms`.
 
 #![deny(missing_docs)]
 

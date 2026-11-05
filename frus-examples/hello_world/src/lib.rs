@@ -1,7 +1,7 @@
 //! `hello_world` — the smallest frus application, laid out the way a real one is.
 //!
-//! - Desktop: `cargo run`
-//! - Android: `cargo apk run --lib`
+//! - Desktop: `frus run`
+//! - Android: `frus run -d android`
 //!
 //! A frus application is a root widget handed to `frus::main!`. Here it is
 //! `HomePage`, a `StatelessWidget`: it has nothing to remember, so it only says what it
