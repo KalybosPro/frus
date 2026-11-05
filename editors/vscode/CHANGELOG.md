@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Hot reload by default**: with a frus that patches by default (milestone 754), a save is patched
+  into the running application. `"hot": false` in a launch configuration restarts to reload
+  instead; `"hot"` left out lets frus decide.
+
 ## 0.2.0
 
 - **Simulated phones and tablets** (frus 0.5): the picker has a **Simulated** section — an

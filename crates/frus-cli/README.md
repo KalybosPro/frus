@@ -51,29 +51,36 @@ The template is built into the program, so `frus create` needs no network. Its f
 
 ```text
 frus devices
-frus run [-d <device>] [--release] [--hot] [--port <port>] [-- <args for the application>]
+frus run [-d <device>] [--release] [--no-hot | --hot] [--port <port>] [-- <args for the application>]
 ```
 
-**`--hot`** (desktop, web and Android): true hot reload. The application keeps running, and each change you save is
-compiled into a patch and applied to it in place, with every state where it was, in a few
-seconds. `R` still starts it again afresh. The first run installs the engine (a few minutes,
-once, into `~/.frus/tools`) and builds the application for patching (into `target/frus-hot/`,
-without changing its manifest). A patch cannot change the shape of a state that is alive (a
-field added): `R` for that.
+**Hot reload** is how a debug build runs, on the desktop, the web and Android: the application
+keeps running, and each change you save is compiled into a patch and applied to it in place,
+with every state where it was, in a few seconds. `R` still starts it again afresh. The first
+run installs the engine (about twenty minutes, once, into `~/.frus/tools`) and builds the
+application for patching (into `target/frus-hot/`, without changing its manifest). A patch
+cannot change the shape of a state that is alive (a field added): `R` for that.
 
-On the web (`frus run --hot -d web`), the page is served by `frus run` as without `--hot`, its
+**`--no-hot`** runs without it: `r` then rebuilds and restarts the application, with the state
+of every component that keeps one (see the keys below). A release build (`--release`) runs that
+way too, unless **`--hot`** is given; `--hot` also makes a missing engine an error, where by
+default a machine that cannot install it (Linux without OpenSSL's headers, say) runs with
+restarts and says why.
+
+On the web (`frus run -d web`), the page is served by `frus run` as with `--no-hot`, its
 module built by the engine; each patch is linked into the running page, which does not reload.
 The first patch of a run takes longer (half a minute on a debug build), the next ones a few
 seconds. A page that is reloaded gets the latest patch again as it starts.
 
-On Android (`frus run --hot -d <device>`), the engine builds the application into an Android
+On Android (`frus run -d <device>`), the engine builds the application into an Android
 project of its own (a plain native activity, so nothing about the application changes), installs
 it and starts it; each patch is pushed to the device and loaded into the running application.
 The first build is long — the whole application and the Android project, a quarter of an hour
 on a modest machine — and its package is large, for it keeps every symbol a patch may need.
 Patches then take ten to twenty-five seconds. `R` builds again, installs and starts afresh (a
-minute or two). The package installed by `frus run` without `--hot` is removed first: Android
-will not replace it with the engine's (its data on the device goes with it).
+minute or two). The package installed by `frus run --no-hot` (or `frus build apk`) is removed first: Android
+will not replace it with the engine's (its data on the device goes with it), and the other way
+round.
 
 On Linux, building the engine needs OpenSSL's headers (`sudo apt install pkg-config
 libssl-dev`); `frus doctor` says whether they are there.
@@ -210,7 +217,7 @@ devices` once it is up, and `frus run -d <its id>` runs on it.
 `frus clean` deletes the application's builds. When its build folder is its own (`target/`),
 all of it; when the folder is shared with other projects (`CARGO_TARGET_DIR`, a workspace), only
 this application's builds, for each platform, and the other projects' are left alone. The web
-build's generated `web/pkg` and `frus run --hot`'s shadow package go too.
+build's generated `web/pkg` and hot reload's shadow package go too.
 
 ## Tests and lints: `frus test`, `frus analyze`
 
@@ -256,7 +263,7 @@ missing — and under it what is wrong, with what to do:
 [!] Android toolchain (android-36.1)
     ✗ cargo-apk is not installed: `frus doctor --fix`
 [✓] Web (Edge)
-[✓] Hot reload (frus run --hot)
+[✓] Hot reload (frus run)
 [!] iOS
     ✗ frus cannot run on iOS yet: its shell does not exist (ROADMAP, issue #19)
 [✓] VS Code (1.142.0)

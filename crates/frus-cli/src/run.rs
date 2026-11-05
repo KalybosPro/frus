@@ -42,13 +42,41 @@ pub(crate) struct RunOptions {
     pub args: Vec<String>,
     /// `--machine`: JSON lines for an editor instead of text for a person (see `report`).
     pub machine: bool,
-    /// `--hot`: true hot reload, the code patched into the running application (desktop, web).
-    pub hot: bool,
+    /// True hot reload: the code patched into the running application (desktop, web, Android).
+    /// `--hot` and `--no-hot` give it; None is the default, which `run` decides once the device is
+    /// known (see `hot_wanted`) — after that it is always given.
+    pub hot: Option<bool>,
     /// The device profile the desktop window stands in for, when `-d` named a simulated device
     /// (milestone 723). Not parsed: `run` sets it once the device is known.
     pub simulate: Option<String>,
     /// `--web`: a simulated device in a browser instead of a desktop window (milestone 724).
     pub web: bool,
+}
+
+impl RunOptions {
+    /// Whether the code is patched into the running application, once `run` has decided.
+    fn patches(&self) -> bool {
+        self.hot == Some(true)
+    }
+}
+
+/// Whether a run patches the code in place (milestone 754). `--hot` and `--no-hot` decide when
+/// given; otherwise a debug build does, on a device that has it. A release build is what ships,
+/// so it runs as it ships: restarted to reload.
+fn hot_wanted(
+    asked: Option<bool>,
+    mode: Mode,
+    hot_here: bool,
+    device: &str,
+) -> Result<bool, String> {
+    match asked {
+        Some(true) if !hot_here => Err(format!(
+            "--hot patches the code of a running application on the desktop, the web and Android \
+             only, for now; on {device} use `r`, which reloads with the state kept"
+        )),
+        Some(asked) => Ok(asked),
+        None => Ok(mode == Mode::Debug && hot_here),
+    }
 }
 
 pub(crate) const DEFAULT_PORT: u16 = 8080;
@@ -211,13 +239,22 @@ fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
             | Kind::Emulator { .. }
             | Kind::Simulated { .. }
     );
-    if options.hot && !hot_here {
-        return Err(format!(
-            "--hot patches the code of a running application on the desktop and the web only, \
-             for now; on {} use `r`, which reloads with the state kept",
-            device.name
-        ));
+    let mut hot = hot_wanted(options.hot, options.mode, hot_here, &device.name)?;
+    // By default, a machine the engine cannot be installed on still runs: with restarts, said
+    // once. Asked for with `--hot`, its absence is an error, as before.
+    if hot && options.hot.is_none() {
+        if let Err(why) = crate::hot::engine() {
+            report::warn(&format!(
+                "hot reload is off for this run: {why}. `r` reloads, every state kept; \
+                 `frus doctor --fix` installs the engine"
+            ));
+            hot = false;
+        }
     }
+    let options = &RunOptions {
+        hot: Some(hot),
+        ..options.clone()
+    };
     if options.web && !matches!(device.kind, Kind::Simulated { .. }) {
         return Err(format!(
             "--web shows a simulated device in a browser (`frus run -d iphone-15 --web`); \
@@ -226,7 +263,7 @@ fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
         ));
     }
     let result = match &device.kind {
-        Kind::Host if options.hot => run_hot(&project, options),
+        Kind::Host if options.patches() => run_hot(&project, options),
         Kind::Host => run_desktop(&project, options),
         // A simulation is a debug build's: a released application never stands in for another
         // device, and the shell ignores `FRUS_DEVICE` there.
@@ -244,20 +281,20 @@ fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
                 Kind::Browser { exe } => Some(exe.as_path()),
                 _ => None,
             });
-            match (options.web, options.hot) {
+            match (options.web, options.patches()) {
                 (true, true) => run_web_hot(&project, browser, &options),
                 (true, false) => run_web(&project, browser, &options),
                 (false, true) => run_hot(&project, &options),
                 (false, false) => run_desktop(&project, &options),
             }
         }
-        Kind::Android { serial } if options.hot => {
+        Kind::Android { serial } if options.patches() => {
             run_android_hot(&project, &device, serial, options)
         }
         Kind::Android { serial } => run_android(&project, &device, serial, options.mode),
         Kind::Emulator { avd } => {
             let serial = start_emulator(avd)?;
-            if options.hot {
+            if options.patches() {
                 run_android_hot(&project, &device, &serial, options)
             } else {
                 run_android(&project, &device, &serial, options.mode)
@@ -268,9 +305,9 @@ fn run_session(options: &RunOptions) -> Result<ExitCode, String> {
              exist (ROADMAP, issue #19). `frus run` will start iOS applications once it does.",
             device.name
         )),
-        Kind::Browser { exe } if options.hot => run_web_hot(&project, Some(exe), options),
+        Kind::Browser { exe } if options.patches() => run_web_hot(&project, Some(exe), options),
         Kind::Browser { exe } => run_web(&project, Some(exe), options),
-        Kind::WebServer if options.hot => run_web_hot(&project, None, options),
+        Kind::WebServer if options.patches() => run_web_hot(&project, None, options),
         Kind::WebServer => run_web(&project, None, options),
     };
     result
@@ -517,6 +554,17 @@ pub(crate) fn is_error_line(line: &str) -> bool {
 
 // --- Desktop, hot ---
 
+/// `r` under hot reload: the save already patched the change in. A person is told so; an editor,
+/// which asks for a reload at every save (milestone 754), is not answered at all.
+fn reload_while_hot() {
+    if !report::is_machine() {
+        report::say(
+            "With hot reload, saving a file patches it in: there is nothing to press. `R` starts \
+             the application again, every state afresh.",
+        );
+    }
+}
+
 /// `frus run --hot`: `dx serve --hot-patch` on the shadow package (see `hot`), its output read
 /// and turned into the run's own — the application's log, and a line for each patch.
 fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> {
@@ -620,10 +668,7 @@ fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> 
                 return Ok(ExitCode::SUCCESS);
             }
             Some(Action::Help) => report::say(KEYS),
-            Some(Action::Reload) => report::say(
-                "With --hot, saving a file patches it in: there is nothing to press. `R` starts \
-                 the application again, every state afresh.",
-            ),
+            Some(Action::Reload) => reload_while_hot(),
             Some(Action::Restart) => {
                 restarting = Some(Instant::now());
                 report::say("Restarting: building…");
@@ -1069,93 +1114,93 @@ fn run_android_hot(
     let mut restarting: Option<Instant> = None;
     let mut watch = Watch::default();
     let mut next_check = Instant::now();
-    let end =
-        loop {
-            while let Ok(line) = lines.try_recv() {
-                use crate::hot::DxLine;
-                match line {
-                    // The engine installs and starts the package after this; the keys come once
-                    // the application runs.
-                    DxLine::Launched => {
-                        launched_at.get_or_insert_with(std::time::SystemTime::now);
-                    }
-                    DxLine::Patched { file, millis } => {
-                        let seconds = millis as f64 / 1000.0;
-                        if report::is_machine() {
-                            report::event(
-                                "app.restarted",
-                                object([
-                                    ("fullRestart", false.into()),
-                                    ("seconds", seconds.into()),
-                                ]),
-                            );
-                        } else {
-                            report::say(&format!("Patched {file} in {seconds:.1} s."));
-                        }
-                    }
-                    DxLine::Failed(why) => {
-                        report::warn(&why);
-                        locate_errors(project, &shadow, &target);
-                    }
-                    // The application's log is read from the device (above), not from the engine.
-                    DxLine::App(..) | DxLine::Exited | DxLine::Noise => {}
+    let end = loop {
+        while let Ok(line) = lines.try_recv() {
+            use crate::hot::DxLine;
+            match line {
+                // The engine installs and starts the package after this; the keys come once
+                // the application runs.
+                DxLine::Launched => {
+                    launched_at.get_or_insert_with(std::time::SystemTime::now);
                 }
-            }
-            if let Some(at) = launched_at.filter(|_| !retouched) {
-                if at.elapsed().unwrap_or_default() > Duration::from_secs(8) {
-                    retouched = true;
-                    if let Ok(mirror) = mirror.lock() {
-                        let _ = mirror.retouch_since(at);
+                DxLine::Patched { file, millis } => {
+                    let seconds = millis as f64 / 1000.0;
+                    if report::is_machine() {
+                        report::event(
+                            "app.restarted",
+                            object([("fullRestart", false.into()), ("seconds", seconds.into())]),
+                        );
+                    } else {
+                        report::say(&format!("Patched {file} in {seconds:.1} s."));
                     }
                 }
+                DxLine::Failed(why) => {
+                    report::warn(&why);
+                    locate_errors(project, &shadow, &target);
+                }
+                // The application's log is read from the device (above), not from the engine.
+                DxLine::App(..) | DxLine::Exited | DxLine::Noise => {}
             }
-            if let Some(status) = dx.try_wait().map_err(|e| e.to_string())? {
-                report::warn(&format!("the hot-reload engine stopped ({status})"));
-                break ExitCode::FAILURE;
+        }
+        if let Some(at) = launched_at.filter(|_| !retouched) {
+            if at.elapsed().unwrap_or_default() > Duration::from_secs(8) {
+                retouched = true;
+                if let Ok(mirror) = mirror.lock() {
+                    let _ = mirror.retouch_since(at);
+                }
             }
-            if launched_at.is_some() && Instant::now() >= next_check {
-                next_check = Instant::now() + Duration::from_secs(1);
-                let running = alive();
-                if running && keys.is_none() {
-                    keys = Some(attach(&format!(
-                        "{} is running on {} with hot reload: save a file and the change is \
+        }
+        if let Some(status) = dx.try_wait().map_err(|e| e.to_string())? {
+            report::warn(&format!("the hot-reload engine stopped ({status})"));
+            break ExitCode::FAILURE;
+        }
+        if launched_at.is_some() && Instant::now() >= next_check {
+            next_check = Instant::now() + Duration::from_secs(1);
+            let running = alive();
+            if running && keys.is_none() {
+                keys = Some(attach(&format!(
+                    "{} is running on {} with hot reload: save a file and the change is \
                      patched into it, its state kept",
-                        project.package, device.name
-                    )));
-                }
-                if running {
-                    if let Some(started) = restarting.take() {
-                        restarted(Action::Restart, started, "");
-                    }
-                }
-                // While the engine installs the new build, the application is not there.
-                if keys.is_some() && restarting.is_none() && watch.gone(running) {
-                    report::say(&format!("{} has stopped.", project.package));
-                    break ExitCode::SUCCESS;
+                    project.package, device.name
+                )));
+            }
+            if running {
+                if let Some(started) = restarting.take() {
+                    restarted(Action::Restart, started, "");
                 }
             }
-            let Some(keys) = keys.as_ref() else {
-                std::thread::sleep(Duration::from_millis(100));
-                continue;
-            };
-            match next_action(keys, Duration::from_millis(100)) {
+            // While the engine installs the new build, the application is not there.
+            if keys.is_some() && restarting.is_none() && watch.gone(running) {
+                report::say(&format!("{} has stopped.", project.package));
+                break ExitCode::SUCCESS;
+            }
+        }
+        let Some(keys) = keys.as_ref() else {
+            std::thread::sleep(Duration::from_millis(100));
+            continue;
+        };
+        match next_action(keys, Duration::from_millis(100)) {
             Some(Action::Quit) => {
                 let _ = adb_on(&["shell", "am", "force-stop", package]).output();
                 break ExitCode::SUCCESS;
             }
             Some(Action::Help) => report::say(KEYS),
-            Some(Action::Reload) => report::say(
-                "With --hot, saving a file patches it in: there is nothing to press. `R` starts \
-                 the application again, every state afresh.",
-            ),
+            Some(Action::Reload) => reload_while_hot(),
             // A patch is linked against the process the engine started: a process started
             // again by hand cannot take one (it crashed). So `R` starts the engine again, which
             // builds what is saved, installs it and starts it, as on the desktop.
             Some(Action::Restart) => {
                 report::say("Restarting: building again…");
                 crate::hot::stop(&mut dx);
-                let _ = adb_on(&["shell", "run-as", package, "rm", "-f", "files/frus-run-states"])
-                    .output();
+                let _ = adb_on(&[
+                    "shell",
+                    "run-as",
+                    package,
+                    "rm",
+                    "-f",
+                    "files/frus-run-states",
+                ])
+                .output();
                 let _ = adb_on(&["shell", "am", "force-stop", package]).output();
                 launched_at = None;
                 retouched = false;
@@ -1175,7 +1220,7 @@ fn run_android_hot(
             Some(Action::Screenshot) => android_screenshot(&adb, serial, project),
             None => {}
         }
-        };
+    };
     crate::hot::stop(&mut dx);
     let _ = logcat.kill();
     Ok(end)
@@ -1607,10 +1652,7 @@ fn run_web_hot(
                 break ExitCode::SUCCESS;
             }
             Some(Action::Help) => report::say(KEYS),
-            Some(Action::Reload) => report::say(
-                "With --hot, saving a file patches it in: there is nothing to press. `R` starts \
-                 the application again, every state afresh.",
-            ),
+            Some(Action::Reload) => reload_while_hot(),
             // The page reloads afresh; the engine hands it the latest patch as it connects.
             Some(Action::Restart) => {
                 server.rebuilt(true);
@@ -1661,6 +1703,24 @@ fn file_name(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hot_reload_is_the_default_of_a_debug_build() {
+        let hot = |asked, mode, here| hot_wanted(asked, mode, here, "the device");
+        // Nothing asked: a debug build patches, a release build restarts, and so does a device
+        // without hot reload.
+        assert_eq!(hot(None, Mode::Debug, true), Ok(true));
+        assert_eq!(hot(None, Mode::Release, true), Ok(false));
+        assert_eq!(hot(None, Mode::Debug, false), Ok(false));
+        // `--no-hot` always restarts.
+        assert_eq!(hot(Some(false), Mode::Debug, true), Ok(false));
+        assert_eq!(hot(Some(false), Mode::Debug, false), Ok(false));
+        // `--hot` patches a release build too, and is an error where it cannot.
+        assert_eq!(hot(Some(true), Mode::Release, true), Ok(true));
+        assert!(hot(Some(true), Mode::Debug, false)
+            .unwrap_err()
+            .contains("on the device use `r`"));
+    }
 
     #[test]
     fn a_device_is_built_for_its_own_processor() {

@@ -75,9 +75,12 @@ Options:
                            or `android`, `web`, `desktop` (default: this computer)
       --release            a release build (default: debug)
       --port <port>        the port the web build is served on (default: 8080)
-      --hot                hot reload (desktop, web, Android): each saved change is patched into the
-                           running application, every state kept (installs its engine
-                           the first time)
+      --no-hot             restart to reload (`r`) instead of patching the running
+                           application; hot reload is the default for a debug build
+                           (desktop, web, Android): each saved change is patched in,
+                           every state kept (its engine is installed the first time)
+      --hot                hot reload even with --release, and an error rather than
+                           restarts where it cannot run
       --web                with a simulated device (`-d iphone-15`): in a browser
                            instead of a desktop window
       --machine            JSON lines for an editor instead of text (see `frus daemon`)
@@ -85,7 +88,7 @@ Options:
 
 Examples:
   frus run
-  frus run --hot
+  frus run --no-hot
   frus run -d android
   frus run -d edge --release
   frus run -d iphone-15
@@ -442,7 +445,7 @@ fn parse_run(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
         port: run::DEFAULT_PORT,
         args: Vec::new(),
         machine: false,
-        hot: false,
+        hot: None,
         simulate: None,
         web: false,
     };
@@ -476,7 +479,12 @@ fn parse_run(args: impl Iterator<Item = OsString>) -> Result<Command, String> {
             "-d" | "--device" => set_once(&mut options.device, value("--device")?, "--device")?,
             "--release" if inline.is_none() => options.mode = cargo::Mode::Release,
             "--machine" if inline.is_none() => options.machine = true,
-            "--hot" if inline.is_none() => options.hot = true,
+            "--hot" | "--no-hot" if inline.is_none() => {
+                if options.hot.is_some() {
+                    return Err("--hot and --no-hot: one of them, once".into());
+                }
+                options.hot = Some(flag == "--hot");
+            }
             "--web" if inline.is_none() => options.web = true,
             "--port" => {
                 let text = value(&flag)?;
@@ -661,6 +669,9 @@ mod tests {
         assert_eq!(plain.mode, cargo::Mode::Debug);
         assert_eq!(plain.port, run::DEFAULT_PORT);
         assert!(!plain.web);
+        assert_eq!(plain.hot, None, "decided by run once the device is known");
+        assert_eq!(run_options("run --hot").hot, Some(true));
+        assert_eq!(run_options("run --no-hot").hot, Some(false));
 
         let web = run_options("run -d iphone-15 --web");
         assert_eq!(web.device.as_deref(), Some("iphone-15"));
@@ -685,6 +696,9 @@ mod tests {
         assert!(error("run -d a -d b").contains("given twice"));
         assert!(error("run --port x").contains("takes a number"));
         assert!(error("run --verbose").contains("no option `--verbose`"));
+        assert!(error("run --hot --no-hot").contains("one of them"));
+        assert!(error("run --no-hot --no-hot").contains("one of them"));
+        assert!(error("run --hot=yes").contains("no option"));
     }
 
     #[test]
