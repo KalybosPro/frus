@@ -57,6 +57,8 @@ images = ["frus-widgets/images"]
 svg = ["frus-widgets/svg"]
 # Lottie animations: `Lottie`. Off by default.
 lottie = ["frus-widgets/lottie"]
+# Restorable values of any serde type: `BuildContext::use_restorable_serde`. Off by default.
+serde = ["frus-widgets/serde"]
 bundled-sans = ["frus-shell/bundled-sans", "frus-widgets/bundled-sans", "frus-text/bundled-sans"]
 bundled-italic = ["frus-shell/bundled-italic", "frus-widgets/bundled-italic", "frus-text/bundled-italic"]
 bundled-mono = ["frus-shell/bundled-mono", "frus-widgets/bundled-mono", "frus-text/bundled-mono"]

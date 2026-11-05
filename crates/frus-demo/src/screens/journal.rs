@@ -116,7 +116,9 @@ impl State for JournalState {
         // often. A fling still reports every frame — nothing under four pixels happens
         // during one — which is the honest cost of a view that answers the offset.
         .on_scroll(cx.handler(|s, position: ScrollPosition| s.scroll = Some(position)))
-        .notify_every(4.0);
+        .notify_every(4.0)
+        // Opens where it was after the system ended the process (milestone 753).
+        .restoration_id("journal");
         // Unset, the list follows the platform. The toggle overrides it, which is the
         // point of the demonstration: fling to an end and feel the difference.
         if self.bounces {

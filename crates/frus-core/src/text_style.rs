@@ -11,6 +11,70 @@
 
 use crate::Color;
 
+/// Which side of a character boundary a caret **belongs to**, when the boundary is drawn
+/// in two places.
+///
+/// Most boundaries are one place on screen: the end of one letter is the start of the
+/// next. Two kinds are not. Where a line breaks without a newline, the boundary is both
+/// the end of the first line and the start of the second; and where a line changes
+/// direction — Latin then Arabic, or digits inside Hebrew — the boundary between the two
+/// runs is drawn at the edge of each of them, often far apart. The affinity says which:
+///
+/// - [`Downstream`](Self::Downstream), the default, is the character **after** the
+///   boundary: the caret stands at its leading edge, on its line.
+/// - [`Upstream`](Self::Upstream) is the character **before** it: the caret stands at its
+///   trailing edge, on its line.
+///
+/// A caret keeps the affinity it arrived with, so it stays beside the letter it was just
+/// moved past or tapped next to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum TextAffinity {
+    /// The character before the boundary: its trailing edge, its line.
+    Upstream,
+    /// The character after the boundary: its leading edge, its line.
+    #[default]
+    Downstream,
+}
+
+/// A caret's place in a text: a **character boundary** (`0..=len`, in characters) and the
+/// [`TextAffinity`] that says which of its places on screen it is drawn at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub struct TextPosition {
+    /// The boundary, in characters.
+    pub offset: usize,
+    /// Which side of the boundary the caret belongs to.
+    pub affinity: TextAffinity,
+}
+
+impl TextPosition {
+    /// The boundary `offset`, belonging to the character after it.
+    pub const fn new(offset: usize) -> Self {
+        Self {
+            offset,
+            affinity: TextAffinity::Downstream,
+        }
+    }
+
+    /// The boundary `offset`, belonging to the character before it.
+    pub const fn upstream(offset: usize) -> Self {
+        Self {
+            offset,
+            affinity: TextAffinity::Upstream,
+        }
+    }
+
+    /// The boundary `offset`, with `affinity`.
+    pub const fn with(offset: usize, affinity: TextAffinity) -> Self {
+        Self { offset, affinity }
+    }
+}
+
+impl From<usize> for TextPosition {
+    fn from(offset: usize) -> Self {
+        Self::new(offset)
+    }
+}
+
 /// How the lines of a piece of text are **aligned inside the box** it was given.
 ///
 /// It is not the same question as where the box goes. A centred paragraph and a centred

@@ -604,6 +604,36 @@ impl StateStore {
     }
 }
 
+/// Gives a state that was just made what was restored for it, and keeps what it saves from
+/// now on — when it names a [`State::restoration_id`] and the application restores.
+fn restore_state<S: State>(cx: &BuildContext, cell: &Rc<StateCell<S>>) {
+    let restoration = &cx.runtime.restoration;
+    if !restoration.is_enabled() {
+        return;
+    }
+    let Some(id) = cell.state.borrow().restoration_id() else {
+        return;
+    };
+    let path = cx.restoration_path(&id);
+    if let Some(saved) = restoration.claim(&path) {
+        cell.state.borrow_mut().restore(&saved);
+    }
+    let weak = Rc::downgrade(cell);
+    restoration.register(path, move || {
+        use crate::restoration::Reading;
+        let Some(cell) = weak.upgrade().filter(|cell| cell.mounted.get()) else {
+            return Reading::Gone;
+        };
+        let Ok(state) = cell.state.try_borrow() else {
+            return Reading::Nothing;
+        };
+        match state.save() {
+            Some(saved) => Reading::Value(saved),
+            None => Reading::Nothing,
+        }
+    });
+}
+
 /// A row of a list being built: dropped when the list is done building it.
 pub(crate) struct RowScope<'s> {
     store: &'s StateStore,
@@ -744,7 +774,7 @@ impl<F: FnOnce() + 'static> IntoCleanup for F {
 /// Cloning a `UseState` clones the *handle*: every clone reads and writes the same value,
 /// which is what lets a handler own one.
 pub struct UseState<T> {
-    cell: Rc<RefCell<T>>,
+    pub(crate) cell: Rc<RefCell<T>>,
 }
 
 impl<T> Clone for UseState<T> {
@@ -793,7 +823,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for UseState<T> {
 /// A value kept between rebuilds by [`BuildContext::use_ref`]. Unlike [`UseState`],
 /// changing it does *not* ask for a rebuild: it is for what the interface does not show.
 pub struct UseRef<T> {
-    cell: Rc<RefCell<T>>,
+    pub(crate) cell: Rc<RefCell<T>>,
 }
 
 impl<T> Clone for UseRef<T> {
@@ -843,10 +873,18 @@ pub struct BuildContext<'a> {
     hooks: OnceCell<Rc<Hooks>>,
     cursor: Cell<usize>,
     intervals: Cell<usize>,
+    /// The restoration scope this component was made in (milestone 753).
+    scope: crate::restoration::Scope,
 }
 
 impl<'a> BuildContext<'a> {
-    fn new(key: StateKey, kind: TypeId, runtime: &'a Runtime, theme: &'a Theme) -> Self {
+    fn new(
+        key: StateKey,
+        kind: TypeId,
+        runtime: &'a Runtime,
+        theme: &'a Theme,
+        scope: crate::restoration::Scope,
+    ) -> Self {
         Self {
             key,
             kind,
@@ -855,13 +893,25 @@ impl<'a> BuildContext<'a> {
             hooks: OnceCell::new(),
             cursor: Cell::new(0),
             intervals: Cell::new(0),
+            scope,
         }
     }
 
     /// A context for a test that builds something by hand, under `theme`.
     #[cfg(test)]
     pub(crate) fn for_test(runtime: &'a Runtime, theme: &'a Theme) -> Self {
-        Self::new((WidgetId::ROOT, 0), TypeId::of::<()>(), runtime, theme)
+        Self::new(
+            (WidgetId::ROOT, 0),
+            TypeId::of::<()>(),
+            runtime,
+            theme,
+            crate::restoration::current_scope(),
+        )
+    }
+
+    /// The ids of the restoration buckets this component keeps its values in.
+    pub(crate) fn scope(&self) -> &[String] {
+        &self.scope
     }
 
     /// The theme this component is built under.
@@ -1207,7 +1257,9 @@ pub trait State: Sized + 'static {
     /// text will do — a number, a few fields joined, a JSON document.
     ///
     /// `None`, the default, keeps nothing: the state starts afresh, as on a first launch.
-    /// Nothing is saved outside `frus run`.
+    /// Outside `frus run`, it is kept only for a state that names a
+    /// [`restoration_id`](State::restoration_id), in the parcel the system keeps when it
+    /// ends the process.
     ///
     /// ```ignore
     /// fn save(&self) -> Option<String> {
@@ -1227,6 +1279,24 @@ pub trait State: Sized + 'static {
     /// component at the same place, of the same type. What no longer fits — the code changed
     /// in between — can simply be ignored.
     fn restore(&mut self, _saved: &str) {}
+
+    /// The id this state is **restored** under (milestone 753): when the application has
+    /// restoration on, what [`State::save`] returns is kept in the platform's parcel under
+    /// this id, and a process the system started again gives it back through
+    /// [`State::restore`] — before [`State::init_state`], as a restart does.
+    ///
+    /// `None`, the default, keeps nothing past the process. The id names the state within
+    /// its scope — the page, or a [`restoration_scope`](crate::restoration_scope) — and
+    /// must be unique there.
+    ///
+    /// ```ignore
+    /// fn restoration_id(&self) -> Option<String> {
+    ///     Some("counter".into())
+    /// }
+    /// ```
+    fn restoration_id(&self) -> Option<String> {
+        None
+    }
 
     /// The widget this state stands for. Called whenever the tree is rebuilt.
     ///
@@ -1425,6 +1495,9 @@ impl Component<Callback> {
                 } = cx.runtime.states.mount(cx.key, Rc::new(widget));
                 let _ = cx.hooks.set(hooks);
                 let state_cx = StateContext { cx, cell: &cell };
+                if previous.is_none() {
+                    restore_state(cx, &cell);
+                }
                 match previous {
                     None => cell.state.borrow_mut().init_state(&state_cx),
                     Some(old) => cell.state.borrow_mut().did_update_widget(&old, &state_cx),
@@ -1441,6 +1514,7 @@ impl<Msg> Component<Msg> {
         Self {
             inner: LazyChild {
                 kind,
+                scope: crate::restoration::current_scope(),
                 build: RefCell::new(Some(build)),
                 built: OnceCell::new(),
                 unbuilt: Unbuilt,
@@ -1465,6 +1539,8 @@ impl<Msg> Component<Msg> {
 /// The child a component builds, made the first time the tree reaches it.
 struct LazyChild<Msg> {
     kind: TypeId,
+    /// The restoration scope the component was made in: what it builds is built in it.
+    scope: crate::restoration::Scope,
     build: RefCell<Option<Builder<Msg>>>,
     built: OnceCell<Box<dyn Widget<Msg>>>,
     unbuilt: Unbuilt,
@@ -1477,7 +1553,11 @@ impl<Msg> LazyChild<Msg> {
         if self.built.get().is_none() {
             let build = self.build.borrow_mut().take();
             if let Some(build) = build {
-                let cx = BuildContext::new((id, depth()), self.kind, runtime, theme);
+                // What the build makes — the components, the fields, the lists — belongs
+                // to this component's restoration scope.
+                let _scope = crate::restoration::enter_scope(self.scope.clone());
+                let cx =
+                    BuildContext::new((id, depth()), self.kind, runtime, theme, self.scope.clone());
                 let child = build(&cx);
                 let _ = self.built.set(child);
             }

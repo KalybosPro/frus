@@ -65,6 +65,7 @@ pub(crate) fn drag(edit: Edit, handle: Handle, to: usize) -> Option<Edit> {
         _ => return None,
     };
     Some(Edit {
+        affinity: Default::default(),
         cursor: moving,
         anchor: Some(fixed),
         composing: None,
@@ -88,6 +89,7 @@ mod tests {
 
     fn selected(anchor: usize, cursor: usize) -> Edit {
         Edit {
+            affinity: Default::default(),
             cursor,
             anchor: Some(anchor),
             composing: None,
@@ -162,6 +164,7 @@ mod tests {
     #[test]
     fn without_a_selection_there_is_nothing_to_drag() {
         let caret = Edit {
+            affinity: Default::default(),
             cursor: 4,
             anchor: None,
             composing: None,

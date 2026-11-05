@@ -115,6 +115,14 @@ fn region_physics<Msg>(widget: &dyn Widget<Msg>, theme: &Theme) -> ScrollPhysics
         .map_or(platform, |own| own.apply_to(platform))
 }
 
+/// What a drag on an area does to the focus: its own answer, laid over its scroll
+/// behaviour's (milestone 750).
+fn region_keyboard_dismiss<Msg>(widget: &dyn Widget<Msg>) -> crate::KeyboardDismissBehavior {
+    widget
+        .keyboard_dismiss_behavior()
+        .unwrap_or_else(|| crate::ScrollConfiguration::of().keyboard_dismiss_behavior())
+}
+
 /// A scrollable area of the frame: where it is, how far it may scroll, and how it
 /// is meant to behave at its edges.
 ///
@@ -170,6 +178,9 @@ pub struct Scrollable {
     pub reverse_y: bool,
     /// What the content asked to be kept in view, in the frame's coordinates.
     pub keep_visible: Option<KeepVisible>,
+    /// What a finger dragging this area does to the focus (milestone 750): the area's own
+    /// [`Widget::keyboard_dismiss_behavior`], else its scroll behaviour's.
+    pub keyboard_dismiss: crate::KeyboardDismissBehavior,
     /// The scroll region this one sits **inside**, when there is one.
     ///
     /// Scroll areas nest — a sideways strip inside a page that scrolls down — and
@@ -727,6 +738,9 @@ pub struct Focusable {
     pub group: Option<WidgetId>,
     /// Whether it takes the focus when it appears ([`Widget::autofocus`], milestone 605).
     pub autofocus: bool,
+    /// What a tap outside it does to the focus while it holds it
+    /// ([`Widget::tap_outside`], under the theme in force there; milestone 750).
+    pub tap_outside: crate::TapOutside,
 }
 
 /// The **interface** of one frame: what the walk over a widget tree produced.
@@ -1068,6 +1082,16 @@ impl<Msg: Clone> Ui<Msg> {
             }
         }
         best.map(|(_, stop)| stop.clone())
+    }
+
+    /// What a tap outside `id` does to the focus while `id` holds it (milestone 750): its
+    /// [`Focusable::tap_outside`], or [`crate::TapOutside::Unfocus`] when it is not a
+    /// focusable of this frame.
+    pub fn tap_outside(&self, id: WidgetId) -> crate::TapOutside {
+        self.focusables
+            .iter()
+            .find(|f| f.id == id)
+            .map_or(crate::TapOutside::Unfocus, |f| f.tap_outside)
     }
 
     /// Topmost focusable widget containing `point`: (id, its bounds).
@@ -4117,6 +4141,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 order: widget.focus_order().or(self.focus_order),
                 group: self.focus_group,
                 autofocus: widget.autofocus(),
+                tap_outside: widget.tap_outside(&self.theme),
             });
         }
         if visible.width > 0.0 && visible.height > 0.0 {
@@ -4197,7 +4222,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // inertia through the generic machinery; the shell follows the caret) plus a
             // draggable scrollbar (mouse and touch).
             if let Some(vp) = widget.text_viewport(draw_rect) {
-                if let Some((content_h, visible_h, _, _)) = widget.text_metrics(draw_rect.width, 0)
+                if let Some((content_h, visible_h, _, _)) =
+                    widget.text_metrics(draw_rect.width, frus_core::TextPosition::new(0))
                 {
                     let max_y = (content_h - visible_h).max(0.0);
                     if max_y > 0.0 {
@@ -4208,6 +4234,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                             max_y,
                             axis: crate::scroll::Axis::Vertical,
                             physics: region_physics(widget, &self.theme),
+                            keyboard_dismiss: region_keyboard_dismiss(widget),
                             overscroll: crate::ScrollConfiguration::of()
                                 .overscroll_indicator(&self.theme),
                             fling: crate::ScrollConfiguration::of()
@@ -4500,6 +4527,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 reverse_y: reverse.1,
                 host: None,
                 keep_visible: None,
+                keyboard_dismiss: Default::default(),
             };
             // What the content asks to be kept in view — a tab bar's selected tab — in
             // the content's own coordinates, which is the only frame it can speak in.
@@ -4547,6 +4575,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 max_y,
                 axis,
                 physics: region_physics(widget, &self.theme),
+                keyboard_dismiss: region_keyboard_dismiss(widget),
                 overscroll: crate::ScrollConfiguration::of().overscroll_indicator(&self.theme),
                 fling: crate::ScrollConfiguration::of()
                     .velocity_tracker(&self.theme)
@@ -4690,6 +4719,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     crate::scroll::Axis::Vertical
                 },
                 physics: region_physics(widget, &self.theme),
+                keyboard_dismiss: region_keyboard_dismiss(widget),
                 overscroll: crate::ScrollConfiguration::of().overscroll_indicator(&self.theme),
                 fling: crate::ScrollConfiguration::of()
                     .velocity_tracker(&self.theme)
@@ -4960,6 +4990,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     crate::scroll::Axis::Vertical
                 },
                 physics: region_physics(widget, &self.theme),
+                keyboard_dismiss: region_keyboard_dismiss(widget),
                 overscroll: crate::ScrollConfiguration::of().overscroll_indicator(&self.theme),
                 fling: crate::ScrollConfiguration::of()
                     .velocity_tracker(&self.theme)
@@ -5790,6 +5821,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         if status.focused {
             if let Some(edit) = self.runtime.edits.get(&id) {
                 status.cursor = Some(edit.cursor);
+                status.affinity = edit.affinity;
                 status.selection = edit.selection_range();
                 status.composing = edit.composing;
             }
@@ -8575,6 +8607,7 @@ mod tests {
             reverse_y: false,
             host: None,
             keep_visible: None,
+            keyboard_dismiss: Default::default(),
         };
         // Inside: nothing.
         assert_eq!(
@@ -8625,6 +8658,7 @@ mod tests {
             reverse_y: true,
             host: None,
             keep_visible: None,
+            keyboard_dismiss: Default::default(),
         };
         // A box below the window: the content must move **up** by 60 either way. On a
         // reversed axis a rising offset pushes the content down (`content_origin` is
@@ -8654,6 +8688,7 @@ mod tests {
             reverse_y: false,
             host: None,
             keep_visible: None,
+            keyboard_dismiss: Default::default(),
         };
         // A box at 400..500 has its middle at 450; the window's is at 150.
         assert_eq!(
@@ -8937,6 +8972,7 @@ mod tests {
             rt.edits.insert(
                 id,
                 Edit {
+                    affinity: Default::default(),
                     cursor: 11,
                     anchor: Some(6),
                     composing: None,
@@ -8966,6 +9002,7 @@ mod tests {
     fn the_wrappers_that_fuse_with_a_field_pass_its_handles_on() {
         let field = || TextField::<Msg>::new("hello world").width(200.0);
         let edit = Edit {
+            affinity: Default::default(),
             cursor: 11,
             anchor: Some(6),
             composing: None,
@@ -9082,6 +9119,7 @@ mod tests {
 
     fn selected(cursor: usize, anchor: Option<usize>) -> Edit {
         Edit {
+            affinity: Default::default(),
             cursor,
             anchor,
             composing: None,
@@ -9437,6 +9475,7 @@ mod tests {
 
         let widget = find_widget(&tree, id).expect("the widget was found");
         let mut edit = Edit {
+            affinity: Default::default(),
             cursor: 2,
             anchor: None,
             composing: None,
