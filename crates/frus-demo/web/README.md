@@ -1,6 +1,6 @@
-# frus-demo — the Web target (wasm + WebGPU)
+# frus-demo — the Web target (wasm + WebGPU or WebGL 2)
 
-The demo runs in the browser through **WebGPU**, from the same code as the desktop and Android
+The demo runs in the browser through **WebGPU** (or **WebGL 2** where there is none), from the same code as the desktop and Android
 builds: `frus_shell::main!` generates the Web entry point. The page it serves is what an
 application made of a router looks like on the web:
 
@@ -27,5 +27,5 @@ python3 -m http.server 8080    # `python -m http.server 8080` on Windows
 repository's `Cargo.lock` — and refuses a `.wasm` from another one with a message that names
 both. `cargo install wasm-bindgen-cli --version 0.2.127`.
 
-`--lib` because the crate also carries a desktop binary. A browser with WebGPU, and `localhost`
-or `https`, as for the counter.
+`--lib` because the crate also carries a desktop binary. A browser with WebGPU or WebGL 2, and
+`localhost` or `https`, as for the counter.

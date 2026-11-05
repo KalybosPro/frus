@@ -156,58 +156,51 @@ impl Renderer {
                 ),
             }
         }
+        // On the Web, WebGPU where the browser offers it and WebGL 2 where it does not — no
+        // `navigator.gpu`, no adapter, no device (milestone 745). The WebGPU device is made
+        // before the surface: a canvas given a WebGPU context can no longer give a WebGL one.
+        #[cfg(target_arch = "wasm32")]
+        let (instance, opened) = {
+            let _ = descriptor;
+            crate::web_backend::open(crate::web_backend::REQUESTED).await?
+        };
+        #[cfg(not(target_arch = "wasm32"))]
         let instance = wgpu::Instance::new(descriptor);
 
         let surface = instance.create_surface(target)?;
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                // The discrete GPU where there is a choice — but not in a browser, which
-                // ignores the hint and **says so** in the console (Chrome, on Windows) on
-                // every page load, for something the page cannot change.
-                power_preference: if cfg!(target_arch = "wasm32") {
-                    wgpu::PowerPreference::None
-                } else {
-                    wgpu::PowerPreference::HighPerformance
-                },
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-                ..Default::default()
-            })
-            .await?;
-
-        log::info!("GPU adapter: {:?}", adapter.get_info());
-
-        // Downlevel limits, for GLES compatibility, but with the adapter's **real**
-        // resolution: on mobile a screen of, say, 1080x2340 exceeds the downlevel
-        // maximum texture size of 2048, and without this `surface.configure` panics.
-        // A GPU without compute shaders (OpenGL ES 3.0, as the Android emulator's) cannot give
-        // even the downlevel compute limits: the WebGL 2 ones, which ask for none.
-        let downlevel = if adapter
-            .get_downlevel_capabilities()
-            .flags
-            .contains(wgpu::DownlevelFlags::COMPUTE_SHADERS)
-        {
-            wgpu::Limits::downlevel_defaults()
-        } else {
-            wgpu::Limits::downlevel_webgl2_defaults()
+        #[cfg(target_arch = "wasm32")]
+        let opened = opened.map(|o| (o.adapter, o.device, o.queue));
+        #[cfg(not(target_arch = "wasm32"))]
+        let opened: Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> = None;
+        let (adapter, device, queue, adapter_time, device_started) = match opened {
+            Some((adapter, device, queue)) => {
+                let now = web_time::Instant::now();
+                (adapter, device, queue, started.elapsed(), now)
+            }
+            None => {
+                let adapter = instance
+                    .request_adapter(&wgpu::RequestAdapterOptions {
+                        // The discrete GPU where there is a choice — but not in a browser,
+                        // which ignores the hint and **says so** in the console (Chrome, on
+                        // Windows) on every page load, for something the page cannot change.
+                        power_preference: if cfg!(target_arch = "wasm32") {
+                            wgpu::PowerPreference::None
+                        } else {
+                            wgpu::PowerPreference::HighPerformance
+                        },
+                        compatible_surface: Some(&surface),
+                        force_fallback_adapter: false,
+                        ..Default::default()
+                    })
+                    .await?;
+                let adapter_time = started.elapsed();
+                let device_started = web_time::Instant::now();
+                let (device, queue) = request_device(&adapter).await?;
+                (adapter, device, queue, adapter_time, device_started)
+            }
         };
-        let required_limits = downlevel.using_resolution(adapter.limits());
-
-        let adapter_time = started.elapsed();
-        let device_started = web_time::Instant::now();
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: Some("frus.device"),
-                // The GPU's own clock where it has one, for the frame statistics
-                // (milestone 612). Nothing is asked of a device that has not.
-                required_features: adapter.features()
-                    & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::PIPELINE_CACHE),
-                required_limits,
-                memory_hints: wgpu::MemoryHints::Performance,
-                ..Default::default()
-            })
-            .await?;
+        log::info!("GPU adapter: {:?}", adapter.get_info());
         let device_time = device_started.elapsed();
         let surface_started = web_time::Instant::now();
         // A lost device — a driver reset, a GPU removed — says so here; the renderer then
@@ -445,6 +438,39 @@ impl Renderer {
         };
         RenderOutcome::Presented
     }
+}
+
+/// The device and its queue, from an adapter, with the limits frus asks of every GPU.
+pub(crate) async fn request_device(
+    adapter: &wgpu::Adapter,
+) -> anyhow::Result<(wgpu::Device, wgpu::Queue)> {
+    // Downlevel limits, for GLES compatibility, but with the adapter's **real**
+    // resolution: on mobile a screen of, say, 1080x2340 exceeds the downlevel
+    // maximum texture size of 2048, and without this `surface.configure` panics.
+    // A GPU without compute shaders (OpenGL ES 3.0, as the Android emulator's, or WebGL 2) cannot
+    // give even the downlevel compute limits: the WebGL 2 ones, which ask for none.
+    let downlevel = if adapter
+        .get_downlevel_capabilities()
+        .flags
+        .contains(wgpu::DownlevelFlags::COMPUTE_SHADERS)
+    {
+        wgpu::Limits::downlevel_defaults()
+    } else {
+        wgpu::Limits::downlevel_webgl2_defaults()
+    };
+    let required_limits = downlevel.using_resolution(adapter.limits());
+    Ok(adapter
+        .request_device(&wgpu::DeviceDescriptor {
+            label: Some("frus.device"),
+            // The GPU's own clock where it has one, for the frame statistics
+            // (milestone 612). Nothing is asked of a device that has not.
+            required_features: adapter.features()
+                & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::PIPELINE_CACHE),
+            required_limits,
+            memory_hints: wgpu::MemoryHints::Performance,
+            ..Default::default()
+        })
+        .await?)
 }
 
 /// Whether the Vulkan this device offers is unusable: only the Android emulator's (gfxstream, the

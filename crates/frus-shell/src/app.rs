@@ -2272,7 +2272,11 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                         *slot.borrow_mut() = Some(r);
                         win.request_redraw();
                     }
-                    Err(err) => log::error!("failed to initialise the renderer (Web): {err:#}"),
+                    Err(err) => {
+                        log::error!("failed to initialise the renderer (Web): {err:#}");
+                        // Never a silent, empty page (milestone 745).
+                        crate::web_failure::show(&crate::web_failure::message(&format!("{err:#}")));
+                    }
                 }
             });
         }
@@ -4062,7 +4066,8 @@ impl<A: Application> App<A> {
                     Err(err) => {
                         log::error!(
                             "the GPU device was lost, and no new one could be made: {err:#}"
-                        )
+                        );
+                        crate::web_failure::show(&crate::web_failure::message(&format!("{err:#}")));
                     }
                 }
             });

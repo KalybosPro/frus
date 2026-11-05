@@ -4,6 +4,8 @@
 
 struct Viewport {
     size: vec2<f32>,
+    // To 16 bytes: WebGL 2 binds no uniform of another size (milestone 745).
+    _pad: vec2<f32>,
 };
 
 @group(0) @binding(0)
