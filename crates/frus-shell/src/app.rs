@@ -225,9 +225,13 @@ fn is_text_field<M>(widget: &dyn Widget<M>) -> bool {
     widget.text_value().is_some()
 }
 
-/// How far apart two presses may be and still be a double click on words in a selection area, in
-/// logical pixels.
-const REGION_DOUBLE_CLICK_SLOP: f32 = 8.0;
+/// How far apart two clicks of a mouse may be and still be a double click on words — in a
+/// field or in a selection area — in logical pixels. A finger, less precise, has the double
+/// tap's slop.
+const DOUBLE_CLICK_SLOP: f32 = 8.0;
+
+/// How soon a second click must follow the first to make a double click on words, in seconds.
+const DOUBLE_CLICK_TIME: f32 = 0.4;
 
 /// How long a first tap waits for a second one to make a double tap: the reference's
 /// `kDoubleTapTimeout`.
@@ -1145,11 +1149,14 @@ pub struct App<A: Application> {
     /// other carries itself to a slot — but the reason they wait is the same, and it is
     /// the reason a list can still be scrolled.
     pending_reorder: Option<(WidgetId, usize, Point)>,
-    /// The last click's instant, for double-click detection.
-    last_click_time: Option<Instant>,
+    /// When, on [`App::click_clock`], and where the last press placed a field's caret, and in
+    /// which field: a second one soon after, close by and in the same field is a double click.
+    last_click: Option<(f32, Point, WidgetId)>,
     /// When and where the last press began a selection in a selection area: a second one soon
     /// after and close by is a double click.
-    last_region_click: Option<(Instant, Point)>,
+    last_region_click: Option<(f32, Point)>,
+    /// What [`App::click_clock`] counts from in an application.
+    clock_origin: Instant,
     /// The texts a selection area's selection has been worked out over, in reading order,
     /// with their words — kept while texts leave the frame (milestone 739): a selection dragged
     /// down a scrolling area, which scrolls under it, would otherwise lose its beginning as
@@ -1384,8 +1391,9 @@ impl<A: Application> App<A> {
             last_edit_at: None,
             pending_lift: None,
             pending_reorder: None,
-            last_click_time: None,
+            last_click: None,
             last_region_click: None,
+            clock_origin: Instant::now(),
             region_known: None,
             region_autoscrolled: false,
             pending_tap: None,
@@ -1473,6 +1481,7 @@ impl<A: Application> App<A> {
         self.runtime.edits.insert(
             id,
             Edit {
+                affinity: Default::default(),
                 cursor: value.chars().count(),
                 anchor: None,
                 composing: None,
@@ -5209,15 +5218,18 @@ impl<A: Application> App<A> {
                 .as_ref()
                 .and_then(|tree| find_widget(tree.as_ref(), id))
                 .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, scroll_cursor));
-            if let Some(cursor) = cursor {
+            if let Some(at) = cursor {
                 // Placing the caret with the mouse forgets the vertical goal column.
                 self.goal_x = None;
+                // On the side of its boundary that was pressed: beside a change of
+                // direction, or past the end of a wrapped line, that is where it is drawn.
                 self.runtime.edits.insert(
                     id,
                     Edit {
-                        cursor,
+                        cursor: at.offset,
                         anchor: None,
                         composing: None,
+                        affinity: at.affinity,
                     },
                 );
                 self.drag = Some(Drag::TextSelect { id, rect });
@@ -5233,23 +5245,25 @@ impl<A: Application> App<A> {
                 // `request_soft_input`.
                 self.request_soft_input();
 
-                // A double click selects the word under the pointer.
-                let now = Instant::now();
-                let double = self
-                    .last_click_time
-                    .map(|t| (now - t).as_secs_f32() < 0.4)
-                    .unwrap_or(false);
-                self.last_click_time = Some(now);
+                // A double click selects the word under the pointer: a second press soon
+                // after the first, close to it and in the same field. Timed by the clock the
+                // gestures keep, which in a driven test is the frames run (milestone 747).
+                let (now, here) = (self.click_clock(), self.cursor);
+                let double = self.last_click.is_some_and(|(then, there, field)| {
+                    field == id && self.is_double_click(then, there, now, here)
+                });
+                self.last_click = Some((now, here, id));
                 if double {
                     if let Some((start, end)) = self
                         .tree
                         .as_ref()
                         .and_then(|tree| find_widget(tree.as_ref(), id))
-                        .and_then(|widget| widget.word_at(cursor))
+                        .and_then(|widget| widget.word_at(at.offset))
                     {
                         self.runtime.edits.insert(
                             id,
                             Edit {
+                                affinity: Default::default(),
                                 cursor: end,
                                 anchor: Some(start),
                                 composing: None,
@@ -6471,12 +6485,13 @@ impl<A: Application> App<A> {
                     .and_then(|widget| {
                         widget.cursor_at(local_x, local_y, rect.width, scroll_cursor)
                     });
-                if let Some(cursor) = cursor {
+                if let Some(at) = cursor {
                     let edit = self.runtime.edits.entry(*id).or_default();
                     if edit.anchor.is_none() {
                         edit.anchor = Some(edit.cursor);
                     }
-                    edit.cursor = cursor;
+                    edit.cursor = at.offset;
+                    edit.affinity = at.affinity;
                 }
             }
             Drag::SelectionHandle {
@@ -6497,7 +6512,7 @@ impl<A: Application> App<A> {
                     .as_ref()
                     .and_then(|tree| find_widget(tree.as_ref(), *id))
                     .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, edit.cursor))
-                    .and_then(|to| crate::selection::drag(edit, *handle, to));
+                    .and_then(|to| crate::selection::drag(edit, *handle, to.offset));
                 if let Some(moved) = moved {
                     self.runtime.edits.insert(*id, moved);
                 }
@@ -7010,6 +7025,29 @@ impl<A: Application> App<A> {
             Some((now, start)) => now - start,
             None => (Instant::now() - self.gesture_start).as_secs_f32(),
         }
+    }
+
+    /// Seconds on the clock clicks are counted by: the test driver's frames when there is
+    /// one, as for the gestures, and the wall's in an application. A driver's events are
+    /// microseconds apart on the wall, which made every second click of a test a double
+    /// click wherever it landed (milestone 747).
+    fn click_clock(&self) -> f32 {
+        match self.gesture_clock {
+            Some((now, _)) => now,
+            None => (Instant::now() - self.clock_origin).as_secs_f32(),
+        }
+    }
+
+    /// Whether a press at `here`, at `now`, makes a double click of the one at `there`,
+    /// at `then`: soon enough after it and close enough to it — a mouse's slop, or a
+    /// finger's, which lands less precisely.
+    fn is_double_click(&self, then: f32, there: Point, now: f32, here: Point) -> bool {
+        let slop = if self.pointer_touch {
+            DOUBLE_TAP_SLOP
+        } else {
+            DOUBLE_CLICK_SLOP
+        };
+        now - then < DOUBLE_CLICK_TIME && (here.x - there.x).hypot(here.y - there.y) <= slop
     }
 
     /// Starts a fresh gesture: the history of the previous one must not leak into
@@ -8292,7 +8330,12 @@ impl<A: Application> App<A> {
             .and_then(|ui| ui.widget_rect(id))
             .map(|r| r.width)
             .unwrap_or(0.0);
-        let cursor = self.runtime.edits.get(&id).map(|e| e.cursor).unwrap_or(0);
+        let cursor = self
+            .runtime
+            .edits
+            .get(&id)
+            .map(|e| e.position())
+            .unwrap_or_default();
         let moved = self
             .tree
             .as_ref()
@@ -8310,7 +8353,8 @@ impl<A: Application> App<A> {
         } else {
             edit.anchor = None;
         }
-        edit.cursor = new_cursor;
+        edit.cursor = new_cursor.offset;
+        edit.affinity = new_cursor.affinity;
         // Remember the goal column for the next vertical jump.
         self.goal_x = Some(goal);
         self.reveal_caret(id, new_cursor);
@@ -8337,6 +8381,7 @@ impl<A: Application> App<A> {
         self.runtime.edits.insert(
             id,
             Edit {
+                affinity: Default::default(),
                 cursor: end,
                 anchor: Some(start),
                 composing: None,
@@ -8397,10 +8442,29 @@ impl<A: Application> App<A> {
         // `dispatch_edit` rebuilds the tree: a plain keystroke leaves it unused, since
         // `on_edit` answers `None` for one and the announcement below is never spoken.
         let announce = widget.and_then(|widget| widget.announce());
-        let message = widget.and_then(|widget| widget.on_edit(&mut edit, &key));
+        // The caret keys move over the text as it is drawn, when the widget can say how;
+        // everything else — and those, when it cannot — is the widget's edit.
+        let caret_key = matches!(
+            key,
+            Key::Left { .. } | Key::Right { .. } | Key::Home { .. } | Key::End { .. }
+        );
+        let width = self
+            .ui
+            .as_ref()
+            .and_then(|ui| ui.widget_rect(id))
+            .map(|r| r.width);
+        let moved = caret_key
+            && width.is_some_and(|width| {
+                widget.is_some_and(|widget| widget.caret_key(width, &mut edit, &key))
+            });
+        let message = if moved {
+            None
+        } else {
+            widget.and_then(|widget| widget.on_edit(&mut edit, &key))
+        };
         self.runtime.edits.insert(id, edit);
         // In a multi-line field, make the retained scroll follow the caret and reveal it.
-        self.reveal_caret(id, edit.cursor);
+        self.reveal_caret(id, edit.position());
         if let Some(message) = message {
             self.dispatch_edit(message);
             if let Some(announce) = announce {
@@ -8505,7 +8569,7 @@ impl<A: Application> App<A> {
         // The caret goes back with the text — an undo that restores the value and leaves
         // the caret at the end has done half the job.
         self.runtime.edits.insert(id, target.edit);
-        self.reveal_caret(id, target.edit.cursor);
+        self.reveal_caret(id, target.edit.position());
         if let Some(message) = message {
             self.dispatch_edit(message);
         }
@@ -8543,7 +8607,7 @@ impl<A: Application> App<A> {
     /// Makes a multi-line field's retained scroll **follow the caret**: adjusts
     /// `runtime.scroll[id]` just enough to keep the caret visible, the way an editor
     /// re-centres as you type. A no-op for a field that does not scroll.
-    fn reveal_caret(&mut self, id: WidgetId, cursor: usize) {
+    fn reveal_caret(&mut self, id: WidgetId, cursor: frus_widgets::TextPosition) {
         let Some(vp) = self.ui.as_ref().and_then(|ui| ui.scrollable_viewport(id)) else {
             return;
         };
@@ -8657,12 +8721,10 @@ impl<A: Application> App<A> {
             return;
         };
         let index = self.region_index(&stop, self.cursor);
-        let now = Instant::now();
-        let here = self.cursor;
-        let double = self.last_region_click.is_some_and(|(then, there)| {
-            (now - then).as_secs_f32() < 0.4
-                && (here.x - there.x).hypot(here.y - there.y) <= REGION_DOUBLE_CLICK_SLOP
-        });
+        let (now, here) = (self.click_clock(), self.cursor);
+        let double = self
+            .last_region_click
+            .is_some_and(|(then, there)| self.is_double_click(then, there, now, here));
         self.last_region_click = Some((now, here));
         // A new selection is worked out over the texts on screen, not the last one's.
         self.region_known = None;
@@ -9028,6 +9090,7 @@ impl<A: Application> App<A> {
         self.runtime.edits.insert(
             id,
             Edit {
+                affinity: Default::default(),
                 cursor: usize::MAX,
                 anchor: Some(0),
                 composing: None,
@@ -9196,7 +9259,7 @@ impl<A: Application> App<A> {
                 )
             });
         // Only a text field has a bar; a button under the pointer is not one.
-        let Some(cursor) = cursor else {
+        let Some(at) = cursor else {
             self.hide_selection_toolbar();
             return;
         };
@@ -9206,7 +9269,7 @@ impl<A: Application> App<A> {
                 .edits
                 .get(&id)
                 .and_then(|edit| edit.selection_range())
-                .is_some_and(|(start, end)| cursor >= start && cursor <= end);
+                .is_some_and(|(start, end)| at.offset >= start && at.offset <= end);
         self.runtime.input.focused = Some(id);
         self.runtime.selection_handles = None;
         if !inside {
@@ -9214,9 +9277,10 @@ impl<A: Application> App<A> {
             self.runtime.edits.insert(
                 id,
                 Edit {
-                    cursor,
+                    cursor: at.offset,
                     anchor: None,
                     composing: None,
+                    affinity: at.affinity,
                 },
             );
             self.runtime.close_edit_run(id);
@@ -9240,6 +9304,7 @@ impl<A: Application> App<A> {
 fn collapsed_to_end(edit: Edit) -> Edit {
     let cursor = edit.selection_range().map_or(edit.cursor, |(_, end)| end);
     Edit {
+        affinity: Default::default(),
         cursor,
         anchor: None,
         composing: None,
@@ -9920,16 +9985,19 @@ mod tests {
     fn a_copy_collapses_the_selection_to_its_end() {
         use frus_widgets::Edit;
         let forwards = Edit {
+            affinity: Default::default(),
             cursor: 11,
             anchor: Some(6),
             composing: None,
         };
         let backwards = Edit {
+            affinity: Default::default(),
             cursor: 6,
             anchor: Some(11),
             composing: None,
         };
         let expect = Edit {
+            affinity: Default::default(),
             cursor: 11,
             anchor: None,
             composing: None,
@@ -9938,6 +10006,7 @@ mod tests {
         assert_eq!(super::collapsed_to_end(backwards), expect);
         // Nothing selected: the caret stays where it is.
         let caret = Edit {
+            affinity: Default::default(),
             cursor: 3,
             anchor: None,
             composing: None,
@@ -9945,6 +10014,7 @@ mod tests {
         assert_eq!(super::collapsed_to_end(caret), caret);
         // An anchor on the caret is no selection either.
         let empty = Edit {
+            affinity: Default::default(),
             cursor: 3,
             anchor: Some(3),
             composing: Some((1, 2)),
@@ -11774,6 +11844,14 @@ pub mod testing {
         /// The widget with the keyboard focus, if one has it.
         pub fn focused(&self) -> Option<WidgetId> {
             self.shell.runtime.input.focused
+        }
+
+        /// The selection in the focused field, as its first and last character boundaries,
+        /// when one is selected.
+        #[cfg(test)]
+        pub(crate) fn field_selection(&self) -> Option<(usize, usize)> {
+            let id = self.focused()?;
+            self.shell.runtime.edits.get(&id)?.selection_range()
         }
 
         /// Makes the shell stand in for a built-in device, as `FRUS_DEVICE` does

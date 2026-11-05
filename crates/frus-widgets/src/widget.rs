@@ -423,6 +423,18 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
+    /// Moves the caret of `edit` for a **caret key** — an arrow, Home or End — over the
+    /// text as it is drawn in a box `width` wide, and returns whether it did.
+    ///
+    /// The arrows move the caret the way they point on screen, past the character drawn
+    /// next to it whatever that character's direction, and leave it beside that character
+    /// ([`Edit::affinity`]); Home and End go to the ends of the line the caret is drawn
+    /// on. A widget that has no drawn text answers `false`, and the key goes to
+    /// [`on_edit`](Self::on_edit), which moves the caret through the text's order.
+    fn caret_key(&self, _width: f32, _edit: &mut Edit, _key: &Key) -> bool {
+        false
+    }
+
     /// **Positional** click: a message emitted according to where the click landed (local
     /// coordinates from the widget's top-left corner, within the `width × height` box), taking
     /// **priority** over [`on_click`](Self::on_click). For clickable sub-regions — e.g. the
@@ -452,9 +464,10 @@ pub trait Widget<Msg = crate::callback::Callback> {
         None
     }
 
-    /// Cursor index matching a local position (px from the widget's top-left
-    /// corner) — for placing the caret on click. `local_y` picks the **line** in a
-    /// multi-line field (ignored on a single line).
+    /// Caret position matching a local position (px from the widget's top-left
+    /// corner) — for placing the caret on click: the boundary nearest the press, and the
+    /// side of it that was pressed (see [`frus_core::TextAffinity`]). `local_y` picks the
+    /// **line** in a multi-line field (ignored on a single line).
     ///
     /// `width` = the field's width, `scroll_cursor` = the cursor from which to recompute
     /// the current **scroll** (the same one the render used), so that a click lands right
@@ -465,15 +478,19 @@ pub trait Widget<Msg = crate::callback::Callback> {
         _local_y: f32,
         _width: f32,
         _scroll_cursor: usize,
-    ) -> Option<usize> {
+    ) -> Option<frus_core::TextPosition> {
         None
     }
 
-    /// SingleChildScrollView metrics of a **multi-line** field, for a widget width and a cursor:
+    /// SingleChildScrollView metrics of a **multi-line** field, for a widget width and a caret:
     /// `(content height, visible box height, caret top, caret height)`, in content
     /// space (px). The shell uses them to register the scrollable region and to keep
     /// the caret in view. `None` otherwise.
-    fn text_metrics(&self, _width: f32, _cursor: usize) -> Option<(f32, f32, f32, f32)> {
+    fn text_metrics(
+        &self,
+        _width: f32,
+        _cursor: frus_core::TextPosition,
+    ) -> Option<(f32, f32, f32, f32)> {
         None
     }
 
@@ -499,11 +516,11 @@ pub trait Widget<Msg = crate::callback::Callback> {
     fn caret_vertical(
         &self,
         _width: f32,
-        _cursor: usize,
+        _cursor: frus_core::TextPosition,
         _down: bool,
         _page: bool,
         _goal_x: Option<f32>,
-    ) -> Option<(usize, f32)> {
+    ) -> Option<(frus_core::TextPosition, f32)> {
         None
     }
 
@@ -2064,16 +2081,23 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn on_edit(&self, edit: &mut Edit, key: &Key) -> Option<Msg> {
         (**self).on_edit(edit, key)
     }
+    fn caret_key(&self, width: f32, edit: &mut Edit, key: &Key) -> bool {
+        (**self).caret_key(width, edit, key)
+    }
     fn cursor_at(
         &self,
         local_x: f32,
         local_y: f32,
         width: f32,
         scroll_cursor: usize,
-    ) -> Option<usize> {
+    ) -> Option<frus_core::TextPosition> {
         (**self).cursor_at(local_x, local_y, width, scroll_cursor)
     }
-    fn text_metrics(&self, width: f32, cursor: usize) -> Option<(f32, f32, f32, f32)> {
+    fn text_metrics(
+        &self,
+        width: f32,
+        cursor: frus_core::TextPosition,
+    ) -> Option<(f32, f32, f32, f32)> {
         (**self).text_metrics(width, cursor)
     }
     fn text_viewport(&self, rect: crate::Rect) -> Option<crate::Rect> {
@@ -2082,11 +2106,11 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     fn caret_vertical(
         &self,
         width: f32,
-        cursor: usize,
+        cursor: frus_core::TextPosition,
         down: bool,
         page: bool,
         goal_x: Option<f32>,
-    ) -> Option<(usize, f32)> {
+    ) -> Option<(frus_core::TextPosition, f32)> {
         (**self).caret_vertical(width, cursor, down, page, goal_x)
     }
     fn selected_text(&self, edit: &Edit) -> Option<String> {

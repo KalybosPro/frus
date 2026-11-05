@@ -4197,7 +4197,8 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // inertia through the generic machinery; the shell follows the caret) plus a
             // draggable scrollbar (mouse and touch).
             if let Some(vp) = widget.text_viewport(draw_rect) {
-                if let Some((content_h, visible_h, _, _)) = widget.text_metrics(draw_rect.width, 0)
+                if let Some((content_h, visible_h, _, _)) =
+                    widget.text_metrics(draw_rect.width, frus_core::TextPosition::new(0))
                 {
                     let max_y = (content_h - visible_h).max(0.0);
                     if max_y > 0.0 {
@@ -5763,6 +5764,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         if status.focused {
             if let Some(edit) = self.runtime.edits.get(&id) {
                 status.cursor = Some(edit.cursor);
+                status.affinity = edit.affinity;
                 status.selection = edit.selection_range();
                 status.composing = edit.composing;
             }
@@ -8858,6 +8860,7 @@ mod tests {
             rt.edits.insert(
                 id,
                 Edit {
+                    affinity: Default::default(),
                     cursor: 11,
                     anchor: Some(6),
                     composing: None,
@@ -8887,6 +8890,7 @@ mod tests {
     fn the_wrappers_that_fuse_with_a_field_pass_its_handles_on() {
         let field = || TextField::<Msg>::new("hello world").width(200.0);
         let edit = Edit {
+            affinity: Default::default(),
             cursor: 11,
             anchor: Some(6),
             composing: None,
@@ -9003,6 +9007,7 @@ mod tests {
 
     fn selected(cursor: usize, anchor: Option<usize>) -> Edit {
         Edit {
+            affinity: Default::default(),
             cursor,
             anchor,
             composing: None,
@@ -9358,6 +9363,7 @@ mod tests {
 
         let widget = find_widget(&tree, id).expect("the widget was found");
         let mut edit = Edit {
+            affinity: Default::default(),
             cursor: 2,
             anchor: None,
             composing: None,

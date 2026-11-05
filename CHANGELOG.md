@@ -8,10 +8,28 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 744 so far, each documenting the objective, the alternatives
+> record — one per step, 747 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **A caret on the right side of a change of direction** (J747): a caret position now carries an
+  affinity (`TextAffinity`, `TextPosition` in `frus-core`, re-exported), so at a boundary drawn in
+  two places — a soft wrap, or where Latin meets Hebrew or Arabic, or digits sit inside them — the
+  caret is drawn beside the character it came past or was tapped next to. In a `TextField` and a
+  selectable `Text` or `RichText` the arrow keys move the caret the way they point on screen
+  through mixed lines, a press resolves to the side of the character that was pressed, Home and
+  End go to the ends of the line on screen (End on a wrapped line stays on it), Up and Down keep
+  the side, and a selection's end handle stands at the end of the selected characters (on the
+  line it ends on, at a wrap). `TextLayout` gained `caret_rect_at`, `position_at`, `visual_step`,
+  `line_bounds` and `line_is_rtl`. **Breaking:** `Edit` and `Status` have an `affinity` field;
+  `Widget::cursor_at` returns a `TextPosition`, `Widget::caret_vertical` and
+  `Widget::text_metrics` take one; a new `Widget::caret_key` moves the caret over the drawn text.
+
+- **A field's double click needs the two presses close together** (J747): a second press within
+  0.4 s selects the word only if it lands in the same field within 8 logical pixels of the first
+  (a finger: 100). Two quick clicks far apart now place the caret twice instead of selecting a
+  word. Double clicks in fields and selection areas are timed on the driver's clock in tests.
 
 - **Plain open-source notices**: `NOTICE` keeps only the copyright, the two licenses and the
   contribution terms; the paragraph warning redistributors is gone. `TRADEMARKS.md` is removed,

@@ -49,6 +49,9 @@ mod app;
 mod application;
 #[cfg(any(android, test))]
 mod autofill;
+/// A field's caret through text that mixes directions, through the shell (milestone 747).
+#[cfg(all(test, desktop))]
+mod bidi_caret_tests;
 mod cache_dir;
 mod caret;
 mod command;

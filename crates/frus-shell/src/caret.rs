@@ -84,6 +84,7 @@ mod tests {
         Some(Signature {
             field: WidgetId::from_u64(1),
             edit: Edit {
+                affinity: Default::default(),
                 cursor,
                 anchor: None,
                 composing: None,
