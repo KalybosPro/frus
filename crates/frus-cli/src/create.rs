@@ -1076,4 +1076,49 @@ mod tests {
             "{manifest}"
         );
     }
+
+    /// The CSS rule a page gives `selector`, between its braces.
+    fn css_rule<'a>(page: &'a str, selector: &str) -> Option<&'a str> {
+        let start = page.find(&format!("{selector} {{"))?;
+        let body = &page[start..];
+        let open = body.find('{')? + 1;
+        let close = body.find('}')?;
+        Some(&body[open..close])
+    }
+
+    /// Every page this checkout serves an application from, beside the template's (milestone
+    /// 749): they are copies of one page and must keep the canvas sized the same way.
+    #[test]
+    fn every_page_fills_the_window_it_is_given() {
+        let checkout = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+        let mut pages = vec![
+            checkout.join("crates/frus-cli/template/web/index.html"),
+            checkout.join("crates/frus-hello/web/index.html"),
+            checkout.join("frus-examples/forge/frontend/forge/web/index.html"),
+        ];
+        for example in fs::read_dir(checkout.join("frus-examples")).unwrap() {
+            let page = example.unwrap().path().join("web").join("index.html");
+            if page.exists() {
+                pages.push(page);
+            }
+        }
+        assert!(pages.len() >= 11, "{pages:?}");
+        for path in pages {
+            let page = fs::read_to_string(&path).unwrap();
+            let canvas = css_rule(&page, "canvas")
+                .unwrap_or_else(|| panic!("{}: no canvas rule", path.display()));
+            // 100vh is the height with a phone browser's address bar hidden, which a page
+            // that does not scroll never hides: the bottom of the application was cut off.
+            assert!(!canvas.contains("vh"), "{}: {canvas}", path.display());
+            for wanted in ["position: fixed", "inset: 0", "width: 100%", "height: 100%"] {
+                assert!(canvas.contains(wanted), "{}: {canvas}", path.display());
+            }
+            // The status box, fixed too, stays over the canvas that comes after it.
+            for status in ["#status", "#loading"] {
+                if let Some(rule) = css_rule(&page, status) {
+                    assert!(rule.contains("z-index"), "{}: {rule}", path.display());
+                }
+            }
+        }
+    }
 }

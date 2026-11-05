@@ -981,6 +981,10 @@ pub struct App<A: Application> {
     /// to block on GPU init.
     #[cfg(web)]
     pending_renderer: std::rc::Rc<std::cell::RefCell<Option<Renderer>>>,
+    /// The browser gave the canvas's WebGL context back after taking it away: everything
+    /// the renderer had on the GPU is gone, and a new renderer is made (milestone 749).
+    #[cfg(web)]
+    context_restored: std::rc::Rc<std::cell::Cell<bool>>,
     /// What this side knows of the browser's history — see [`crate::history`].
     #[cfg(web)]
     history: crate::history::History,
@@ -1271,6 +1275,9 @@ pub struct App<A: Application> {
     /// change (#46).
     #[cfg(android)]
     system_bars: Option<frus_widgets::SystemBars>,
+    /// The page's background as it was last painted, on the Web (milestone 749).
+    #[cfg(web)]
+    page_background: Option<frus_widgets::Color>,
 }
 
 impl<A: Application> App<A> {
@@ -1323,6 +1330,8 @@ impl<A: Application> App<A> {
             renderer_lost: false,
             #[cfg(web)]
             pending_renderer: std::rc::Rc::new(std::cell::RefCell::new(None)),
+            #[cfg(web)]
+            context_restored: std::rc::Rc::default(),
             #[cfg(web)]
             history: crate::history::History::new(),
             #[cfg(web)]
@@ -1434,6 +1443,8 @@ impl<A: Application> App<A> {
             soft_input_shown: false,
             #[cfg(android)]
             system_bars: None,
+            #[cfg(web)]
+            page_background: None,
         }
     }
 
@@ -1553,9 +1564,10 @@ impl<A: Application> App<A> {
     }
 
     /// Puts what the browser did to the element into its field (milestone 711): the text
-    /// through the message typing would have produced — so a field that refuses typing
-    /// refuses this too, and the next frame puts the field's own text back in the element —
-    /// and the caret, the selection and the composition as the browser left them.
+    /// as the field's own typing — so a field that refuses typing, or filters it, or limits
+    /// its length, does so to this too, and the next frame puts the field's own text back in
+    /// the element (milestone 749) — and the caret, the selection and the composition as the
+    /// browser left them when the field took the change as it came.
     #[cfg(web)]
     fn drain_web_editing(&mut self) {
         let changes = match self.web_editor.as_ref() {
@@ -1570,13 +1582,17 @@ impl<A: Application> App<A> {
             if self.runtime.input.focused != Some(id) {
                 continue;
             }
-            let (value, edit) = crate::web_editing::read(&element);
-            let message = self
+            let (value, browser) = crate::web_editing::read(&element);
+            // Through the field's own typing, so its filter and its limit apply (milestone
+            // 749).
+            let Some((message, edit)) = self
                 .tree
                 .as_ref()
                 .and_then(|tree| find_widget(tree.as_ref(), id))
-                .filter(|widget| widget.text_value() != Some(value.as_str()))
-                .and_then(|widget| widget.replace_value(value));
+                .map(|widget| crate::web_editing::browser_change(widget, &value, browser))
+            else {
+                continue;
+            };
             self.runtime.edits.insert(id, edit);
             if let Some(message) = message {
                 self.dispatch_edit(message);
@@ -1620,8 +1636,13 @@ impl<A: Application> App<A> {
     /// The two points are the first row of content under the status bar and the last one
     /// above the navigation bar: this window is not drawn behind the bars, so what a bar
     /// stands against is what lies at the edge of the content next to it.
+    ///
+    /// On the Web the browser owns the bars, but Chrome on Android paints the phone's
+    /// navigation bar with the page's background: the page is given the navigation bar's
+    /// colour (milestone 749), or it shows as a band of the loading screen's colour under
+    /// the application.
     fn sync_system_bars(&mut self, theme: &Theme) {
-        #[cfg(android)]
+        #[cfg(any(android, web))]
         {
             let Some(ui) = self.ui.as_ref() else {
                 return;
@@ -1639,11 +1660,20 @@ impl<A: Application> App<A> {
                     frus_widgets::Point::new(width / 2.0, height - edges.bottom - 0.5),
                 )
                 .resolve(theme);
+            #[cfg(android)]
             if self.system_bars != Some(bars) && crate::android_system_bars::apply(bars) {
                 self.system_bars = Some(bars);
             }
+            #[cfg(web)]
+            {
+                let page =
+                    crate::web_page::page_background(bars.navigation_bar_color, theme.background);
+                if self.page_background != Some(page) && crate::web_page::paint_behind(page) {
+                    self.page_background = Some(page);
+                }
+            }
         }
-        #[cfg(not(android))]
+        #[cfg(not(any(android, web)))]
         let _ = theme;
     }
 
@@ -1982,8 +2012,8 @@ impl<A: Application> App<A> {
     }
 
     /// The system insets — the safe area — in **logical** px. On Android they are
-    /// derived from the activity's content rect, outside the system bars; zero
-    /// elsewhere.
+    /// derived from the activity's content rect, outside the system bars; on the Web the
+    /// bottom one is the on-screen keyboard's cover of the canvas; zero elsewhere.
     ///
     /// The content rect is what the system leaves the activity, so it excludes
     /// **any** decoration the theme asks for — a title bar included. An app whose
@@ -2003,6 +2033,16 @@ impl<A: Application> App<A> {
                 let bottom = (phys_h as i32 - r.bottom).max(0) as f32;
                 return Insets::new(top / scale, right / scale, bottom / scale, left / scale);
             }
+        }
+        // The Web: the on-screen keyboard covers the bottom of a canvas that keeps its size
+        // (milestone 749). It comes in CSS pixels; a CSS pixel is `self.scale` physical ones.
+        #[cfg(web)]
+        if let Some(canvas) = self.window.as_ref().and_then(|window| {
+            use winit::platform::web::WindowExtWebSys;
+            window.canvas()
+        }) {
+            let cover = crate::web_page::keyboard_cover_of(&canvas) as f32;
+            return Insets::new(0.0, 0.0, cover * self.scale / scale, 0.0);
         }
         let _ = (phys_w, phys_h, scale);
         Insets::ZERO
@@ -2234,6 +2274,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             // The browser keeps reload, the developer tools and the rest of its own shortcuts
             // while the canvas has the focus, instead of winit cancelling them.
             crate::web_keys::let_the_browser_keep_its_shortcuts();
+            // The keyboard coming and going resizes the visual viewport alone: a frame each
+            // time, which measures it (milestone 749).
+            crate::web_page::redraw_on_viewport_changes(window.clone());
+            // A WebGL context the browser takes away — a GPU process restarted, a tab that
+            // was in the background under memory pressure — is asked back, and drawn again.
+            crate::web_page::recover_lost_contexts(&window, self.context_restored.clone());
             // The tab's icon: the application's, or the frus logo where the page has none.
             crate::web_icon::apply(&self.app.icon());
             self.build_dirty = true;
@@ -2771,6 +2817,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
             }
 
             WindowEvent::RedrawRequested => {
+                // A WebGL context the browser took away and has given back holds nothing of
+                // the old renderer's: as for a lost device.
+                #[cfg(web)]
+                if self.context_restored.take() {
+                    self.renderer_lost = true;
+                }
                 // The GPU device was lost on the last frame: a new renderer first.
                 if std::mem::take(&mut self.renderer_lost) {
                     self.rebuild_renderer();

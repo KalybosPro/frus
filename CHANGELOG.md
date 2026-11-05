@@ -8,11 +8,25 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 748 so far, each documenting the objective, the alternatives
+> record — one per step, 749 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The page fits the phone's screen, and its keyboard** (J749): on a phone, a web application's canvas was sized
+  `100vh`, the height with the browser's address bar hidden — which a page that does not scroll
+  never hides — so the bottom 56 CSS pixels of the application were drawn below the screen. Every
+  `index.html` (template, hello, examples) now pins the canvas to the window the page is given
+  (`position: fixed; inset: 0`), as tall as what is seen, following the browser's bars. And
+  Chrome on Android paints the phone's navigation bar with the page's background, which was the
+  loading screen's dark one: under a light application it showed as a dark band. The shell now
+  keeps the page's background the colour the application asks for its navigation bar — the
+  region at the bottom of the frame, then the theme — as it does for the system bars on Android.
+  On a phone the on-screen keyboard is now the window's bottom inset (the part of the canvas the
+  visual viewport leaves out), so the layout lifts the focused field above it as on Android,
+  instead of the browser panning the whole page and the application's top bar off the screen.
+  What the browser types into a field goes through the field's filter and length limit, as a key
+  does. A WebGL context the browser takes away is asked back, and drawn again.
 - **Rows that keep their state** (J748): a row of `ListView::new` or `ListView::builder` with a
   key (`keyed(..)`, `Keyed::new`, `Component::with_key`) is identified by its key rather than its
   index, so the state of its components, its hooks and a selection in its words follow it when
