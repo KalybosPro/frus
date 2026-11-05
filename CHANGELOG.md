@@ -34,6 +34,24 @@ any release may break.
   build unless `--hot` is given. A machine that cannot install the patch engine runs with
   restarts and says why. In VS Code, the `hot` launch attribute left out lets frus decide;
   `false` restarts.
+- **The keyboard covers the bottom bar; focus rings follow the input; a swipe on a field
+  scrolls** (J752). With the on-screen keyboard up, `Scaffold` held its bottom navigation bar
+  and persistent footer *above* the keyboard, so in landscape the page kept about 60 px and the
+  floating button was pushed over the status bar. The keyboard now covers the widgets below the
+  body where they stand, and the body stops at whichever reaches higher, the keyboard or those
+  widgets; the floating button sits above that and never goes above the status bar.
+  `resize_to_avoid_bottom_inset(false)` still lets the keyboard cover everything. Focus rings
+  follow the kind of input used last: a touch or a click hides them, a key from a keyboard or a
+  remote shows them, and neither the system's Back nor the keys an on-screen keyboard types
+  count as keyboard use — a page popped with Back on a phone no longer leaves a ring on the
+  button the focus falls back to. New `FocusHighlightMode`, `FocusHighlightStrategy`
+  (`Application::focus_highlight_strategy`: `Automatic`, `AlwaysTouch`, `AlwaysTraditional`) and
+  `Runtime::focus_highlight_mode`. A focus moved by `Command::focus` no longer turns the rings on.
+  On a touch screen a finger on a text field or a selectable text no longer focuses it and
+  places the caret when it comes down: a tap does that when it lifts, a hold focuses and selects
+  the word, and a drag scrolls what the field sits in instead of selecting text. A mouse press
+  still focuses at once and a mouse drag still selects.
+
 - **The documentation says `frus`, not cargo, wherever a `frus` command does the job.** The
   README (English and French), the getting-started page, the testing guide, CONTRIBUTING, the
   template `frus create` writes (its README, manifest comments and code comments), the sample

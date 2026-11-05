@@ -819,21 +819,24 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         };
         let has_nav = has_nav || bottom_bar_height > 0.0;
 
-        // How far the bottom-most slot is held off the edge. The keyboard is the only
-        // inset a screen may decline: `view_insets.bottom` measures the occlusion from
-        // the window edge, bar included, so the two combine with `max` and never add up.
-        // Declining, the screen has said the keyboard is an **overlay** — so the
-        // geometry it wants is the keyboard-free one. `insets.bottom` is zero while the
-        // keyboard covers the navigation bar (the bar being covered, nothing has to
-        // avoid it), and reading it here would drop the bottom bar and the floating
-        // button onto the window's edge the moment a field was tapped, then lift them
-        // back when the keyboard closed. `view_padding` is the intrusion that does not
-        // move, which is exactly what "ignore the keyboard" means.
+        // How far the bottom-most slot is held off the edge: the **permanent** intrusion,
+        // never the keyboard (milestone 752). The keyboard does not lift the bottom bar or
+        // the footer; it covers them, and it is the body that is shortened for it, by
+        // whichever reaches higher of the keyboard and the widgets below the body. Until
+        // then this was `max(padding, keyboard)`, which stood the bottom bar on top of the
+        // keyboard: in landscape a phone kept 60 px for the page.
+        //
+        // Resizing, the padding is what the keyboard leaves uncovered — zero while it
+        // covers the navigation bar, and the bar under it is not seen anyway. Declining,
+        // the screen has said the keyboard is an **overlay**, so the geometry it wants is
+        // the keyboard-free one: `view_padding` is the intrusion that does not move, and
+        // reading `padding` there would drop the bottom bar and the floating button onto
+        // the window's edge, under the keyboard, the moment a field was tapped.
         //
         // It is worked out here, above the footer, because the footer is one of the
         // slots it falls to (milestone 419).
         let bottom_clear = if resize_to_avoid_bottom_inset {
-            insets.bottom.max(view_insets.bottom)
+            insets.bottom
         } else {
             view_padding.bottom
         };
@@ -950,8 +953,16 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // `max(padding.bottom, bottomWidgetsHeight)` (`scaffold.dart:969`) — with the
         // footer's own height still missing from the second term, since nothing measures it.
         let below_body = bar_below_body || footer.is_some();
+        // The keyboard the body is shortened for, when it is.
+        let keyboard_clear = if resize_to_avoid_bottom_inset {
+            view_insets.bottom
+        } else {
+            0.0
+        };
         let body_bottom = if extend_body {
-            insets.bottom.max(nav_h)
+            // Run under the bars, it faces them — less what the keyboard, which has
+            // already shortened it, now covers.
+            (insets.bottom.max(nav_h) - keyboard_clear).max(0.0)
         } else if below_body {
             0.0
         } else {
@@ -990,13 +1001,17 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         //
         // With a bar or a footer below it they hold the edge off, and a body told to run
         // under them has asked for the room.
-        let body_owns_bottom = !extend_body && footer.is_none() && !bar_below_body;
-        let keyboard_clear = if resize_to_avoid_bottom_inset {
-            view_insets.bottom
-        } else {
-            0.0
-        };
-        let body_spacer = body_owns_bottom && keyboard_clear > 0.0;
+        //
+        // A body extended under the bars is shortened by the keyboard all the same: the
+        // bars are drawn over it and the keyboard over them, and a field at its end must
+        // still come up above the keyboard.
+        let body_owns_bottom = footer.is_none() && !bar_below_body;
+        let body_spacer = (body_owns_bottom || extend_body) && keyboard_clear > 0.0;
+        // With the bottom bar or the footer below the body, the keyboard covers them and
+        // the body stops at whichever reaches higher (milestone 752): the reference's
+        // `contentBottom = height - max(minInsets.bottom, bottomWidgetsHeight)`. They stay
+        // at the bottom of a block at least as tall as the keyboard.
+        let keyboard_floor = !body_spacer && keyboard_clear > 0.0;
 
         // Which slots the body must make room for, and which it runs under. A slot that
         // is extended behind moves out of the body's column and into an overlay layer
@@ -1074,12 +1089,14 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 col = col.child(Container::new().height(keyboard_clear));
             }
             if !bottom_over_body {
+                let mut below: Vec<Box<dyn Widget<Msg>>> = Vec::new();
                 if let Some(f) = footer.take() {
-                    col = col.child(f);
+                    below.push(f);
                 }
                 if let Some(n) = nav.take() {
-                    col = col.child(nav_pad(n));
+                    below.push(nav_pad(n));
                 }
+                col = push_below_body(col, below, keyboard_floor.then_some(keyboard_clear));
             }
             Box::new(col)
         } else {
@@ -1115,9 +1132,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 content = content.child(Container::new().height(keyboard_clear));
             }
             if !bottom_over_body {
-                if let Some(f) = footer.take() {
-                    content = content.child(f);
-                }
+                let below: Vec<Box<dyn Widget<Msg>>> = footer.take().into_iter().collect();
+                content = push_below_body(content, below, keyboard_floor.then_some(keyboard_clear));
             }
             row = row.child(content);
             Box::new(row)
@@ -1152,16 +1168,27 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // The FAB, in a layer of its own over the shell, at the corner it was given.
         let mut content: Box<dyn Widget<Msg>> = main;
         if let Some(fab) = fab {
-            // Where the body stops: the top of the bottom bar, which is what both
-            // vertical placements are measured from.
-            let content_bottom = bottom_clear + nav_h;
+            // Where the body stops, which is what both vertical placements are measured
+            // from: the top of the bottom bar, or of the keyboard when that reaches higher
+            // (milestone 752) — the keyboard covers the bar, and the button stays in sight
+            // above whichever is in front.
+            let bar_top = if nav_h > 0.0 {
+                bottom_clear + nav_h
+            } else {
+                0.0
+            };
+            let content_bottom = bar_top.max(keyboard_clear);
             let fab_bottom = if fab_location.docked() {
                 // Docked: the button's **centre** on that edge, straddling the bar.
                 (content_bottom - fab_size / 2.0).max(0.0)
             } else {
-                // Floating: clear of the edge by the usual margin.
-                content_bottom + FAB_MARGIN
+                // Floating: clear of the edge by the usual margin, and of the gesture bar
+                // when nothing below the body already is.
+                content_bottom.max(bottom_clear) + FAB_MARGIN
             };
+            // **Never off the top.** A keyboard taller than the room left (a phone in
+            // landscape) would push the button past the status bar; it stops below it.
+            let fab_bottom = fab_bottom.min((height - insets.top - fab_size).max(0.0));
             // The margin on the side the button is placed, start or end; the safe area's
             // insets on the sides they name, whichever the direction (milestone 588). The row
             // runs start to end, so in a right-to-left script the start is the right, and
@@ -1264,6 +1291,62 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         } else {
             shell
         }
+    }
+}
+
+/// Puts the widgets below the body — the footer, the bottom bar — at the end of `column`.
+///
+/// With a keyboard up (`floor`, its height from the window's edge), they go at the bottom
+/// of a block at least that tall: the keyboard covers them where they are, and the body
+/// above stops at the top of whichever reaches higher.
+fn push_below_body<Msg: Clone + 'static>(
+    column: Flex<Msg>,
+    below: Vec<Box<dyn Widget<Msg>>>,
+    floor: Option<f32>,
+) -> Flex<Msg> {
+    match floor {
+        Some(floor) if !below.is_empty() => column.child(KeyboardFloor {
+            floor,
+            children: below,
+        }),
+        _ => below
+            .into_iter()
+            .fold(column, |column, w| column.child_boxed(w)),
+    }
+}
+
+/// A column at least `floor` tall, its children at its bottom: the room under the body
+/// while the keyboard covers the bars (milestone 752).
+struct KeyboardFloor<Msg> {
+    floor: f32,
+    children: Vec<Box<dyn Widget<Msg>>>,
+}
+
+impl<Msg: Clone> Widget<Msg> for KeyboardFloor<Msg> {
+    fn style(&self) -> frus_layout::Style {
+        frus_layout::Style {
+            flex_direction: frus_layout::FlexDirection::Column,
+            justify: Justify::End,
+            min_height: frus_layout::Dimension::Length(self.floor),
+            ..Default::default()
+        }
+    }
+
+    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
+        &self.children
+    }
+
+    fn paint(
+        &self,
+        _bounds: frus_core::Rect,
+        _status: crate::interaction::Status,
+        _theme: &crate::theme::Theme,
+        _scene: &mut frus_core::Scene,
+    ) {
+    }
+
+    fn on_click(&self) -> Option<Msg> {
+        None
     }
 }
 
@@ -2779,6 +2862,262 @@ mod tests {
             | frus_core::Primitive::Layer { .. } => false,
         });
         assert!(pinned_low, "the bottom bar must be pinned in the low band");
+    }
+
+    /// Milestone 752: a colour for the bottom slot, apart from the body's [`MARK`].
+    const BAR_MARK: Color = Color {
+        r: 0.0,
+        g: 1.0,
+        b: 1.0,
+        a: 1.0,
+    };
+    /// And one for the floating button.
+    const FAB_MARK: Color = Color {
+        r: 1.0,
+        g: 1.0,
+        b: 0.0,
+        a: 1.0,
+    };
+
+    /// The rectangles painted in `color`, as seen, for a shell laid out at `size`.
+    fn painted(scaffold: Box<dyn Widget<Msg>>, size: Size, color: Color) -> Vec<frus_core::Rect> {
+        let ui = build_ui(
+            scaffold.as_ref(),
+            size,
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let mut found: Vec<frus_core::Rect> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Rect {
+                    rect,
+                    color: c,
+                    clip,
+                    ..
+                } if *c == color => Some(rect.intersect(*clip)),
+                _ => None,
+            })
+            .collect();
+        found.sort_by(|a, b| a.y.total_cmp(&b.y));
+        found
+    }
+
+    /// A phone's insets with a keyboard `keyboard` px tall from the window's edge: a
+    /// 24 px status bar and a 48 px navigation bar, which the keyboard covers.
+    fn phone_keyboard(keyboard: f32) -> WindowInsets {
+        WindowInsets::from_baseline(
+            Insets::new(24.0, 0.0, 48.0, 0.0),
+            Insets::new(24.0, 0.0, keyboard.max(48.0), 0.0),
+        )
+    }
+
+    /// A shell with an app bar, a filling body, a bottom bar and a floating button, under
+    /// `insets`, `resize` saying whether the keyboard shortens the body.
+    fn shell_with_bars(size: Size, insets: WindowInsets, resize: bool) -> Box<dyn Widget<Msg>> {
+        Scaffold::new()
+            .size(size.width, size.height)
+            .window_insets(insets)
+            .resize_to_avoid_bottom_inset(resize)
+            .app_bar(Container::<Msg>::new().height(56.0))
+            .body(filling())
+            // Held off the navigation bar by what it is told, as a real bar is.
+            .bottom_navigation_bar(
+                Flex::column().child(crate::SafeArea::new(
+                    Container::<Msg>::new()
+                        .height(crate::BOTTOM_NAVIGATION_BAR_HEIGHT)
+                        .color(BAR_MARK),
+                )),
+            )
+            .fab_size(56.0)
+            .fab(
+                Container::<Msg>::new()
+                    .width(56.0)
+                    .height(56.0)
+                    .color(FAB_MARK),
+            )
+            .build()
+    }
+
+    /// **The keyboard covers the bottom bar; it does not lift it** (milestone 752).
+    ///
+    /// The bar stays at the bottom of the window, under the keyboard, and the body stops
+    /// at the keyboard's top — `max(bottom widgets, keyboard)`, never the two added up.
+    /// Before, the bar stood on the keyboard: on a phone in landscape the page kept 60 px.
+    /// Portrait and landscape, as the phone showed it.
+    #[test]
+    fn the_keyboard_covers_the_bottom_bar_instead_of_lifting_it() {
+        let nav = crate::BOTTOM_NAVIGATION_BAR_HEIGHT;
+        for (size, keyboard) in [
+            (Size::new(412.0, 846.0), 300.0),
+            (Size::new(846.0, 412.0), 220.0),
+        ] {
+            let shell = || shell_with_bars(size, phone_keyboard(keyboard), true);
+            let body = painted(shell(), size, MARK);
+            let bar = painted(shell(), size, BAR_MARK);
+            let fab = painted(shell(), size, FAB_MARK);
+            assert_eq!(body.len(), 1, "{size:?}: {body:?}");
+            assert_eq!(bar.len(), 1, "{size:?}: {bar:?}");
+            // The body: below the app bar, down to the keyboard's top.
+            let body_bottom = body[0].y + body[0].height;
+            assert!(
+                (body[0].y - 56.0).abs() < 1.0,
+                "{size:?}: the body starts under the app bar: {:?}",
+                body[0]
+            );
+            assert!(
+                (body_bottom - (size.height - keyboard)).abs() < 1.0,
+                "{size:?}: the body stops at the keyboard, not above the bar on it: {:?}",
+                body[0]
+            );
+            // The bar: where it always is, at the window's bottom edge, behind the keyboard.
+            assert!(
+                (bar[0].y + bar[0].height - size.height).abs() < 1.0,
+                "{size:?}: the bar stays at the bottom edge: {:?}",
+                bar[0]
+            );
+            assert!((bar[0].height - nav).abs() < 1.0, "{size:?}: {:?}", bar[0]);
+            // The button: above the keyboard by the margin, in sight.
+            assert!(
+                (fab[0].y + fab[0].height - (size.height - keyboard - FAB_MARGIN)).abs() < 1.0,
+                "{size:?}: the button floats above the keyboard: {:?}",
+                fab[0]
+            );
+        }
+    }
+
+    /// With the keyboard down the same shell is as it was: the body stops on the bar, the
+    /// bar is held off the navigation bar, the button floats above the bar.
+    #[test]
+    fn without_a_keyboard_the_bar_holds_the_body_off() {
+        let size = Size::new(412.0, 846.0);
+        let insets = WindowInsets::bars(Insets::new(24.0, 0.0, 48.0, 0.0));
+        let nav = crate::BOTTOM_NAVIGATION_BAR_HEIGHT;
+        let body = painted(shell_with_bars(size, insets, true), size, MARK);
+        let bar = painted(shell_with_bars(size, insets, true), size, BAR_MARK);
+        let fab = painted(shell_with_bars(size, insets, true), size, FAB_MARK);
+        assert!(
+            (bar[0].y + bar[0].height - (size.height - 48.0)).abs() < 1.0,
+            "the bar's content is held off the navigation bar: {:?}",
+            bar[0]
+        );
+        assert!(
+            (body[0].y + body[0].height - (size.height - 48.0 - nav)).abs() < 1.0,
+            "the body stops on the bar: {:?}",
+            body[0]
+        );
+        assert!(
+            (fab[0].y + fab[0].height - (size.height - 48.0 - nav - FAB_MARGIN)).abs() < 1.0,
+            "the button floats above the bar: {:?}",
+            fab[0]
+        );
+    }
+
+    /// A keyboard **shorter** than the bar and what holds it off reaches no higher than
+    /// the bar: the body stops on the bar, as with no keyboard at all — `max`, not a sum.
+    #[test]
+    fn a_keyboard_lower_than_the_bar_moves_nothing() {
+        let size = Size::new(412.0, 846.0);
+        let nav = crate::BOTTOM_NAVIGATION_BAR_HEIGHT;
+        // A floating keyboard's strip, 60 px from the edge: covers the navigation bar
+        // (48) but not the bottom bar on it.
+        let insets = WindowInsets::from_baseline(
+            Insets::new(24.0, 0.0, 48.0, 0.0),
+            Insets::new(24.0, 0.0, 60.0, 0.0),
+        );
+        let body = painted(shell_with_bars(size, insets, true), size, MARK);
+        let body_bottom = body[0].y + body[0].height;
+        assert!(
+            (body_bottom - (size.height - 60.0_f32.max(nav))).abs() < 1.0,
+            "the body stops at the higher of the two: {:?}",
+            body[0]
+        );
+    }
+
+    /// `resize_to_avoid_bottom_inset(false)`: the keyboard is an overlay. Nothing moves —
+    /// the body keeps its room down to the bar, the bar and the button stay where they are
+    /// with the keyboard down, and the keyboard covers whatever it covers.
+    #[test]
+    fn a_shell_that_declines_to_resize_is_covered_whole() {
+        for (size, keyboard) in [
+            (Size::new(412.0, 846.0), 300.0),
+            (Size::new(846.0, 412.0), 220.0),
+        ] {
+            let shell = || shell_with_bars(size, phone_keyboard(keyboard), false);
+            let nav = crate::BOTTOM_NAVIGATION_BAR_HEIGHT;
+            let body = painted(shell(), size, MARK);
+            let bar = painted(shell(), size, BAR_MARK);
+            let fab = painted(shell(), size, FAB_MARK);
+            assert!(
+                (bar[0].y + bar[0].height - (size.height - 48.0)).abs() < 1.0,
+                "{size:?}: the bar keeps the navigation bar's room: {:?}",
+                bar[0]
+            );
+            assert!(
+                (body[0].y + body[0].height - (size.height - 48.0 - nav)).abs() < 1.0,
+                "{size:?}: the body is not shortened: {:?}",
+                body[0]
+            );
+            assert!(
+                (fab[0].y + fab[0].height - (size.height - 48.0 - nav - FAB_MARGIN)).abs() < 1.0,
+                "{size:?}: the button stays above the bar: {:?}",
+                fab[0]
+            );
+        }
+    }
+
+    /// **The button is never pushed off the top.** A keyboard that leaves less room than
+    /// the button needs (a short window in landscape) stops it below the status bar.
+    #[test]
+    fn the_button_stays_below_the_status_bar() {
+        let size = Size::new(846.0, 412.0);
+        let keyboard = 380.0;
+        let fab = painted(
+            shell_with_bars(size, phone_keyboard(keyboard), true),
+            size,
+            FAB_MARK,
+        );
+        assert!(
+            fab[0].y >= 24.0 - 0.5,
+            "the button is under the status bar: {:?}",
+            fab[0]
+        );
+        assert!(fab[0].height > 55.0, "and whole: {:?}", fab[0]);
+    }
+
+    /// The persistent footer is below the body, so it is covered with the bar: it does
+    /// not ride up on the keyboard either, and the body still stops at the keyboard.
+    #[test]
+    fn the_keyboard_covers_the_footer_too() {
+        let size = Size::new(412.0, 846.0);
+        let keyboard = 300.0;
+        let shell = || {
+            Scaffold::new()
+                .size(size.width, size.height)
+                .window_insets(phone_keyboard(keyboard))
+                .body(filling())
+                .persistent_footer(
+                    Container::<Msg>::new()
+                        .height(40.0)
+                        .width(80.0)
+                        .color(BAR_MARK),
+                )
+                .build()
+        };
+        let body = painted(shell(), size, MARK);
+        let footer = painted(shell(), size, BAR_MARK);
+        assert!(
+            (body[0].y + body[0].height - (size.height - keyboard)).abs() < 1.0,
+            "the body stops at the keyboard: {:?}",
+            body[0]
+        );
+        assert!(
+            footer[0].y + footer[0].height > size.height - keyboard + 1.0,
+            "the footer stays low, under the keyboard: {:?}",
+            footer[0]
+        );
     }
 }
 
