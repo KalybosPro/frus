@@ -191,6 +191,7 @@ jobs:
         run: |
           echo 'Acquire::Check-Valid-Until "false";' | sudo tee /etc/apt/apt.conf.d/99snapshot
           echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/99retries
+          sudo cp /etc/apt/sources.list.d/ubuntu.sources /tmp/ubuntu.sources.live
           cat <<'EOF' | sudo tee /etc/apt/sources.list.d/ubuntu.sources
           Types: deb
           URIs: https://snapshot.ubuntu.com/ubuntu/20260910T000000Z
@@ -199,29 +200,49 @@ jobs:
           Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
           EOF
 
-      # Falling back to the live archive would install a different mesa and move the
-      # goldens, which is what the pin is for, so the update is retried instead, and a
-      # failed fetch fails it: by default `apt-get update` only warns, and the job then
-      # died later on "has no installation candidate", which says nothing about why.
-      # What it downloads is kept for the cache above.
+      # The snapshot is one server and it goes down (502, 503) for hours, while the
+      # cache above is evicted whenever the Rust caches fill the repository's quota. So
+      # when the snapshot cannot be read, the **same version** is taken from elsewhere,
+      # never a newer one: first the live archive by exact version (noble-security
+      # still serves 25.2.8-0ubuntu0.24.04.2), then the very .deb from Launchpad, which
+      # keeps every package Ubuntu ever published. Its dependencies then come from the
+      # live archive, as they do on the maintainer's machine. Only a snapshot install
+      # is kept for the cache, which is meant to replay the snapshot's packages. By
+      # default `apt-get update` only warns on a failed fetch, so `--error-on=any`
+      # makes the failure visible instead of a later "has no installation candidate".
       - name: Install the pinned mesa from the snapshot
         if: steps.mesa-cached.outcome != 'success'
         run: |
-          for attempt in 1 2 3 4 5; do
+          pinned=25.2.8-0ubuntu0.24.04.2
+          snapshot=no
+          for attempt in 1 2 3; do
             if sudo apt-get update --error-on=any; then
+              snapshot=yes
               break
-            fi
-            if [ "$attempt" = 5 ]; then
-              echo "::error::snapshot.ubuntu.com could not be read after 5 attempts. The GPU job pins mesa there on purpose; re-run the job once it answers again."
-              exit 1
             fi
             echo "apt-get update failed (attempt $attempt); retrying in 30 s"
             sleep 30
           done
-          sudo apt-get clean
-          sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
-          mkdir -p ~/mesa-debs
-          cp /var/cache/apt/archives/*.deb ~/mesa-debs/
+          if [ "$snapshot" = yes ]; then
+            sudo apt-get clean
+            sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers
+            mkdir -p ~/mesa-debs
+            cp /var/cache/apt/archives/*.deb ~/mesa-debs/
+            exit 0
+          fi
+          echo "::warning::snapshot.ubuntu.com could not be read; installing mesa $pinned from the live archive or Launchpad instead."
+          sudo cp /tmp/ubuntu.sources.live /etc/apt/sources.list.d/ubuntu.sources
+          sudo apt-get update
+          if sudo apt-get install -y --no-install-recommends "mesa-vulkan-drivers=$pinned"; then
+            exit 0
+          fi
+          deb="mesa-vulkan-drivers_${pinned}_amd64.deb"
+          if curl -fsSL --retry 5 -o "/tmp/$deb" "https://launchpad.net/ubuntu/+archive/primary/+files/$deb"; then
+            sudo apt-get install -y --no-install-recommends "/tmp/$deb"
+            exit 0
+          fi
+          echo "::error::mesa $pinned could be fetched from neither snapshot.ubuntu.com, the live archive nor Launchpad; re-run the job later."
+          exit 1
 
       # Whichever way it came, it is the pinned mesa or the job stops here: a cache that
       # held anything else must not get as far as the goldens.
