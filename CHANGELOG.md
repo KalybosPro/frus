@@ -19,6 +19,17 @@ any release may break.
   shadows of a surface twelve or twenty-four high ended on a visible rim around it, short of
   where the blur ends. `Scene::shadow` and `BoxShadow` take the same values as before; blur
   styles keep their meaning.
+- **The website is frus.dev**: every crate's `homepage` points to https://frus.dev, and both
+  READMEs link to it first. The widget gallery stays at https://frus-rs.github.io/frus/.
+- **WebGL 2 where there is no WebGPU** (J745): on the web, frus drew through WebGPU alone, and a
+  browser without it — Chrome on Android before Android 12, a GPU the browser blocks — showed an
+  empty, dark page. The renderer now draws through WebGPU where the browser gives an adapter and a
+  device, and through WebGL 2 otherwise, choosing before the canvas gets a context; the console
+  says which. Four shaders' viewport uniforms are padded to the 16 bytes WebGL 2 requires, and a
+  test checks every shader against WebGL 2's rules. When nothing can be drawn, or the application
+  panics, the shell dispatches a `frus-error` event with a readable message and, when the page
+  does not show it, lays its own box over the canvas. Every web `index.html` (template, demo,
+  hello, examples) no longer refuses to start without `navigator.gpu`, and shows the message.
 - **Plain open-source notices**: `NOTICE` keeps only the copyright, the two licenses and the
   contribution terms; the paragraph warning redistributors is gone. `TRADEMARKS.md` is removed,
   and the READMEs no longer point to it. frus stays MIT OR Apache-2.0.

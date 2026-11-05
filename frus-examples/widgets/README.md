@@ -63,7 +63,8 @@ python -m http.server 8080 --directory web     # http://localhost:8080
 
 On the Web the address is the location: `http://localhost:8080/#/widget/button` opens a demo.
 
-frus draws through WebGPU, which browsers offer on `https` pages and on `localhost`.
+frus draws through WebGPU where the browser offers it and through WebGL 2 elsewhere; WebGPU is
+only offered on `https` pages and on `localhost`.
 
 ## Building against the published crate
 

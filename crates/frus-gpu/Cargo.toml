@@ -6,6 +6,7 @@ rust-version.workspace = true
 version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/frus-gpu"
 keywords = ["wgpu", "gpu", "2d", "renderer", "gui"]
@@ -35,3 +36,12 @@ log.workspace = true
 web-time = "1"
 # Blocking wait on device init: offscreen rendering has no async loop.
 pollster.workspace = true
+
+# The Web (milestone 745): WebGL 2 behind WebGPU, for the browsers that offer no WebGPU —
+# Chrome on Android before Android 12, a GPU the browser blocks. For wasm32 only: native
+# builds keep their own backends.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { workspace = true, features = ["webgl"] }
+# `navigator.gpu`, looked for before WebGPU is tried; both already come with wgpu.
+js-sys = "0.3"
+wasm-bindgen = "0.2"

@@ -7,6 +7,7 @@ version.workspace = true
 # glyphon's own licence, kept as it is.
 license = "MIT OR Apache-2.0 OR Zlib"
 repository.workspace = true
+homepage.workspace = true
 readme = "README.md"
 documentation = "https://docs.rs/frus-glyphon"
 keywords = ["text", "wgpu", "gui"]
