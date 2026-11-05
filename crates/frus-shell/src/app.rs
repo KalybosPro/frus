@@ -1150,6 +1150,11 @@ pub struct App<A: Application> {
     /// without having become a scroll or any other drag. A press that becomes one leaves
     /// the focus, and the on-screen keyboard, where they were.
     pending_tap_focus: Option<PendingFocus>,
+    /// A finger came down on a field or a selectable text (milestone 752): the focus and the
+    /// caret it would get, put off until the press is known. A tap places them at the
+    /// release; a hold places them and selects the word; a drag scrolls whatever the field
+    /// sits in and places nothing — as phones do, where a swipe across a form scrolls it.
+    pending_field_press: Option<FieldPress>,
     /// The focused field's caret blink (milestone 513).
     caret: crate::caret::CaretBlink,
     /// The form last shown to the platform's autofill service, as it was shown
@@ -1429,6 +1434,7 @@ impl<A: Application> App<A> {
             pending_word: None,
             pending_region_hold: false,
             pending_tap_focus: None,
+            pending_field_press: None,
             caret: crate::caret::CaretBlink::new(),
             #[cfg(android)]
             autofill_reported: Vec::new(),
@@ -1589,7 +1595,9 @@ impl<A: Application> App<A> {
                         continue;
                     }
                     self.runtime.input.focused = Some(id);
-                    self.runtime.focus_visible = true;
+                    // A move of the focus an assistive technology asked for: shown, as a
+                    // key's would be.
+                    self.note_input(true);
                     self.request_redraw();
                 }
             }
@@ -1696,7 +1704,9 @@ impl<A: Application> App<A> {
                         continue;
                     }
                     self.runtime.input.focused = Some(id);
-                    self.runtime.focus_visible = true;
+                    // A move of the focus an assistive technology asked for: shown, as a
+                    // key's would be.
+                    self.note_input(true);
                     self.request_redraw();
                 }
             }
@@ -3259,21 +3269,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.build_dirty = false;
 
                 // Focus requests (`Command::focus`), resolved against the tree just
-                // (re)built — the key names the field wrapped in `keyed(k, …)`. The most
-                // recent one that resolves wins, and the focus ring becomes visible
-                // again, since we jump to the field as the keyboard would.
-                if !self.pending_focus.is_empty() {
-                    let keys = std::mem::take(&mut self.pending_focus);
-                    let ids: Vec<WidgetId> = self
-                        .tree
-                        .as_deref()
-                        .map(|tree| keys.iter().filter_map(|&k| find_by_key(tree, k)).collect())
-                        .unwrap_or_default();
-                    if let Some(&id) = ids.last() {
-                        self.runtime.input.focused = Some(id);
-                        self.runtime.focus_visible = true;
-                    }
-                }
+                // (re)built.
+                self.resolve_pending_focus();
 
                 // === PAINT phase ===
                 // The retained tree is (re)painted. Layout goes through the relayout
@@ -4745,7 +4742,7 @@ impl<A: Application> App<A> {
                 // press, and a press only shows while it is also the hovered widget.
                 self.sync_hover();
                 // A pointer interaction: the keyboard focus ring fades away.
-                self.runtime.focus_visible = false;
+                self.note_input(false);
                 self.pointer_down(event.touch);
                 let (long_press, lift) = hold_candidates(
                     self.drag.as_ref(),
@@ -4790,6 +4787,7 @@ impl<A: Application> App<A> {
                     // The long press evicted the tap, so the release is swallowed.
                     self.drag = None;
                     self.pending_tap_focus = None;
+                    self.pending_field_press = None;
                     self.runtime.input.pressed = None;
                     self.request_redraw();
                 } else {
@@ -4798,8 +4796,10 @@ impl<A: Application> App<A> {
             }
             PointerKind::Cancel => {
                 self.press.cancel();
-                // A cancelled press was no tap: the focus stays (milestone 750).
+                // A cancelled press was no tap: the focus stays (milestone 750), and no caret
+                // is placed (milestone 752).
                 self.pending_tap_focus = None;
+                self.pending_field_press = None;
                 self.pending_lift = None;
                 self.pending_reorder = None;
                 self.pending_word = None;
@@ -4894,6 +4894,14 @@ impl<A: Application> App<A> {
             }
         }
         if let Some(id) = word {
+            // A finger held on a field: the focus and the caret it put off are placed now,
+            // and the field takes the gesture from the scroll it was sharing (milestone 752).
+            if self.pending_field_press.is_some() {
+                if let Some(Drag::Scroll { id: area, .. }) = self.drag.take() {
+                    self.runtime.release_scroll(area);
+                }
+                self.place_field_press();
+            }
             self.select_held_word(id);
         }
         if region && self.select_region_word_held() {
@@ -5180,6 +5188,7 @@ impl<A: Application> App<A> {
     fn pointer_down(&mut self, touch: bool) {
         self.pointer_touch = touch;
         self.pending_tap_focus = None;
+        self.pending_field_press = None;
         // A first tap still waiting for its second is a tap after all if this press is not
         // that second one: somewhere else, or too late.
         self.poll_pending_tap(Instant::now());
@@ -5373,110 +5382,21 @@ impl<A: Application> App<A> {
                 self.dispatch(message);
             }
         }
-        // Where the press sends the focus (milestone 750). On the focused widget itself, or
-        // on a field — which places its caret now — it goes there at once. Anywhere else the
-        // focused widget's `tap_outside` decides, and a finger is not yet a tap: the decision
-        // waits for the release, so that a scroll begun outside a field keeps the field, and
-        // its keyboard. A mouse press is already the click.
-        let target = focus.map(|(id, _)| id);
-        let decided = match previously_focused {
-            Some(held) if target != Some(held) && !self.takes_caret(focus) => {
-                let policy = self
-                    .ui
-                    .as_ref()
-                    .map_or(frus_widgets::TapOutside::Unfocus, |ui| ui.tap_outside(held));
-                let after = focus_after_tap_outside(held, target, policy);
-                if touch {
-                    self.pending_tap_focus = Some(PendingFocus {
-                        target: after,
-                        at: self.cursor,
-                    });
-                    previously_focused
-                } else {
-                    after
-                }
-            }
-            _ => target,
-        };
-        self.runtime.input.focused = decided;
-        // A press that left the focus where it was places no caret in the widget it hit.
-        let placed = focus.filter(|(id, _)| decided == Some(*id));
-        if let Some((id, rect)) = placed {
-            let local_x = self.cursor.x - rect.x;
-            // The retained vertical scroll, in a multi-line field, is part of the
-            // content coordinate: we add it so the click lands on the right line.
-            let local_y =
-                self.cursor.y - rect.y + self.runtime.scroll.get(&id).map(|s| s.1).unwrap_or(0.0);
-            // The scroll shown just before this click, computed from the current caret
-            // when the field was already focused, and 0 otherwise.
-            let scroll_cursor = if previously_focused == Some(id) {
-                self.runtime.edits.get(&id).map(|e| e.cursor).unwrap_or(0)
-            } else {
-                0
-            };
-            // Only **text fields** (`cursor_at` → `Some`) start a selection; the other
-            // focusables — buttons, checkboxes — keep focus but must NOT capture the
-            // click, which would otherwise be swallowed on release as the end of a drag.
-            let cursor = self
-                .tree
-                .as_ref()
-                .and_then(|tree| find_widget(tree.as_ref(), id))
-                .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, scroll_cursor));
-            if let Some(at) = cursor {
-                // Placing the caret with the mouse forgets the vertical goal column.
-                self.goal_x = None;
-                // On the side of its boundary that was pressed: beside a change of
-                // direction, or past the end of a wrapped line, that is where it is drawn.
-                self.runtime.edits.insert(
-                    id,
-                    Edit {
-                        cursor: at.offset,
-                        anchor: None,
-                        composing: None,
-                        affinity: at.affinity,
-                    },
-                );
-                self.drag = Some(Drag::TextSelect { id, rect });
-                // A finger that stays put selects the word instead (milestone 511).
-                if touch {
-                    self.pending_word = Some(id);
-                }
-                // The caret moved, so the run of typing ends here: typing at one place,
-                // then at another, then Ctrl+Z should take back only the second.
-                self.runtime.close_edit_run(id);
-                // Tapping in a field **reopens** the keyboard, even one the app already
-                // considers shown but which the system back closed — see
-                // `request_soft_input`.
-                self.request_soft_input();
-
-                // A double click selects the word under the pointer: a second press soon
-                // after the first, close to it and in the same field. Timed by the clock the
-                // gestures keep, which in a driven test is the frames run (milestone 747).
-                let (now, here) = (self.click_clock(), self.cursor);
-                let double = self.last_click.is_some_and(|(then, there, field)| {
-                    field == id && self.is_double_click(then, there, now, here)
+        // **A finger on a field is not yet a tap** (milestone 752). Neither the focus nor
+        // the caret moves when it comes down: a drag that starts on a field scrolls what
+        // the field sits in, as on a phone, and only a tap — or a hold, which selects the
+        // word — places them. A mouse press is the click, and a mouse drag selects.
+        if touch && self.takes_caret(focus) {
+            if let Some((id, rect)) = focus {
+                self.pending_field_press = Some(FieldPress {
+                    focus: (id, rect),
+                    previously_focused,
+                    at: self.cursor,
                 });
-                self.last_click = Some((now, here, id));
-                if double {
-                    if let Some((start, end)) = self
-                        .tree
-                        .as_ref()
-                        .and_then(|tree| find_widget(tree.as_ref(), id))
-                        .and_then(|widget| widget.word_at(at.offset))
-                    {
-                        self.runtime.edits.insert(
-                            id,
-                            Edit {
-                                affinity: Default::default(),
-                                cursor: end,
-                                anchor: Some(start),
-                                composing: None,
-                            },
-                        );
-                        self.drag = None;
-                    }
-                }
+                self.pending_word = Some(id);
             }
+        } else {
+            self.settle_press_focus(focus, previously_focused, touch);
         }
 
         // 2b) Words in a selection area, with nothing else having a claim on the press: a
@@ -5651,6 +5571,137 @@ impl<A: Application> App<A> {
         self.request_redraw();
     }
 
+    /// Where a press sends the focus, and the caret it places in a field: the part of a
+    /// press that a finger on a field puts off until it is a tap (milestone 752).
+    fn settle_press_focus(
+        &mut self,
+        focus: Option<(WidgetId, Rect)>,
+        previously_focused: Option<WidgetId>,
+        touch: bool,
+    ) {
+        // Where the press sends the focus (milestone 750). On the focused widget itself, or
+        // on a field — which places its caret now — it goes there at once. Anywhere else the
+        // focused widget's `tap_outside` decides, and a finger is not yet a tap: the decision
+        // waits for the release, so that a scroll begun outside a field keeps the field, and
+        // its keyboard. A mouse press is already the click.
+        let target = focus.map(|(id, _)| id);
+        let decided = match previously_focused {
+            Some(held) if target != Some(held) && !self.takes_caret(focus) => {
+                let policy = self
+                    .ui
+                    .as_ref()
+                    .map_or(frus_widgets::TapOutside::Unfocus, |ui| ui.tap_outside(held));
+                let after = focus_after_tap_outside(held, target, policy);
+                if touch {
+                    self.pending_tap_focus = Some(PendingFocus {
+                        target: after,
+                        at: self.cursor,
+                    });
+                    previously_focused
+                } else {
+                    after
+                }
+            }
+            _ => target,
+        };
+        self.runtime.input.focused = decided;
+        // A press that left the focus where it was places no caret in the widget it hit.
+        let placed = focus.filter(|(id, _)| decided == Some(*id));
+        if let Some((id, rect)) = placed {
+            let local_x = self.cursor.x - rect.x;
+            // The retained vertical scroll, in a multi-line field, is part of the
+            // content coordinate: we add it so the click lands on the right line.
+            let local_y =
+                self.cursor.y - rect.y + self.runtime.scroll.get(&id).map(|s| s.1).unwrap_or(0.0);
+            // The scroll shown just before this click, computed from the current caret
+            // when the field was already focused, and 0 otherwise.
+            let scroll_cursor = if previously_focused == Some(id) {
+                self.runtime.edits.get(&id).map(|e| e.cursor).unwrap_or(0)
+            } else {
+                0
+            };
+            // Only **text fields** (`cursor_at` → `Some`) start a selection; the other
+            // focusables — buttons, checkboxes — keep focus but must NOT capture the
+            // click, which would otherwise be swallowed on release as the end of a drag.
+            let cursor = self
+                .tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), id))
+                .and_then(|widget| widget.cursor_at(local_x, local_y, rect.width, scroll_cursor));
+            if let Some(at) = cursor {
+                // Placing the caret with the mouse forgets the vertical goal column.
+                self.goal_x = None;
+                // On the side of its boundary that was pressed: beside a change of
+                // direction, or past the end of a wrapped line, that is where it is drawn.
+                self.runtime.edits.insert(
+                    id,
+                    Edit {
+                        cursor: at.offset,
+                        anchor: None,
+                        composing: None,
+                        affinity: at.affinity,
+                    },
+                );
+                self.drag = Some(Drag::TextSelect { id, rect });
+                // A finger that stays put selects the word instead (milestone 511).
+                if touch {
+                    self.pending_word = Some(id);
+                }
+                // The caret moved, so the run of typing ends here: typing at one place,
+                // then at another, then Ctrl+Z should take back only the second.
+                self.runtime.close_edit_run(id);
+                // Tapping in a field **reopens** the keyboard, even one the app already
+                // considers shown but which the system back closed — see
+                // `request_soft_input`.
+                self.request_soft_input();
+
+                // A double click selects the word under the pointer: a second press soon
+                // after the first, close to it and in the same field. Timed by the clock the
+                // gestures keep, which in a driven test is the frames run (milestone 747).
+                let (now, here) = (self.click_clock(), self.cursor);
+                let double = self.last_click.is_some_and(|(then, there, field)| {
+                    field == id && self.is_double_click(then, there, now, here)
+                });
+                self.last_click = Some((now, here, id));
+                if double {
+                    if let Some((start, end)) = self
+                        .tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), id))
+                        .and_then(|widget| widget.word_at(at.offset))
+                    {
+                        self.runtime.edits.insert(
+                            id,
+                            Edit {
+                                affinity: Default::default(),
+                                cursor: end,
+                                anchor: Some(start),
+                                composing: None,
+                            },
+                        );
+                        self.drag = None;
+                    }
+                }
+            }
+        }
+    }
+
+    /// A finger put down on a field lifted as a tap, or held still: the focus and the caret
+    /// it put off are placed now, where it came down (milestone 752). `false` when there
+    /// was none.
+    fn place_field_press(&mut self) -> bool {
+        let Some(press) = self.pending_field_press.take() else {
+            return false;
+        };
+        let lifted_at = std::mem::replace(&mut self.cursor, press.at);
+        self.settle_press_focus(Some(press.focus), press.previously_focused, true);
+        self.cursor = lifted_at;
+        // The hold that selects a word has been served, or the finger has lifted.
+        self.pending_word = None;
+        self.request_redraw();
+        true
+    }
+
     /// Whether a press on `hit` places a caret there — a field, a selectable text — and so
     /// takes the focus at once, whatever the focused widget says of a tap outside it.
     fn takes_caret(&self, hit: Option<(WidgetId, Rect)>) -> bool {
@@ -5694,6 +5745,20 @@ impl<A: Application> App<A> {
             if still && (ended.is_none() || gesture_was_a_tap(ended.as_ref())) {
                 self.runtime.input.focused = pending.target;
                 self.request_redraw();
+            }
+        }
+        // A finger that came down on a field and lifted as a tap: the focus goes to the
+        // field and the caret where the finger was (milestone 752). One that scrolled
+        // places nothing.
+        if let Some(press) = self.pending_field_press.as_ref() {
+            let still =
+                (self.cursor.x - press.at.x).hypot(self.cursor.y - press.at.y) <= TOUCH_SLOP;
+            if still && (ended.is_none() || gesture_was_a_tap(ended.as_ref())) {
+                self.place_field_press();
+                // A tap, not the start of a selection: nothing is left to drag.
+                self.drag = None;
+            } else {
+                self.pending_field_press = None;
             }
         }
         if let Some(Drag::Back { .. }) = ended {
@@ -8095,24 +8160,33 @@ impl<A: Application> App<A> {
         // undone when they arrived (milestone 711).
         #[cfg(web)]
         self.drain_web_editing();
-        // A keyboard interaction: the focus ring becomes visible again.
-        if !self.runtime.focus_visible {
-            self.runtime.focus_visible = true;
-            self.request_redraw();
-        }
-
         // The **system** back — Android's button or gesture, the browser's back
         // key: it closes the topmost overlay, else pops a screen, else quits.
+        //
+        // It is navigation, not keyboard use: it leaves the focus highlight as it was
+        // (milestone 752). It used to turn the rings on, so on a phone the button the focus
+        // fell back to after a pop wore a keyboard focus ring under a finger.
         if matches!(
             event.logical_key,
             WinitKey::Named(NamedKey::BrowserBack) | WinitKey::Named(NamedKey::GoBack)
         ) {
             if !event.repeat {
-                if let Some(event_loop) = event_loop {
-                    self.system_back(event_loop);
+                match event_loop {
+                    Some(event_loop) => self.system_back(event_loop),
+                    // A driver: everything short of quitting.
+                    None => {
+                        self.system_back_step();
+                    }
                 }
             }
             return;
+        }
+
+        // A keyboard interaction: the focus ring becomes visible again — unless the key is
+        // the on-screen keyboard typing into the field it was opened for, which is typing on
+        // a touch screen, not a keyboard in hand.
+        if !self.soft_keyboard_typing() {
+            self.note_input(true);
         }
 
         // F12 toggles the **inspector**: outlines, a card for the hovered
@@ -8477,6 +8551,69 @@ impl<A: Application> App<A> {
             self.apply_key(focused, key);
             self.request_redraw();
         }
+    }
+
+    /// Focus requests (`Command::focus`), resolved against the tree just (re)built — the key
+    /// names the field wrapped in `keyed(k, …)`. The most recent one that resolves wins.
+    ///
+    /// Whether a ring shows is the last input's to say, not the request's (milestone 752): a
+    /// focus moved by the application after a tap — or handed back when a page is popped —
+    /// draws no ring on a touch screen. An application that pinned the highlight has it
+    /// pinned from its first frame.
+    fn resolve_pending_focus(&mut self) {
+        if self.app.focus_highlight_strategy() != frus_widgets::FocusHighlightStrategy::Automatic {
+            self.note_input(self.runtime.focus_visible);
+        }
+        if self.pending_focus.is_empty() {
+            return;
+        }
+        let keys = std::mem::take(&mut self.pending_focus);
+        let ids: Vec<WidgetId> = self
+            .tree
+            .as_deref()
+            .map(|tree| keys.iter().filter_map(|&k| find_by_key(tree, k)).collect())
+            .unwrap_or_default();
+        if let Some(&id) = ids.last() {
+            self.runtime.input.focused = Some(id);
+        }
+    }
+
+    /// Records the kind of the last input for the focus highlight (milestone 752): a key
+    /// that counts as keyboard use (`true`) or a touch or click (`false`), as the
+    /// application's [`FocusHighlightStrategy`](frus_widgets::FocusHighlightStrategy)
+    /// reads it. A change repaints.
+    fn note_input(&mut self, keyboard: bool) {
+        let shown = self.app.focus_highlight_strategy().mode_after(keyboard)
+            == frus_widgets::FocusHighlightMode::Traditional;
+        if shown != self.runtime.focus_visible {
+            self.runtime.focus_visible = shown;
+            self.request_redraw();
+        }
+    }
+
+    /// Whether a key now comes from the **on-screen keyboard**: it is up, over a focused
+    /// widget that takes typing. Such keys are typing on a touch screen and leave the focus
+    /// highlight alone.
+    fn soft_keyboard_typing(&self) -> bool {
+        #[cfg(android)]
+        let system_keyboard = self.soft_input_shown;
+        // Elsewhere the on-screen keyboard's typing reaches the shell as text, not as keys:
+        // on the Web through the editing element (milestone 711).
+        #[cfg(not(android))]
+        let system_keyboard = false;
+        let keyboard_up =
+            system_keyboard || self.simulated.as_ref().is_some_and(|sim| sim.keyboard);
+        keyboard_up
+            && self
+                .runtime
+                .input
+                .focused
+                .and_then(|id| {
+                    self.tree
+                        .as_ref()
+                        .and_then(|tree| find_widget(tree.as_ref(), id))
+                })
+                .is_some_and(wants_keyboard)
     }
 
     /// The **system** back — Android's `KEYCODE_BACK`, the browser's back key — and
@@ -9629,6 +9766,16 @@ fn focus_after_tap_outside(
 /// A finger's press outside the focused widget, waiting to be known as a tap (milestone
 /// 750).
 #[derive(Clone, Copy, Debug)]
+struct FieldPress {
+    /// The field, and its box when the finger came down.
+    focus: (WidgetId, Rect),
+    /// What held the focus then.
+    previously_focused: Option<WidgetId>,
+    /// Where the finger came down.
+    at: Point,
+}
+
+/// See [`App::pending_tap_focus`].
 struct PendingFocus {
     /// Where the focus goes if it is one.
     target: Option<WidgetId>,
@@ -12141,6 +12288,39 @@ pub mod testing {
             self.shell.runtime.input.focused
         }
 
+        /// A field's caret and the other end of its selection, if it has an edit state.
+        #[cfg(test)]
+        pub(crate) fn edit_of(&self, id: WidgetId) -> Option<(usize, Option<usize>)> {
+            self.shell
+                .runtime
+                .edits
+                .get(&id)
+                .map(|edit| (edit.cursor, edit.anchor))
+        }
+
+        /// How the focus is highlighted now: whether the widget with the focus would show
+        /// its ring (milestone 752).
+        pub fn focus_highlight_mode(&self) -> frus_widgets::FocusHighlightMode {
+            self.shell.runtime.focus_highlight_mode()
+        }
+
+        /// The system's **Back** as the key the platform sends — Android's
+        /// `KEYCODE_BACK`, a browser's Back key — through the shell's handling of a key,
+        /// short of quitting at the root (milestone 752).
+        pub fn back_key(&mut self) {
+            self.shell.key_down(
+                &KeyDown {
+                    logical_key: WinitKey::Named(NamedKey::GoBack),
+                    physical_key: PhysicalKey::Unidentified(
+                        winit::keyboard::NativeKeyCode::Unidentified,
+                    ),
+                    text: None,
+                    repeat: false,
+                },
+                None,
+            );
+        }
+
         /// The selection in the focused field, as its first and last character boundaries,
         /// when one is selected.
         #[cfg(test)]
@@ -12177,6 +12357,16 @@ pub mod testing {
         /// The widget the last frame would hand a press at `at`, if any.
         pub fn hit(&self, at: Point) -> Option<WidgetId> {
             self.shell.ui.as_ref().and_then(|ui| ui.hit(at))
+        }
+
+        /// The focusable a press at `at` would focus — a field, a button — if any.
+        #[cfg(test)]
+        pub(crate) fn focus_hit(&self, at: Point) -> Option<WidgetId> {
+            self.shell
+                .ui
+                .as_ref()
+                .and_then(|ui| ui.focus_hit(at))
+                .map(|(id, _)| id)
         }
 
         /// Hands the application a message, as the shell does.
@@ -12520,6 +12710,8 @@ pub mod testing {
                 s.runtime.apply_restored();
             }
             s.build_dirty = false;
+            // As the window's frame does once its tree is built (milestone 752).
+            s.resolve_pending_focus();
             s.autoscroll_carried(dt);
             let selecting = s.autoscroll_selection(dt);
             s.advance_reorder_springs(dt);
@@ -17254,5 +17446,379 @@ mod keyed_row_selection_tests {
         d.update(());
         d.run(0.1);
         assert_eq!(copy(&mut d).as_deref(), Some("item 02"));
+    }
+}
+
+/// Milestone 752: the focus ring follows the kind of input used last.
+#[cfg(test)]
+mod focus_highlight_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{
+        Button, Flex, FocusHighlightMode, FocusHighlightStrategy, KeyStroke, Keyed, Point,
+        ShortcutKey, Text, TextField, Theme, Widget,
+    };
+
+    const W: f32 = 393.0;
+    const H: f32 = 852.0;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Open,
+        Back,
+        FocusOpen,
+        Typed,
+    }
+
+    /// Two pages: a root with buttons and a field, and one pushed over it.
+    #[derive(Default)]
+    struct Pages {
+        pushed: bool,
+        strategy: FocusHighlightStrategy,
+    }
+
+    impl Application for Pages {
+        type Message = Msg;
+
+        fn update(&mut self, message: Msg) -> Command<Msg> {
+            match message {
+                Msg::Open => self.pushed = true,
+                Msg::Back => self.pushed = false,
+                Msg::FocusOpen => return Command::focus("open"),
+                Msg::Typed => {}
+            }
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            if self.pushed {
+                Box::new(
+                    Flex::column()
+                        .child(Button::new("back").on_press(Msg::Back))
+                        .child(Text::new("page two")),
+                )
+            } else {
+                Box::new(
+                    Flex::column()
+                        .child(Button::new("menu").on_press(Msg::FocusOpen))
+                        .child(Keyed::new("open", Button::new("open").on_press(Msg::Open)))
+                        .child(TextField::new("the field").on_input(|_| Msg::Typed)),
+                )
+            }
+        }
+
+        fn can_go_back(&self) -> bool {
+            self.pushed
+        }
+
+        fn go_back(&mut self) {
+            self.pushed = false;
+        }
+
+        fn focus_highlight_strategy(&self) -> FocusHighlightStrategy {
+            self.strategy
+        }
+    }
+
+    fn driver(pages: Pages) -> Driver<Pages> {
+        let mut d = Driver::new(pages, W, H);
+        d.simulate("android-phone");
+        d.run(0.2);
+        d
+    }
+
+    fn at(d: &Driver<Pages>, label: &str) -> Point {
+        let (_, r) = d
+            .texts()
+            .into_iter()
+            .find(|(t, _)| t.contains(label))
+            .unwrap_or_else(|| panic!("{label}: {:?}", d.texts()));
+        Point::new(r.x + 5.0, r.y + r.height * 0.5)
+    }
+
+    fn tap(d: &mut Driver<Pages>, label: &str) {
+        let p = at(d, label);
+        d.press(p);
+        d.release(p);
+        d.run(0.1);
+    }
+
+    fn has(d: &Driver<Pages>, label: &str) -> bool {
+        d.texts().iter().any(|(t, _)| t.contains(label))
+    }
+
+    /// **Back is navigation, not keyboard use.** A page opened by a tap and popped with the
+    /// system's Back leaves the rings off: the button the focus is on after the pop shows
+    /// no ring under a finger. Before, the Back key turned them on, and the phone showed
+    /// one on the drawer's button.
+    #[test]
+    fn a_page_popped_with_back_shows_no_ring_under_touch() {
+        let mut d = driver(Pages::default());
+        tap(&mut d, "open");
+        assert!(has(&d, "page two"), "the tap opened the page");
+        // The focus lands on the pushed page's first button, as a restored focus would.
+        tap(&mut d, "back");
+        tap(&mut d, "open");
+        d.back_key();
+        d.run(0.3);
+        assert!(has(&d, "menu"), "Back popped the page: {:?}", d.texts());
+        assert_eq!(d.focus_highlight_mode(), FocusHighlightMode::Touch);
+    }
+
+    /// A key from a keyboard turns the rings on; the next touch turns them off.
+    #[test]
+    fn a_key_shows_the_ring_and_a_touch_hides_it() {
+        let mut d = driver(Pages::default());
+        assert_eq!(d.focus_highlight_mode(), FocusHighlightMode::Touch);
+        d.key(KeyStroke::new(ShortcutKey::Tab));
+        d.run(0.1);
+        assert!(d.focused().is_some(), "Tab moved the focus");
+        assert_eq!(d.focus_highlight_mode(), FocusHighlightMode::Traditional);
+        tap(&mut d, "menu");
+        assert_eq!(d.focus_highlight_mode(), FocusHighlightMode::Touch);
+    }
+
+    /// The keys the on-screen keyboard types into its field are typing on a touch screen.
+    #[test]
+    fn typing_on_the_on_screen_keyboard_leaves_the_rings_off() {
+        let mut d = driver(Pages::default());
+        tap(&mut d, "the field");
+        assert!(d.simulated_keyboard(), "the keyboard is up");
+        d.key(KeyStroke::new(ShortcutKey::Char('a')));
+        d.key(KeyStroke::new(ShortcutKey::Backspace));
+        d.run(0.1);
+        assert_eq!(d.focus_highlight_mode(), FocusHighlightMode::Touch);
+    }
+
+    /// A focus the application moves after a tap draws no ring: the request does not
+    /// decide the highlight, the last input does.
+    #[test]
+    fn a_focus_moved_by_the_application_after_a_tap_shows_no_ring() {
+        let mut d = driver(Pages::default());
+        let open = d.focus_hit(at(&d, "open")).expect("the open button");
+        tap(&mut d, "menu");
+        d.run(0.1);
+        assert_eq!(d.focused(), Some(open), "the command moved the focus");
+        assert_eq!(d.focus_highlight_mode(), FocusHighlightMode::Touch);
+    }
+
+    /// An application may pin the mode either way.
+    #[test]
+    fn the_strategy_can_pin_the_mode() {
+        let mut d = driver(Pages {
+            strategy: FocusHighlightStrategy::AlwaysTraditional,
+            ..Pages::default()
+        });
+        assert_eq!(
+            d.focus_highlight_mode(),
+            FocusHighlightMode::Traditional,
+            "from the first frame"
+        );
+        tap(&mut d, "menu");
+        assert_eq!(d.focus_highlight_mode(), FocusHighlightMode::Traditional);
+
+        let mut d = driver(Pages {
+            strategy: FocusHighlightStrategy::AlwaysTouch,
+            ..Pages::default()
+        });
+        d.key(KeyStroke::new(ShortcutKey::Tab));
+        d.run(0.1);
+        assert_eq!(d.focus_highlight_mode(), FocusHighlightMode::Touch);
+    }
+}
+
+/// Milestone 752: on a touch screen a drag that starts on a field scrolls what the field sits
+/// in; a tap focuses and places the caret; a hold selects the word. A mouse drag selects.
+#[cfg(test)]
+mod field_drag_tests {
+    use super::testing::Driver;
+    use crate::{Application, Command};
+    use frus_widgets::{Flex, Point, SingleChildScrollView, Text, TextField, Theme, Widget};
+
+    const W: f32 = 393.0;
+    const H: f32 = 852.0;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Msg {
+        Typed,
+    }
+
+    /// A form in a scroll view: two fields, then sixty rows.
+    struct Form;
+
+    impl Application for Form {
+        type Message = Msg;
+
+        fn update(&mut self, _message: Msg) -> Command<Msg> {
+            Command::none()
+        }
+
+        fn view(&self, _theme: &Theme) -> Box<dyn Widget<Msg>> {
+            let mut column = Flex::column()
+                .child(TextField::new("alpha first words").on_input(|_| Msg::Typed))
+                .child(TextField::new("bravo second words").on_input(|_| Msg::Typed));
+            for row in 0..60 {
+                column = column.child(Text::new(format!("row {row:02}")).size(16.0));
+            }
+            Box::new(
+                SingleChildScrollView::new()
+                    .width(W)
+                    .height(H)
+                    .child(column),
+            )
+        }
+    }
+
+    fn driver() -> Driver<Form> {
+        let mut d = Driver::new(Form, W, H);
+        d.simulate("android-phone");
+        d.run(0.2);
+        d
+    }
+
+    /// A point in the middle of the text reading `label`.
+    fn at(d: &Driver<Form>, label: &str) -> Point {
+        let (_, r) = d
+            .texts()
+            .into_iter()
+            .find(|(t, _)| t.contains(label))
+            .unwrap_or_else(|| panic!("{label}: {:?}", d.texts()));
+        Point::new(r.x + r.width * 0.5, r.y + r.height * 0.5)
+    }
+
+    fn tap(d: &mut Driver<Form>, p: Point) {
+        d.press(p);
+        d.release(p);
+        d.run(0.1);
+    }
+
+    fn offset(d: &Driver<Form>) -> f32 {
+        d.offsets().first().map_or(0.0, |(_, o)| o.1)
+    }
+
+    /// A finger from `from` upwards by `by`, in steps, then lifted.
+    fn swipe_up(d: &mut Driver<Form>, from: Point, by: f32) {
+        d.press(from);
+        d.run(0.02);
+        for step in 1..=10 {
+            d.move_to(Point::new(from.x, from.y - by * step as f32 / 10.0));
+            d.run(0.02);
+        }
+        d.release(Point::new(from.x, from.y - by));
+        d.run(0.3);
+    }
+
+    /// **A swipe that starts on another field scrolls the form.** The field it started on
+    /// is not focused and selects nothing; the focused one keeps the focus and the keyboard.
+    /// Before, the press focused the second field at once and the drag selected its text.
+    #[test]
+    fn a_swipe_starting_on_another_field_scrolls() {
+        let mut d = driver();
+        let first = at(&d, "alpha");
+        tap(&mut d, first);
+        let focused = d.focused();
+        assert!(focused.is_some(), "the tap focused the first field");
+        let second = at(&d, "bravo");
+        let second_id = d.focus_hit(second).expect("the second field");
+        swipe_up(&mut d, second, 200.0);
+        assert_eq!(d.focused(), focused, "the first field keeps the focus");
+        assert!(d.simulated_keyboard(), "and its keyboard");
+        assert!(offset(&d) > 100.0, "the form scrolled: {}", offset(&d));
+        assert!(
+            d.edit_of(second_id)
+                .is_none_or(|(_, anchor)| anchor.is_none()),
+            "nothing was selected in the second field: {:?}",
+            d.edit_of(second_id)
+        );
+    }
+
+    /// A swipe that starts on the focused field scrolls too, and selects nothing in it.
+    #[test]
+    fn a_swipe_starting_on_the_focused_field_scrolls() {
+        let mut d = driver();
+        let first = at(&d, "alpha");
+        tap(&mut d, first);
+        let focused = d.focused().expect("focused");
+        let caret = d.edit_of(focused);
+        swipe_up(&mut d, first, 200.0);
+        assert_eq!(d.focused(), Some(focused));
+        assert!(offset(&d) > 100.0, "the form scrolled: {}", offset(&d));
+        assert_eq!(
+            d.edit_of(focused),
+            caret,
+            "the caret did not move, nothing selected"
+        );
+    }
+
+    /// **A tap focuses**, at the release: the finger coming down moves nothing yet.
+    #[test]
+    fn a_tap_on_a_field_focuses_it_when_it_lifts() {
+        let mut d = driver();
+        let second = at(&d, "bravo");
+        let id = d.focus_hit(second).expect("the field");
+        d.press(second);
+        d.run(0.05);
+        assert_eq!(d.focused(), None, "not focused while the finger is down");
+        d.release(second);
+        d.run(0.1);
+        assert_eq!(d.focused(), Some(id), "focused by the tap");
+        assert!(d.simulated_keyboard(), "with its keyboard");
+        let (_, anchor) = d.edit_of(id).expect("a caret placed by the tap");
+        assert!(anchor.is_none(), "a caret, not a selection");
+    }
+
+    /// **A hold selects the word**, focusing the field, and the form does not scroll.
+    #[test]
+    fn a_hold_on_a_field_selects_the_word() {
+        let mut d = driver();
+        let second = at(&d, "bravo");
+        let id = d.focus_hit(second).expect("the field");
+        d.press(second);
+        assert!(d.hold_deadline(), "the hold fired");
+        d.run(0.05);
+        assert_eq!(d.focused(), Some(id), "the hold focused the field");
+        let (caret, anchor) = d.edit_of(id).expect("an edit");
+        assert!(
+            anchor.is_some_and(|anchor| anchor != caret),
+            "a word is selected: {caret} {anchor:?}"
+        );
+        d.release(second);
+        d.run(0.1);
+        assert_eq!(offset(&d), 0.0, "nothing scrolled");
+    }
+
+    /// **A mouse drag still selects**: a pointer is not a finger, and a desktop selects
+    /// text by dragging across it.
+    #[test]
+    fn a_mouse_drag_on_a_field_selects() {
+        let mut d = driver();
+        let (_, r) = d
+            .texts()
+            .into_iter()
+            .find(|(t, _)| t.contains("bravo"))
+            .expect("the field");
+        let id = d
+            .focus_hit(Point::new(r.x + 2.0, r.y + r.height * 0.5))
+            .expect("id");
+        let from = Point::new(r.x + 2.0, r.y + r.height * 0.5);
+        d.press_mouse(from);
+        assert_eq!(d.focused(), Some(id), "a click focuses at once");
+        // To the far end of the field, past its last word.
+        let to = Point::new(W - 20.0, from.y);
+        for step in 1..=5 {
+            d.move_mouse(Point::new(
+                from.x + (to.x - from.x) * step as f32 / 5.0,
+                from.y,
+            ));
+            d.run(0.02);
+        }
+        d.release_mouse(to);
+        d.run(0.1);
+        let (caret, anchor) = d.edit_of(id).expect("an edit");
+        assert!(
+            anchor.is_some_and(|anchor| anchor != caret),
+            "the drag selected: {caret} {anchor:?}"
+        );
+        assert_eq!(offset(&d), 0.0, "and scrolled nothing");
     }
 }

@@ -83,6 +83,7 @@ mod filters;
 mod fittedbox;
 mod flex;
 mod focus;
+mod focushighlight;
 /// Form validation, pure and application-side: [`form::Rule`] and [`form::Form`].
 pub mod form;
 mod sticky;
@@ -335,6 +336,7 @@ pub use flex::{Flex, ListBody, Wrap};
 pub use focus::{
     ExcludeFocus, ExcludeFocusTraversal, Focus, FocusTraversalGroup, FocusTraversalOrder,
 };
+pub use focushighlight::{FocusHighlightMode, FocusHighlightStrategy};
 pub use fractional::FractionallySizedBox;
 /// Lottie animations, drawn as vector paths (the `lottie` feature).
 #[cfg(feature = "lottie")]
