@@ -8,11 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 763 so far, each documenting the objective, the alternatives
+> record — one per step, 765 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The Web on a real phone** (J765). Running the Web build in Chrome on an Android phone
+  found two faults, both fixed. In landscape the keyboard leaves the page so little room that
+  a focused field is not laid out, and the editing element went with the layout: the keyboard
+  closed, the page grew, the element came back, the keyboard opened, without end. The element
+  now follows the focus, as the keyboard does on Android itself. And after a rotation with the
+  keyboard up Chrome reports a visual viewport with no height; that was read as a keyboard over
+  the whole page and the application was laid out in nothing. Such a viewport is now ignored.
+  The rest of what earlier milestones checked in a headless browser held on the phone.
 - **A plugin for Android Studio** (J761), in `editors/intellij`, for Android Studio and the
   other JetBrains IDEs from 2025.1 on (IntelliJ IDEA, RustRover, CLion). A device selector in
   the toolbar, fed by `frus daemon`, lists this computer, phones, running emulators, browsers
