@@ -22,6 +22,21 @@ any release may break.
   is drawn beside it rather than at the far edge of the next run. A new golden renders spaced
   rich text with a selection at 2.625x.
 
+- **An Android application no longer closes when the system recreates its activity** (J763).
+  Android recreates an activity for every configuration change its manifest does not declare,
+  and a frus application, which runs one event loop per process, closed then. Every change an
+  activity can declare is now declared (milestone 755's list plus `mcc`, `mnc`,
+  `touchscreen`, `navigation`, `colorMode`, `fontWeightAdjustment` — bold text, Android 12 —
+  and `grammaticalGender`), in the template, the demo, the sample crates and the examples.
+  `frus build apk` and `frus run` on Android add the `config_changes` line to an application
+  made before it existed, or complete the list an earlier frus wrote, and say so; a list the
+  developer wrote is kept, and what it leaves out is named in a warning. The hot-reload
+  build's Android project declares the same list instead of its engine's four. A second
+  activity started in the process (a link or a notification whose intent asks for a new
+  instance) no longer fails with "EventLoop can't be recreated": it hands its link to the
+  running activity, brings that activity's task to the front (checked on Android 10 and 16),
+  and finishes. A loop that fails ends the process, so no later activity lands in
+  a process that cannot run it.
 - **Loading placeholders and grids take the width they are offered; an autocomplete's field can
   be dressed** (J759). A `Skeleton` with no width drew nothing wherever its parent did not
   stretch it (a box that only caps the width, a column aligned to the start): it came out zero
