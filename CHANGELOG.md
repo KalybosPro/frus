@@ -20,7 +20,6 @@ any release may break.
   with the keyboard up it stands its margin above it, as a floating one does. A docked button
   with no bar under it is kept whole above the gesture bar, instead of hanging half off the
   window's edge. With a bar and no keyboard, it still straddles the bar's top edge.
-
 - **Hot reload is how `frus run` runs** (J754): a debug build now patches each saved change into
   the running application — desktop, web, Android — with every state where it was, instead of
   rebuilding and restarting it; `--hot` was needed for that before. `frus run --no-hot` restarts

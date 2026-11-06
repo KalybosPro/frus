@@ -82,9 +82,11 @@ the old code put back and the rest of the file kept:
 `the_button_stays_below_the_status_bar` (milestone 752) asserted the clamp that was removed,
 and was replaced by the first test above. The other milestone-752 tests pass unchanged.
 
-After the change, the whole `scaffold` test module passes (56 tests). `cargo fmt --all
---check` and `cargo clippy --workspace --all-targets -D warnings` pass. The `frus-test` suites,
-goldens included, were run under WSL (19 test binaries, `--no-fail-fast`): all pass, and no golden changed.
+After the change, the whole `scaffold` test module passes (56 tests), and so does the
+`frus-widgets` library suite (2133 tests). `cargo fmt --all --check` and
+`cargo clippy --workspace --all-targets -D warnings` pass. The `frus-test` suites, goldens
+included, were run under WSL (19 test binaries, `--no-fail-fast`): all pass, and no golden
+changed.
 
 ## Checked on the phone
 
@@ -111,8 +113,8 @@ made.
 
 ## Not done
 
-- **The other placements the leading toolkit has** (top ones, mini ones, the "contained" one
-  centred in a bottom app bar) do not exist in `FabLocation`, and were not added.
+- **Other placements** (at the top, under the app bar; mini ones; one centred inside a bottom
+  app bar) do not exist in `FabLocation`, and were not added.
 - **A persistent footer does not lift the floating button.** The button is placed above the
   bottom bar and the keyboard, but the footer's height is not measured before the button is
   placed, so a button over a tall footer can cover it.
