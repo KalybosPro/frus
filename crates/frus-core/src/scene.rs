@@ -672,6 +672,11 @@ impl Primitive {
             } => {
                 for run in &mut runs {
                     run.size *= sy;
+                    // Spacing is a length along the line, as a plain text's is: left at its
+                    // logical value, a dense screen drew every character closer than the
+                    // layout placed it, and a selection's highlight drifted off its words
+                    // (milestone 760).
+                    run.letter_spacing *= sx;
                 }
                 Primitive::RichText {
                     position: position.scale_xy(sx, sy),
@@ -2400,6 +2405,41 @@ mod tests {
                 assert_eq!(text, "hi"); // text unchanged
             }
             _ => panic!("expected text"),
+        }
+    }
+
+    /// **A rich paragraph's letter spacing is geometry** (milestone 760): scaled to the screen
+    /// with the size, as a plain text's is. Left logical, a 0.25 px spacing on a 2.625× phone
+    /// put each character 0.4 physical pixels closer than the layout did, and a selection's
+    /// highlight sat a character to the right of the word it covered.
+    #[test]
+    fn scaling_scales_a_rich_runs_letter_spacing() {
+        let run = TextRun {
+            text: "framework".into(),
+            size: 14.0,
+            weight: crate::FontWeight::Regular,
+            italic: false,
+            color: Color::WHITE,
+            decoration: TextDecoration::NONE,
+            decoration_color: None,
+            letter_spacing: 0.25,
+        };
+        let mut scene = Scene::new();
+        scene.rich_text(Point::new(1.0, 2.0), vec![run]);
+        match &scene.scaled(2.0).primitives()[0] {
+            Primitive::RichText { runs, .. } => {
+                assert_eq!(runs[0].size, 28.0);
+                assert_eq!(
+                    runs[0].letter_spacing, 0.5,
+                    "the spacing grows with the size"
+                );
+            }
+            other => panic!("expected rich text, not {other:?}"),
+        }
+        // Per axis, as a plain text's: spacing runs along the line.
+        match &scene.primitives()[0].scaled_xy(3.0, 1.0) {
+            Primitive::RichText { runs, .. } => assert_eq!(runs[0].letter_spacing, 0.75),
+            other => panic!("expected rich text, not {other:?}"),
         }
     }
 
