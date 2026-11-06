@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 758 so far, each documenting the objective, the alternatives
+> record — one per step, 760 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **A selection's highlight sits under its word on a dense screen** (J760). A `RichText` with a
+  letter spacing (the theme's body styles have one) was drawn with its spacing left at its
+  logical value on any screen above 1×, so its characters sat closer together than the layout
+  placed them. On a 2.625× phone a long press on a word mid-paragraph lit up a box about a
+  character to the right of it, handles included. The spacing now scales with the screen, as a
+  plain `Text`'s always did.
 
 - **A table with flexible columns takes the width it is offered** (J758). A `Table` whose
   columns are flexible (the default) and that had no `width` of its own was as wide as its
