@@ -85,8 +85,14 @@ eight threads at once). A later activity does not touch anything the running one
   over by a second process on a desktop (`open_links_from_other_instances`, now on Android too);
 - if the new activity is in another task than the running one — the link was opened from
   another application's task, or its intent asked for a task of its own — the running
-  activity's task comes to the front: it is found among `ActivityManager.getAppTasks()` by its
-  id and `moveToFront()`ed, which needs no permission for an application's own tasks;
+  activity's task comes to the front. First it is looked for among
+  `ActivityManager.getAppTasks()` by its id and `moveToFront()`ed, which needs no permission
+  for an application's own tasks (Android 16 lists it). When the list does not hold it (Android
+  10 listed only the new activity's task), the new activity **finishes first** and then starts
+  the running activity's component with `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_SINGLE_TOP`:
+  the system finds a task by affinity and passes over one whose activities are all finishing,
+  so it finds the running task, brings it forward and hands the intent to the activity on top
+  instead of making another;
 - `android_main` returns, and the native activity finishes the new instance.
 
 The person sees the application they had, at the link's location.
@@ -96,11 +102,11 @@ The person sees the application they had, at the link's location.
   Android 9 an activity's state is saved when it *stops*, so whatever the person had since the
   application last went to the background would be lost — and the new activity, which had no
   saved state either, would be removed rather than restarted. Handing over keeps everything.
-- *Tried first: an intent for the running activity with `FLAG_ACTIVITY_NEW_TASK |
-  FLAG_ACTIVITY_SINGLE_TOP`.* The system picks the task by affinity, and a new activity in a
-  task of its own (`FLAG_ACTIVITY_MULTIPLE_TASK`) has the same affinity: on the phone the
-  intent went to that task, and once the new activity finished the person was on the home
-  screen.
+- *Tried first: the same intent while the new activity was still alive.* The system picks the
+  task by affinity, and a new activity in a task of its own (`FLAG_ACTIVITY_MULTIPLE_TASK`) has
+  the same affinity and is more recent: on the phone the intent went to that task, and once the
+  new activity finished the person was on the home screen. Finishing it first is what makes the
+  intent find the running task.
 - *Considered: `ActivityManager.moveTaskToFront`*: it needs the `REORDER_TASKS` permission in
   every application's manifest.
 
@@ -137,11 +143,17 @@ On devices, the demo as a release APK:
 - **Same phone, this branch**: the first link → `a second activity started in this process with
   frusdemo://task/2: it hands over to the running one and finishes`, the same process (one
   activity record), and the demo showed the Task page of that link. The link from a task of its
-  own: the same hand-over and the link opened in the running process, but the
-  `getAppTasks()` lookup logged that the running task was not among the application's tasks, so
-  the person stayed on the home screen (see *Not done*). The first attempt, the intent with
-  `NEW_TASK | SINGLE_TOP`, had logged `the running activity's task comes to the front` and
-  still left the home screen in front, which is why it was replaced.
+  own, three builds:
+  - the intent with `NEW_TASK | SINGLE_TOP` sent while the new activity lived: it logged `the
+    running activity's task comes to the front`, and the launcher stayed resumed;
+  - `getAppTasks()` alone: `the running activity's task (229) was not found among the
+    application's tasks ([230])` — the list held only the new activity's task — and the
+    launcher stayed resumed;
+  - the final code: `the running activity's task (238) is not among the application's tasks
+    ([239]): the new activity finishes first, then asks for the running one`, `START u0
+    {flg=0x30000000 cmp=com.frus.demo/android.app.NativeActivity} from uid 10198`, `the running
+    activity's task comes to the front`; `dumpsys activity` showed the demo's task 238 resumed
+    with one activity, the same process, and the screen showed the Task page of `task/3`.
 - **Android 16 emulator (API 36, x86_64, GLES)**: the same two links. Both handed over in the same
   process; for the second, `the running activity's task comes to the front`, and
   `dumpsys activity` showed the demo's task resumed again, at the Task page of `task/3`.
@@ -164,12 +176,9 @@ Checks: `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warning
 
 ## Not done
 
-- **Bringing the running task forward on Android 10.** On the test phone `getAppTasks()` did
-  not list the task the running activity is in, so a link opened in a task of its own reaches
-  the running application but leaves the person on the screen they came from; it worked on
-  Android 16. The task ids the lookup saw are now logged; the phone left the machine before the
-  build that logs them could run on it. Intents that keep `FLAG_ACTIVITY_SINGLE_TOP |
-  FLAG_ACTIVITY_NEW_TASK` (as frus's own notifications do) never take this path.
+- **The finish-then-intent path on Android 16** was not run: the emulator's `getAppTasks()`
+  listed the running task, so it took the first path. A link opened from inside another
+  application's task (rather than `am start` with a task of its own) was not run either.
 - **An undeclared configuration change still closes the application** — only the asset-paths
   change of the wallpaper palette (Android 12 and later) remains, since every declarable change
   is declared. Surviving it needs a second event loop in the process, or a shell that keeps
