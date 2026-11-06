@@ -46,15 +46,31 @@ multiplied by `sx`, as a plain text's is (spacing runs along the line).
   the photo's offset). After: passes.
 - `frus-core` `scene::tests::scaling_scales_a_rich_runs_letter_spacing`: uniform and per-axis
   scaling of a rich run's spacing.
-- `frus-core` and `frus-widgets` unit tests, the goldens (`frus-test`, WSL).
+- `frus-core` and `frus-widgets` unit tests, clippy, and the goldens (`frus-test`, WSL, all
+  passing). No golden changed, because the goldens render at 1×, where the bug did not exist.
 - On the phone: see below.
 
 ## On the phone
 
-A release build of `frus-demo` with the fix, the same long press on "framework" on the About
-tab: see the device section of the pull request for the result.
+A release build of `frus-demo` with the fix (Huawei STK-L21, Android 10, 2.625×), the same
+long press on "framework" on the About tab: the highlight and both handles now cover the word
+exactly, from the "f" to the "k". The highlight box is where it was before; the words moved
+under it.
+
+The photo showed a second symptom of the same bug that nobody had reported. The paragraph's
+box was always laid out two lines tall, because "— no GC." does not fit a 315 px line once the
+spacing is counted. The renderer drew it on one line anyway, because it left the spacing out,
+and the second line of the box stayed empty. Now "GC." wraps to the second line, where the
+layout always put it.
+
+A long press on "typography" in the plain paragraph below (a `Text`) was checked the same way.
+It was already right and still is.
 
 ## Not done
 
-- Other screen densities than 2.625× were checked only by the unit test (any `sx` is scaled the
+- Screen densities other than 2.625× were checked only by the unit test (any `sx` is scaled the
   same way).
+- No golden renders rich text at a scale above 1×, so the goldens would not catch this
+  regression. The unit tests are what guard it.
+- Not checked in a browser. The web build is expected to be fixed too: it draws through the same `frus-gpu` text code and the
+  same `Scene::scaled`.
