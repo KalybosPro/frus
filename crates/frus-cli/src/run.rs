@@ -1038,7 +1038,20 @@ fn run_android_hot(
     let java = crate::setup::java()?;
     let engine = crate::hot::engine()?;
     let shadow = crate::hot::shadow(project)?;
-    crate::hot::android_project_files(&shadow, package, &project.root.join("res"))?;
+    // The activity follows the configuration changes the application declares, as it does
+    // without the engine; an application made before the declaration gets it first.
+    crate::config_changes::ensure(&project.root, project.android_target_sdk)?;
+    let config_changes = std::fs::read_to_string(project.root.join("Cargo.toml"))
+        .ok()
+        .as_deref()
+        .and_then(crate::config_changes::declared)
+        .unwrap_or_else(|| crate::config_changes::wanted(project.android_target_sdk));
+    crate::hot::android_project_files(
+        &shadow,
+        package,
+        &project.root.join("res"),
+        &config_changes,
+    )?;
     let mirror = mirror_sources(project, &shadow)?;
     let link = DevLink::open()?;
     let target = project.target_dir()?.join("frus-hot").join("target");

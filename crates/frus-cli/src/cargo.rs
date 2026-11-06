@@ -177,6 +177,9 @@ pub(crate) fn build_apk(
     setup::cargo_tool("cargo-apk", "--help", "cargo-apk", None)?;
     // The permissions declared once, in the tables cargo-apk writes the manifest from.
     crate::permissions::write_android(&project.root, &project.permissions()?)?;
+    // Every configuration change the activity can follow in place, declared: an application
+    // made before the line existed gets it (milestone 763).
+    crate::config_changes::ensure(&project.root, project.android_target_sdk)?;
 
     let started = SystemTime::now();
     let mut command = Command::new("cargo");

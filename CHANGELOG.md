@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 758 so far, each documenting the objective, the alternatives
+> record — one per step, 763 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -25,6 +25,36 @@ any release may break.
   Project. Like the VS Code extension, it installs `frus` when missing and runs a copy of it,
   so that an update can replace the installed one. A tag `intellij-v<version>` publishes it to
   the JetBrains Marketplace.
+
+- **An Android application no longer closes when the system recreates its activity** (J763).
+  Android recreates an activity for every configuration change its manifest does not declare,
+  and a frus application, which runs one event loop per process, closed then. Every change an
+  activity can declare is now declared (milestone 755's list plus `mcc`, `mnc`,
+  `touchscreen`, `navigation`, `colorMode`, `fontWeightAdjustment` — bold text, Android 12 —
+  and `grammaticalGender`), in the template, the demo, the sample crates and the examples.
+  `frus build apk` and `frus run` on Android add the `config_changes` line to an application
+  made before it existed, or complete the list an earlier frus wrote, and say so; a list the
+  developer wrote is kept, and what it leaves out is named in a warning. The hot-reload
+  build's Android project declares the same list instead of its engine's four. A second
+  activity started in the process (a link or a notification whose intent asks for a new
+  instance) no longer fails with "EventLoop can't be recreated": it hands its link to the
+  running activity, brings that activity's task to the front (seen on Android 16, not yet on
+  Android 10), and finishes. A loop that fails ends the process, so no later activity lands in
+  a process that cannot run it.
+- **Loading placeholders and grids take the width they are offered; an autocomplete's field can
+  be dressed** (J759). A `Skeleton` with no width drew nothing wherever its parent did not
+  stretch it (a box that only caps the width, a column aligned to the start): it came out zero
+  pixels wide. A `GridView` with no width in the same places was only as wide as its tiles'
+  content, so its columns huddled at the left. Both now take the width on offer when they were
+  given none, as an empty box and a scroll view do; one given a `width` keeps it. New
+  `Autocomplete::field` hands the application the text field to dress (label, hint, variant,
+  icons), where the field used to be a bare box with no way to say what it was for.
+- **A selection's highlight sits under its word on a dense screen** (J760). A `RichText` with a
+  letter spacing (the theme's body styles have one) was drawn with its spacing left at its
+  logical value on any screen above 1×, so its characters sat closer together than the layout
+  placed them. On a 2.625× phone a long press on a word mid-paragraph lit up a box about a
+  character to the right of it, handles included. The spacing now scales with the screen, as a
+  plain `Text`'s always did.
 
 - **A table with flexible columns takes the width it is offered** (J758). A `Table` whose
   columns are flexible (the default) and that had no `width` of its own was as wide as its
