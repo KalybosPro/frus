@@ -417,6 +417,14 @@ pub fn run_web<A: Application + 'static>(app: A) -> anyhow::Result<()> {
 #[cfg(android)]
 pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::Result<()> {
     use winit::platform::android::EventLoopBuilderExtAndroid;
+    // A second activity of this process (milestone 763): winit builds one loop per process,
+    // and the first activity's still runs. This one hands over to it and finishes, before
+    // touching anything the running one uses (see `android_lifecycle`).
+    if !android_lifecycle::first_in_process(&android_app) {
+        logging::init::<A>();
+        android_lifecycle::hand_over(&android_app);
+        return Ok(());
+    }
     startup::begin();
     // The renderer's compiled pipelines, kept in the application's cache folder between
     // launches: the next start reads them instead of compiling them again (milestones 685 and
@@ -437,25 +445,37 @@ pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::R
     // (milestone 604).
     logging::init::<A>();
 
-    let event_loop = winit::event_loop::EventLoop::<A::Message>::with_user_event()
-        .with_android_app(android_app.clone())
-        .build()?;
-    event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
+    let ran = (|| -> anyhow::Result<()> {
+        let event_loop = winit::event_loop::EventLoop::<A::Message>::with_user_event()
+            .with_android_app(android_app.clone())
+            .build()?;
+        event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
 
-    let proxy = event_loop.create_proxy();
-    let mut app = App::new(app, proxy);
-    // Input bridge (a real InputConnection): composition, swipe, CJK. On failure the
-    // shell falls back to key mode (TYPE_NULL).
-    android_ime::install(&android_app);
-    // Keep the activity handle around to query the system insets.
-    app.set_android_app(android_app);
-    event_loop.run_app(&mut app)?;
+        let proxy = event_loop.create_proxy();
+        let mut app = App::new(app, proxy);
+        // Input bridge (a real InputConnection): composition, swipe, CJK. On failure the
+        // shell falls back to key mode (TYPE_NULL).
+        android_ime::install(&android_app);
+        // Keep the activity handle around to query the system insets.
+        app.set_android_app(android_app);
+        event_loop.run_app(&mut app)?;
+        Ok(())
+    })();
 
     // The loop ends when the activity is destroyed (milestone 755: see `android_lifecycle`).
     // Android would keep the **process** cached for the next launch, but winit allows only
     // one `EventLoop` per process: a new activity in this process could not run. So the
     // process ends here, while `onDestroy` still waits for this function: the system keeps
-    // what the activity saved, and the next launch starts a new process from it.
+    // what the activity saved, and the next launch starts a new process from it. A loop that
+    // failed ends it too (milestone 763): a process left behind would take the next activity
+    // and could not run it.
+    let code = match ran {
+        Ok(()) => 0,
+        Err(err) => {
+            log::error!("frus (android) stopped: {err:#}");
+            1
+        }
+    };
     log::info!("the activity is gone: the process ends");
-    std::process::exit(0);
+    std::process::exit(code);
 }
