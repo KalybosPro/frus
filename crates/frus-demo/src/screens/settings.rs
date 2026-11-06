@@ -178,6 +178,30 @@ impl StatefulWidget for SettingsPage {
 impl State for SettingsState {
     type Widget = SettingsPage;
 
+    /// **State restoration** (milestone 756): the tab on show, the advanced section's open
+    /// flag and the reminder wheel's minutes come back after the system ended the process.
+    /// The tab bar and the tile are told their state, so it is kept here, with the screen.
+    fn restoration_id(&self) -> Option<String> {
+        Some("settings".into())
+    }
+
+    fn save(&self) -> Option<String> {
+        Some(format!(
+            "{} {} {}",
+            self.tab, self.advanced_open, self.reminder
+        ))
+    }
+
+    fn restore(&mut self, saved: &str) {
+        let mut parts = saved.split(' ');
+        if let (Some(tab), Some(open), Some(reminder)) = (parts.next(), parts.next(), parts.next())
+        {
+            self.tab = tab.parse().unwrap_or(self.tab).min(1);
+            self.advanced_open = open.parse().unwrap_or(self.advanced_open);
+            self.reminder = reminder.parse().unwrap_or(self.reminder);
+        }
+    }
+
     fn build(&self, cx: &StateContext<Self>) -> Box<dyn Widget> {
         let theme = cx.theme().clone();
         let theme = &theme;
@@ -463,6 +487,7 @@ impl State for SettingsState {
         let body = SingleChildScrollView::new()
             .width(width)
             .flex(1.0)
+            .restoration_id("scroll")
             .child(content);
         let back = router.clone();
         let screen = column![

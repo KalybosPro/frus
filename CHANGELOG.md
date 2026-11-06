@@ -20,6 +20,16 @@ any release may break.
   out about zero pixels wide and was drawn on top of the first. The table now takes the width
   on offer whenever a column is flexible, and divides it among those columns; `DataTable`
   passes the request on. A table with a `width`, or with only fixed columns, is unchanged.
+- **Page views, wheels and grids come back where they were after the system ended the process**
+  (J756): `PageView::restoration_id`, `ListWheel::restoration_id` and `GridView::restoration_id`.
+  A page view or a wheel keeps its **page** (not its offset, so a phone turned on its side
+  between the two processes still opens on it), draws it from its first frame, and reports it
+  through `on_page_changed` / `on_selected` so the application's own value follows; a windowed
+  grid keeps its offset. Tab bars, expansion tiles, navigation bars, checkboxes and pickers are
+  told their state, which the application restores with `use_restorable_state` or a `State`'s
+  `restoration_id`. The demo restores its tour's panel and its settings screen's tab, advanced
+  section, reminder and scroll. The shell's test driver now delivers `on_page_changed` and
+  `on_selected` as the window does; it never did.
 - **Hot reload is how `frus run` runs** (J754): a debug build now patches each saved change into
   the running application — desktop, web, Android — with every state where it was, instead of
   rebuilding and restarting it; `--hot` was needed for that before. `frus run --no-hot` restarts
