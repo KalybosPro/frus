@@ -80,7 +80,7 @@ is laid out again the element follows it as before.
 - `frus-shell` `web_page::tests::a_visual_viewport_with_no_height_is_not_a_keyboard`: the
   0-pixel visual viewport Chrome reported on the phone gives no keyboard cover. With the old
   rule it fails: `left: 221.18, right: 0.0`.
-- `frus-shell` tests (454 + 13 pass), `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, and
+- `frus-shell` tests (455 + 13 pass after merging master), `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, and
   `cargo clippy -p frus-shell --target wasm32-unknown-unknown -- -D warnings` (the changed code
   is compiled for the Web only).
 - On the phone: see "Re-check" below.
