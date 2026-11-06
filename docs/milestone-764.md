@@ -41,9 +41,8 @@ scaling bug it fixed could come back unseen.
 - **A golden of spaced rich text selected on a dense screen.** `frus-test`
   `spaced_rich_text_selected_on_a_dense_screen_matches_its_golden` paints a `RichText` with a
   letter spacing of 1 and the word "framework" selected, scales the scene by 2.625 as the shell
-  scales a phone's, and renders it (`rich_text_spaced_selection_2_625x.png`). This branch merges
-  `fix/selection-highlight-offset` (milestone 760, PR #413, not yet merged when this was
-  written), so the golden shows the fixed rendering: the highlight sits under its word.
+  scales a phone's, and renders it (`rich_text_spaced_selection_2_625x.png`). Milestone 760's
+  fix is on master, so the golden shows the fixed rendering: the highlight sits under its word.
 
 ## Decisions
 
