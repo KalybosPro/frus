@@ -61,20 +61,27 @@ selection under Shift stays a range of the text's order, as for the arrows.
 
 ## Tests
 
-The new tests of the field fail before the change:
+Run against a copy of the branch with both changes taken out, three of the new tests fail
+(the other two pin behaviour that must not change, and pass either way):
 
 - `textinput::bidi_tests::ctrl_and_an_arrow_cross_the_word_drawn_next_to_the_caret`: through
   `abc אבג def` every Ctrl+arrow press moves the painted caret the way it points and lands at the
   far edge of the word crossed — at the right of the Hebrew run going right, at its left going
-  left. Before: the second Ctrl+Right landed at `upstream(7)`, at the run's left.
-- `…::ctrl_and_an_arrow_on_a_line_in_one_direction_move_through_the_words`: from every boundary
-  of `foo, bar  baz_1 qux.` and of a Hebrew line, both directions, the stop is the logical one.
-- `…::ctrl_and_an_arrow_cross_the_lines_of_a_wrapped_field`: forwards through a wrapped Hebrew
-  field the stops are the logical word ends on every line, and backwards always moves back.
+  left. Before: the second Ctrl+Right landed at `upstream(7)` instead of `downstream(4)`, at the
+  run's left.
 - `…::a_letter_typed_at_a_change_of_direction_has_the_caret_beside_it`: `x` typed before alef
-  paints the caret right after the `x`. Before: at the right of the Hebrew run.
+  paints the caret right after the `x`. Before: the caret was painted at x = 81.9, at the right of
+  the Hebrew run, where the `x` ends at 55.3.
 - `…::typing_leaves_the_caret_beside_what_was_typed` (replacing the old test that asserted the
   downstream side): upstream after a letter, downstream after a deletion, a line break, an Enter.
+  Before: `downstream(2)` after the letter.
+- `…::ctrl_and_an_arrow_on_a_line_in_one_direction_move_through_the_words` (guard): from every
+  boundary of `foo, bar  baz_1 qux.` and of a Hebrew line, both directions, the stop is the
+  logical one.
+- `…::ctrl_and_an_arrow_cross_the_lines_of_a_wrapped_field` (guard): forwards through a wrapped
+  Hebrew field the stops are the logical word ends on every line, and backwards always moves
+  back.
+- All 2144 `frus-widgets` unit tests pass.
 - `frus-test` goldens (WSL, llvmpipe, `CARGO_INCREMENTAL=0`): the new golden, and the whole
   suite.
 
