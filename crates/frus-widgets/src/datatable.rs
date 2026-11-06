@@ -628,6 +628,13 @@ impl<Msg: Clone + 'static> Widget<Msg> for DataTable<Msg> {
     fn stack(&self) -> bool {
         self.built().stack()
     }
+
+    /// Forwarded like the structure: when the block is the bare table, this node *is* the
+    /// table to the layout, and a table with flexible columns takes the width on offer
+    /// (milestone 758).
+    fn fill_axes(&self, theme: &Theme) -> crate::widget::FillAxes {
+        self.built().fill_axes(theme)
+    }
 }
 
 #[cfg(test)]

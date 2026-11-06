@@ -2067,6 +2067,41 @@ fn a_screen_reader_adds_a_task() {
     );
 }
 
+/// **The About tab's table keeps its columns apart on a phone** (milestone 758). Seen on the
+/// phone: the two-column table ("Metric" / "Value") drew its second column on top of its
+/// first. The table sits in a box that caps its width but does not size it, and its flexible
+/// columns came out as wide as their content, which is nothing: a cell paints its label.
+#[test]
+fn the_about_table_keeps_its_columns_apart_on_a_phone() {
+    let mut bench = Bench::new(PHONE.0, PHONE.1);
+    bench.go("/settings");
+    assert!(bench.press("About"), "the About tab is there to press");
+    bench.settle_frames();
+    let texts = bench.texts();
+    let x = |label: &str| {
+        texts
+            .iter()
+            .find(|(t, _, _)| t == label)
+            .map(|(_, x, _)| *x)
+            .unwrap_or_else(|| panic!("{label} is painted"))
+    };
+    // The table is as wide as the tab offers (a phone is narrower than the 480 cap), and
+    // its two columns share it: the second starts about half the table along.
+    for (first, second) in [("Metric", "Value"), ("Widgets", "35"), ("Milestones", "39")] {
+        let gap = x(second) - x(first);
+        assert!(
+            gap > 120.0,
+            "{second} starts {gap} px after {first}: the columns are drawn on top of each other"
+        );
+        assert!(
+            x(second) > x(first) + bench.size.width.min(480.0) / 2.0 - 60.0,
+            "{second} starts about half the table along: {} vs {}",
+            x(second),
+            x(first)
+        );
+    }
+}
+
 /// **The About tab's showcases take the tab's width on a phone** (milestone 759). Seen on
 /// the phone: the two loading placeholders under the pagination were blank space, the three
 /// statistic tiles huddled at the left as narrow as their numbers, and the tags field was

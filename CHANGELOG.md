@@ -22,6 +22,13 @@ any release may break.
   `Autocomplete::field` hands the application the text field to dress (label, hint, variant,
   icons), where the field used to be a bare box with no way to say what it was for.
 
+- **A table with flexible columns takes the width it is offered** (J758). A `Table` whose
+  columns are flexible (the default) and that had no `width` of its own was as wide as its
+  content when its parent did not stretch it, in a box that only caps its width, say. A cell
+  paints its label rather than laying it out, so that content was nothing: every column came
+  out about zero pixels wide and was drawn on top of the first. The table now takes the width
+  on offer whenever a column is flexible, and divides it among those columns; `DataTable`
+  passes the request on. A table with a `width`, or with only fixed columns, is unchanged.
 - **An Android activity that ends no longer hangs the application** (J755). When Android destroyed
   the activity while the process lived ("Don't keep activities", Back at the root, the system
   finishing it, a configuration change), the application froze and could not be opened again
