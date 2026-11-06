@@ -5384,7 +5384,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 let child = children[i].as_ref();
                 self.cached_rects(child_id(id, i, child), child, custom_constraints(c))
             };
-            let mut layout = crate::ChildLayout::new(custom.keys, &measure);
+            let mut layout = crate::ChildLayout::new(custom.keys, &measure, &self.theme);
             (custom.delegate)(Size::new(own.width, own.height), &mut layout);
             let (laid, at) = (layout.laid, layout.at);
             for (i, child) in children.iter().enumerate() {
@@ -6173,6 +6173,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
         while let Some((content, oid, anchor, placement, dismiss, progress, traps, scrim, theme)) =
             self.overlays.pop()
         {
+            // The application's snack bar, already shown inside a scaffold's own layout —
+            // above its bottom bar, its floating button above it — is not shown again over
+            // the window (milestone 766).
+            if placement == Placement::Notification && crate::messenger::hosted() {
+                continue;
+            }
             // The theme this overlay was declared under, for the whole of its layout and
             // painting; whatever was in force when the walk ended is put back after it,
             // so two overlays declared under two themes do not bleed into each other.
@@ -6721,6 +6727,8 @@ fn build_ui_walk<'a, Msg: Clone + 'static>(
 ) -> (Ui<Msg>, Option<Vec<crate::inspector::InspectorNode>>) {
     #[cfg(debug_assertions)]
     assert_surface_is_whole();
+    // No scaffold has shown the application's snack bar yet in this frame (milestone 766).
+    crate::messenger::reset_hosted();
 
     let (mut rects, overflows) = runtime.layout_cache.borrow_mut().rects(
         WidgetId::ROOT,

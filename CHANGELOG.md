@@ -8,11 +8,24 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 758 so far, each documenting the objective, the alternatives
+> record — one per step, 766 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **The floating action button is placed from what the screen shell measured** (J766).
+  `FabLocation` now has every placement: at the top (astride the app bar's bottom edge),
+  floating, docked, the mini form of each, and `EndContained` inside the bottom bar; and
+  `Scaffold::fab_location` takes any `FabLocator`, a closure over `FabGeometry` included, for a
+  placement of one's own. The shell is now one layout that measures its slots before placing
+  the button, so a persistent footer lifts it, a snack bar fixed to the bottom lifts it (a
+  floating one goes above it), and a button sits astride a `persistent_bottom_sheet`'s top
+  edge. `Scaffold::snack_bar` and `snack_bar_widget` put a bar in the shell's layout, and the
+  application's bar (`show_snack_bar`) is now shown by the primary shell, on its bottom bar,
+  rather than over the window's bottom edge; `host_snack_bars(false)` declines. A
+  `BottomAppBar` cuts its notch only while the button is actually astride its top edge, not
+  when the keyboard or a snack bar lifted it. `Scaffold::fab_size` is deprecated and does
+  nothing: the button is measured.
 - **A table with flexible columns takes the width it is offered** (J758). A `Table` whose
   columns are flexible (the default) and that had no `width` of its own was as wide as its
   content when its parent did not stretch it, in a box that only caps its width, say. A cell

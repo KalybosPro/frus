@@ -373,6 +373,11 @@ impl<Msg: Clone + 'static> Clone for SnackBar<Msg> {
 }
 
 impl<Msg: Clone + 'static> SnackBar<Msg> {
+    /// The placing this bar asked for itself, before the theme is asked.
+    pub(crate) fn behavior_word(&self) -> Option<SnackBarBehavior> {
+        self.behavior
+    }
+
     /// The action's message, so that the application's messenger can hide the bar when it
     /// is pressed.
     pub(crate) fn map_action(mut self, change: impl FnOnce(Msg) -> Msg) -> Self {

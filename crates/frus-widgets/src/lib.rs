@@ -441,7 +441,10 @@ pub use runtime::{
     SelectionHandle, ToolbarMark, TransformValues, ValueAnim,
 };
 pub use safearea::SafeArea;
-pub use scaffold::{fab_button, FabLocation, NavPlacement, Scaffold};
+pub use scaffold::{
+    fab_button, FabGeometry, FabLocation, FabLocator, NavPlacement, Scaffold,
+    MINI_FAB_OFFSET_ADJUSTMENT,
+};
 pub use scaffoldinfo::{ScaffoldGuard, ScaffoldInfo, ScaffoldScope};
 pub use scroll::{Axis, SingleChildScrollView};
 pub use scrollbehavior::{ScrollBehavior, ScrollBehaviorGuard, ScrollConfiguration};

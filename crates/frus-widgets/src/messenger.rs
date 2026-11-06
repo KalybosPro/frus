@@ -20,7 +20,7 @@ use std::time::Duration;
 use crate::callback::Callback;
 use crate::component::request_rebuild;
 use crate::widget::Widget;
-use crate::SnackBar;
+use crate::{SnackBar, SnackBarBehavior};
 
 /// How long a bar stays when nothing says otherwise: the reference's four seconds.
 pub const SNACK_BAR_DURATION: Duration = Duration::from_secs(4);
@@ -37,13 +37,16 @@ struct Messenger {
     next_id: u64,
 }
 
-/// Turns the bar on screen, if any, into a widget.
-type MakeBar = fn() -> Option<Box<dyn Widget>>;
+/// Turns the bar on screen, if any, into a widget, with the placing it asked for itself.
+type MakeBar = fn() -> Option<(Box<dyn Widget>, Option<SnackBarBehavior>)>;
 
 thread_local! {
     static MESSENGER: RefCell<Messenger> = RefCell::new(Messenger::default());
     /// What turns the bar on screen into a widget, once a bar has been shown.
     static MAKE: Cell<Option<MakeBar>> = const { Cell::new(None) };
+    /// Whether a scaffold showed the bar on screen in the frame being laid out, so that
+    /// the application's root does not show it a second time (milestone 766).
+    static HOSTED: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Shows `bar` for four seconds, after the bars already waiting.
@@ -119,8 +122,31 @@ pub fn clear_snack_bars() {
 /// and a counter grew by 400 KB when it asked [`current_snack_bar`] instead.
 #[inline(never)]
 pub fn current_snack_bar_widget() -> Option<Box<dyn Widget>> {
+    current_snack_bar_slot().map(|(bar, _)| bar)
+}
+
+/// The bar on screen as a widget, and the placing it asked for itself (`None` leaves it to
+/// the theme): what a [`Scaffold`](crate::Scaffold) puts in its own layout, above its
+/// bottom bar and below its floating button (milestone 766).
+#[inline(never)]
+pub(crate) fn current_snack_bar_slot() -> Option<(Box<dyn Widget>, Option<SnackBarBehavior>)> {
     let make = MAKE.with(Cell::get)?;
     make()
+}
+
+/// A scaffold laid the bar on screen out in this frame.
+pub(crate) fn note_hosted() {
+    HOSTED.with(|hosted| hosted.set(true));
+}
+
+/// Whether a scaffold laid the bar on screen out in this frame.
+pub(crate) fn hosted() -> bool {
+    HOSTED.with(Cell::get)
+}
+
+/// A new frame: no scaffold has shown the bar yet.
+pub(crate) fn reset_hosted() {
+    HOSTED.with(|hosted| hosted.set(false));
 }
 
 #[inline(never)]
@@ -128,8 +154,11 @@ fn install_maker() {
     MAKE.with(|make| make.set(Some(make_current)));
 }
 
-fn make_current() -> Option<Box<dyn Widget>> {
-    current_snack_bar().map(|bar| Box::new(bar) as Box<dyn Widget>)
+fn make_current() -> Option<(Box<dyn Widget>, Option<SnackBarBehavior>)> {
+    current_snack_bar().map(|bar| {
+        let behavior = bar.behavior_word();
+        (Box::new(bar) as Box<dyn Widget>, behavior)
+    })
 }
 
 /// The bar on screen, if there is one.

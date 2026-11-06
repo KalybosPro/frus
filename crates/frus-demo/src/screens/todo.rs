@@ -497,32 +497,28 @@ impl State for HomeState {
                 self.sheet_open,
                 toggle_sheet,
             );
-        // On a wide window the menu bar is above this screen: the window's, not the screen's
-        // (milestone 642, `screens::menu`).
-        let scaffold = scaffold.build();
-
-        // The notification at the head of the queue floats above everything, anchored
-        // bottom-centre by the `ScaffoldMessenger` layer (milestone 188): it fades **in**,
-        // then fades **out** when it moves into its exit before being removed (milestone 193).
-        match demo.current_toast() {
+        // The notification at the head of the queue is the shell's own (milestone 766): a
+        // bar fixed to the bottom stands on the navigation bar and the floating button rises
+        // above it, as it does on a phone. It fades **in**, then fades **out** when it moves
+        // into its exit before being removed (milestones 188, 193).
+        let scaffold = match demo.current_toast() {
             Some((message, leaving)) => {
-                let host = ScaffoldMessenger::new(SnackBarPosition::BottomCenter)
-                    .toast(SnackBar::new(message).success());
-                let host = if leaving {
-                    host.fade_out(0.3)
-                } else {
-                    host.fade_in(0.25)
-                };
-                Box::new(
-                    Stack::new()
-                        .width(surface.size.width)
-                        .height(surface.size.height)
-                        .layer(scaffold)
-                        .layer(host),
+                let (opacity, duration) = if leaving { (0.0, 0.3) } else { (1.0, 0.25) };
+                scaffold.snack_bar_widget(
+                    AnimatedOpacity::new(
+                        opacity,
+                        duration,
+                        Curve::ease_in_out(),
+                        SnackBar::new(message).success(),
+                    ),
+                    SnackBarBehavior::Fixed,
                 )
             }
             None => scaffold,
-        }
+        };
+        // On a wide window the menu bar is above this screen: the window's, not the screen's
+        // (milestone 642, `screens::menu`).
+        scaffold.build()
     }
 }
 
