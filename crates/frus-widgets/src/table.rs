@@ -1418,6 +1418,24 @@ impl<Msg: Clone> Widget<Msg> for Table<Msg> {
         None
     }
 
+    /// **The width offered, when a column is flexible** (milestone 758).
+    ///
+    /// A flexible column takes a share of the table's width, so the table has to have one:
+    /// with flexible columns, a table is as wide as the room its parent offers, the way a
+    /// row set to fill its line is. Its content cannot say how wide that is — a cell
+    /// paints its label rather than laying it out, so a row of flexible cells measures
+    /// nothing, and a table left to its content came out a couple of pixels wide with every
+    /// column drawn on top of the first. A table given a [`width`](Table::width), or whose
+    /// columns are all fixed, already knows its width and asks for nothing.
+    fn fill_axes(&self, theme: &Theme) -> crate::widget::FillAxes {
+        let flexible = (0..self.columns).any(|c| self.widths[c] <= 0.0);
+        if self.total_width.is_none() && flexible {
+            crate::widget::FillAxes::WIDTH
+        } else {
+            Widget::<Msg>::fill_axes(&self.root, theme)
+        }
+    }
+
     fn stack(&self) -> bool {
         // When the table is resizable the root is a stack (the grid + the handle layer): the
         // flag is relayed so the layers superimpose instead of lining up.
@@ -2281,5 +2299,53 @@ mod tests {
         };
         let (ax, bx) = (text_x("A").unwrap(), text_x("B").unwrap());
         assert!(bx >= ax + 80.0, "a fixed column of 80: bx={bx} ax={ax}");
+    }
+
+    /// Where the label `t` starts, if it is painted.
+    fn label_x(ui: &crate::Ui<()>, t: &str) -> Option<f32> {
+        fn walk(ps: &[Primitive], t: &str) -> Option<f32> {
+            ps.iter().find_map(|p| match p {
+                Primitive::Text { text, position, .. } if text == t => Some(position.x),
+                Primitive::Layer { primitives, .. } => walk(primitives, t),
+                _ => None,
+            })
+        }
+        walk(ui.scene().primitives(), t)
+    }
+
+    /// **Flexible columns share the width the table is offered** (milestone 758). A table
+    /// with no width of its own, set in a box that caps it but does not size it — the shape
+    /// of a showcase inside a column — drew every column on top of the first: its rows
+    /// were as wide as their content, and a cell paints its label rather than laying it out.
+    #[test]
+    fn flexible_columns_share_the_offered_width() {
+        let table = Table::<()>::new(2)
+            .header(&["Metric", "Value"])
+            .row(&["Widgets", "35"]);
+        let boxed = crate::ConstrainedBox::new(table).max_width(300.0);
+        let screen = crate::Flex::<()>::column().align(Align::Start).child(boxed);
+        let ui = build_ui(
+            &screen,
+            Size::new(400.0, 300.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let (metric, value) = (
+            label_x(&ui, "Metric").unwrap(),
+            label_x(&ui, "Value").unwrap(),
+        );
+        let (widgets, n) = (
+            label_x(&ui, "Widgets").unwrap(),
+            label_x(&ui, "35").unwrap(),
+        );
+        // Two equal shares of 300 (less the 2 px gap): the second column starts at 151.
+        assert!(
+            (value - metric - 151.0).abs() < 1.0,
+            "the second heading starts one share along: metric={metric} value={value}"
+        );
+        assert!(
+            (n - widgets - 151.0).abs() < 1.0,
+            "and so does the second cell: widgets={widgets} 35={n}"
+        );
     }
 }
