@@ -720,6 +720,10 @@ pub struct Runtime {
     /// The page each paged view was last **reported as showing**, so that
     /// `on_page_changed` fires on a change and not on every frame of the motion.
     pub page_shown: HashMap<WidgetId, usize>,
+    /// The page each paged view was **restored** on and has not been placed at yet
+    /// (milestone 756): its offset is not known until its pages are measured, so the walk
+    /// opens the view there, and [`Runtime::sync_pages`] makes it the view's offset.
+    pub(crate) page_restored: HashMap<WidgetId, usize>,
     /// The offset each scroll region was last **reported at**, so that
     /// [`crate::Widget::on_scroll`] fires on a change and not on every frame, and so
     /// that a region's grain is measured from what the application was actually told
@@ -869,7 +873,33 @@ impl Runtime {
     /// before laying out, so the first frame of a restored page is already where it was.
     /// Whether anything was handed over.
     pub fn apply_restored(&mut self) -> bool {
-        self.restoration.apply(&mut self.scroll, &mut self.edits)
+        use crate::restoration::Pending;
+        let pending = self.restoration.take_pending();
+        let any = !pending.is_empty();
+        for restored in pending {
+            match restored {
+                Pending::Scroll(id, offset) => {
+                    self.scroll.insert(id, offset);
+                }
+                Pending::Edit(id, edit) => {
+                    self.edits.insert(id, edit);
+                }
+                // A paged view's page (milestone 756). The application's request stands as
+                // seen, so the first sighting does not move the view to it; and the page
+                // shown is taken to be the requested one, so the restored page reads as a
+                // change and `on_page_changed` tells the application where the view is.
+                Pending::Page {
+                    id,
+                    page,
+                    requested,
+                } => {
+                    self.page_requested.insert(id, requested);
+                    self.page_shown.insert(id, requested);
+                    self.page_restored.insert(id, page);
+                }
+            }
+        }
+        any
     }
 }
 
@@ -2010,6 +2040,26 @@ impl Runtime {
     pub fn sync_pages(&mut self, regions: &[Scrollable]) {
         for area in regions {
             let Some(snap) = area.page else { continue };
+            // A view restored on a page is put there, where the walk already drew it.
+            if let Some(page) = self.page_restored.remove(&area.id) {
+                let max = if snap.horizontal {
+                    area.max_x
+                } else {
+                    area.max_y
+                };
+                let along = snap
+                    .offset_of(page.min(snap.count.saturating_sub(1)))
+                    .clamp(0.0, max);
+                let current = self.scroll.get(&area.id).copied().unwrap_or((0.0, 0.0));
+                let offset = if snap.horizontal {
+                    (along, current.1)
+                } else {
+                    (current.0, along)
+                };
+                self.scroll.insert(area.id, offset);
+                self.scroll_target.remove(&area.id);
+                self.scroll_velocity.remove(&area.id);
+            }
             let previous = self.page_requested.insert(area.id, snap.requested);
             if previous == Some(snap.requested) {
                 continue;
@@ -2104,7 +2154,12 @@ impl Runtime {
         for area in regions {
             let Some(snap) = area.page else { continue };
             let offset = self.scroll.get(&area.id).copied().unwrap_or_else(|| {
-                let start = snap.offset_of(snap.requested);
+                let opening = self
+                    .page_restored
+                    .get(&area.id)
+                    .copied()
+                    .unwrap_or(snap.requested);
+                let start = snap.offset_of(opening);
                 if snap.horizontal {
                     (start, 0.0)
                 } else {

@@ -157,6 +157,8 @@ pub struct ListWheel<Msg = crate::callback::Callback> {
     /// offer, as the reference's does (milestone 590).
     sized: (bool, bool),
     flex: f32,
+    /// Where the chosen row is kept for restoration; see [`ListWheel::restoration_id`].
+    restoration: Option<Vec<String>>,
 }
 
 impl<Msg> ListWheel<Msg> {
@@ -179,6 +181,7 @@ impl<Msg> ListWheel<Msg> {
             height: Dimension::Length(180.0),
             sized: (false, false),
             flex: 0.0,
+            restoration: None,
         }
     }
 
@@ -196,6 +199,18 @@ impl<Msg> ListWheel<Msg> {
         message: impl Fn(usize) -> R + 'static,
     ) -> Self {
         self.on_selected = Some(Box::new(crate::callback::handler1(message)));
+        self
+    }
+
+    /// **Restores the row** the wheel rests on after the system ended the process
+    /// (milestone 756): when the application has restoration on, the row is kept under
+    /// `id`, and a process started again opens the wheel on it rather than on
+    /// [`selected`](ListWheel::selected) — and reports it through
+    /// [`on_selected`](ListWheel::on_selected) on its first frame, so the application
+    /// holds the same answer the wheel shows. `id` names the wheel within its restoration
+    /// scope — the page, or a [`restoration_scope`](crate::restoration_scope).
+    pub fn restoration_id(mut self, id: &str) -> Self {
+        self.restoration = Some(crate::restoration::path_here(id));
         self
     }
 
@@ -256,6 +271,21 @@ impl<Msg> ListWheel<Msg> {
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for ListWheel<Msg> {
+    /// Registers the chosen row under its restoration id, if it has one (milestone 756).
+    fn build_in(
+        &self,
+        id: crate::interaction::WidgetId,
+        runtime: &crate::runtime::Runtime,
+        theme: &Theme,
+    ) {
+        if let Some(path) = &self.restoration {
+            runtime
+                .restoration
+                .register_page(path.clone(), id, self.chosen());
+        }
+        self.build_themed(theme)
+    }
+
     fn style(&self) -> Style {
         Style {
             width: self.width,

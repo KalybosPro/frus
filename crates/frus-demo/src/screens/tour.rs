@@ -93,7 +93,10 @@ impl State for TourState {
         .width(width)
         .flex(1.0)
         .page(page)
-        .on_page_changed(cx.handler(|s, page: usize| s.page = page));
+        .on_page_changed(cx.handler(|s, page: usize| s.page = page))
+        // The panel the reader was on comes back after the system ended the process, and
+        // the handler above hears it (milestone 756).
+        .restoration_id("panels");
 
         // **A rail that fills as the panels go by.** The quantity is a *fraction* and not a
         // width: nobody here knows how wide the footer comes out, and a window resized in the

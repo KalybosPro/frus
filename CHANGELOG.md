@@ -13,6 +13,16 @@ any release may break.
 
 ## [Unreleased]
 
+- **Page views, wheels and grids come back where they were after the system ended the process**
+  (J756): `PageView::restoration_id`, `ListWheel::restoration_id` and `GridView::restoration_id`.
+  A page view or a wheel keeps its **page** (not its offset, so a phone turned on its side
+  between the two processes still opens on it), draws it from its first frame, and reports it
+  through `on_page_changed` / `on_selected` so the application's own value follows; a windowed
+  grid keeps its offset. Tab bars, expansion tiles, navigation bars, checkboxes and pickers are
+  told their state, which the application restores with `use_restorable_state` or a `State`'s
+  `restoration_id`. The demo restores its tour's panel and its settings screen's tab, advanced
+  section, reminder and scroll. The shell's test driver now delivers `on_page_changed` and
+  `on_selected` as the window does; it never did.
 - **The floating button with the keyboard up** (J757). `Scaffold` no longer stops the floating
   action button below the status bar: it stands its margin above the keyboard whatever is above
   it, over the app bar when the keyboard leaves little room and past the window's top edge when
