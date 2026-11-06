@@ -2130,3 +2130,77 @@ fn the_tasks_page_comes_back_scrolled_where_it_was_left() {
     second.run(1.0);
     assert_eq!(second.offsets()[0].1, before, "and it stays there");
 }
+
+/// **The About tab's showcases take the tab's width on a phone** (milestone 759). Seen on
+/// the phone: the two loading placeholders under the pagination were blank space, the three
+/// statistic tiles huddled at the left as narrow as their numbers, and the tags field was
+/// an empty box with nothing to say what it was for.
+#[test]
+fn the_about_showcases_take_the_tabs_width_on_a_phone() {
+    let mut bench = Bench::new(PHONE.0, PHONE.1);
+    bench.go("/settings");
+    assert!(bench.press("About"), "the About tab is there to press");
+    bench.settle_frames();
+    let (_, ui) = bench.frame();
+
+    // The placeholders: a 16 px bar and a 14 px one, both with the 6 px corners.
+    fn bars(primitives: &[Primitive], out: &mut Vec<frus_widgets::Rect>) {
+        for p in primitives {
+            match p {
+                Primitive::Rect {
+                    rect,
+                    radius,
+                    border_width,
+                    ..
+                } if *border_width == 0.0
+                    && radius.top_left == 6.0
+                    && (rect.height == 16.0 || rect.height == 14.0) =>
+                {
+                    out.push(*rect)
+                }
+                Primitive::Layer { primitives, .. } => bars(primitives, out),
+                _ => {}
+            }
+        }
+    }
+    let mut found = Vec::new();
+    bars(ui.scene().primitives(), &mut found);
+    let widest = |h: f32| {
+        found
+            .iter()
+            .filter(|r| r.height == h)
+            .map(|r| r.width)
+            .fold(0.0, f32::max)
+    };
+    // The tab is about 370 px wide on this phone: the first bar takes it, the second 80 %
+    // of a 480 cap, which is more than the tab has.
+    assert!(
+        widest(16.0) > 300.0,
+        "the first placeholder spans the tab: {found:?}"
+    );
+    assert!(
+        widest(14.0) > 300.0,
+        "the second placeholder spans the tab: {found:?}"
+    );
+
+    // The tiles: three equal columns across the tab, so the third starts two thirds along.
+    let texts = words(&ui);
+    let x = |label: &str| {
+        texts
+            .iter()
+            .find(|(t, _, _)| t == label)
+            .map(|(_, x, _)| *x)
+            .unwrap_or_else(|| panic!("{label} is painted"))
+    };
+    let span = x("Done") - x("Total");
+    assert!(
+        span > 220.0,
+        "the third tile starts two thirds across the tab, not {span} px after the first"
+    );
+
+    // The tags field says what it is for.
+    assert!(
+        texts.iter().any(|(t, _, _)| t == "Tags"),
+        "the tags field carries a label"
+    );
+}

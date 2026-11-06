@@ -42,7 +42,7 @@ theme = "@style/LaunchTheme"
 
 # The configuration changes followed in place (see frus-demo's manifest).
 [package.metadata.android.application.activity]
-config_changes = "orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+config_changes = "orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode|mcc|mnc|touchscreen|navigation|colorMode|fontWeightAdjustment|grammaticalGender"
 
 # The activity enters frus first (milestone 762): frus then answers Android's request for the
 # application's saved state itself, on every Android version, so state restoration works

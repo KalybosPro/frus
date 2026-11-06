@@ -110,13 +110,22 @@ pub(crate) fn engine() -> Result<PathBuf, String> {
 /// engine's Android project (`android_res`).
 const ANDROID_ICONS: &str = "frus-android-res";
 
+/// The manifest of the engine's Android project, written by frus (see [`android_manifest`]).
+const ANDROID_MANIFEST: &str = "AndroidManifest.xml";
+
 /// What the shadow package does not link: the manifest and lock it has its own versions of, the
 /// files of the engine's Android project it writes (see `android_project_files`), the build
 /// output, and the version-control and editor folders.
 fn is_kept_out(name: &str) -> bool {
     matches!(
         name,
-        "Cargo.toml" | "Cargo.lock" | "Dioxus.toml" | "MainActivity.kt" | "target" | ANDROID_ICONS
+        "Cargo.toml"
+            | "Cargo.lock"
+            | "Dioxus.toml"
+            | "MainActivity.kt"
+            | ANDROID_MANIFEST
+            | "target"
+            | ANDROID_ICONS
     ) || name.starts_with('.')
 }
 
@@ -317,15 +326,15 @@ fn backslashed(path: &Path) -> String {
     path.display().to_string().replace('/', "\\")
 }
 
-/// The shadow package's manifest, from the application's: its `[lib]` and binaries replaced by one
-/// program built from `src/lib.rs`, and its relative paths made absolute from `root`.
 /// The engine's Android project starts the program through its own activity: the files that
-/// make it a plain native activity, as frus's Android shell expects (milestone 680), and give
-/// the package the application's identifier.
+/// make it a plain native activity, as frus's Android shell expects (milestone 680), give the
+/// package the application's identifier, and declare the configuration changes the activity
+/// follows in place, as the application's own manifest does (milestone 763: `config_changes`).
 pub(crate) fn android_project_files(
     shadow: &Path,
     package: &str,
     resources: &Path,
+    config_changes: &str,
 ) -> Result<(), String> {
     // The application's launcher icons (`res/mipmap-*`), and nothing else of its resources: the
     // engine's project has its own theme and strings, which the application's would replace.
@@ -360,9 +369,14 @@ pub(crate) fn android_project_files(
         &shadow.join("Dioxus.toml"),
         &format!(
             "# Written by `frus run --hot` for the hot-reload engine's Android build.\n\
-             [application]\nandroid_main_activity = \"MainActivity.kt\"\n{android_res}\n\
+             [application]\nandroid_main_activity = \"MainActivity.kt\"\n\
+             android_manifest = \"{ANDROID_MANIFEST}\"\n{android_res}\n\
              [bundle]\nidentifier = \"{package}\"\n"
         ),
+    )?;
+    write_if_changed(
+        &shadow.join(ANDROID_MANIFEST),
+        &android_manifest(config_changes),
     )?;
     write_if_changed(
         &shadow.join("MainActivity.kt"),
@@ -372,6 +386,41 @@ pub(crate) fn android_project_files(
     )
 }
 
+/// The engine's Android manifest, as the engine writes it (its pinned release's template, with
+/// nothing from `Dioxus.toml` but the library's name, `main`), except for the activity's
+/// configuration changes: the engine declares four, and Android recreates the activity for any
+/// other — a font size, the night setting, a language — which a frus application cannot
+/// survive in its process (milestones 755 and 763).
+fn android_manifest(config_changes: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<!-- Written by `frus run` for the hot-reload engine's Android build (milestone 763). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:hasCode="true" android:icon="@mipmap/ic_launcher"
+        android:extractNativeLibs="true"
+        android:allowNativeHeapPointerTagging="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme"
+        android:networkSecurityConfig="@xml/network_security_config">
+        <activity android:configChanges="{config_changes}" android:exported="true"
+            android:label="@string/app_name" android:name="dev.dioxus.main.MainActivity">
+            <meta-data android:name="android.app.lib_name" android:value="main" />
+            <meta-data android:name="android.app.func_name" android:value="ANativeActivity_onCreate" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+"#
+    )
+}
+
+/// The shadow package's manifest, from the application's: its `[lib]` and binaries replaced by one
+/// program built from `src/lib.rs`, and its relative paths made absolute from `root`.
 /// The program is named after the library (`my_app`, not `my-app`): on the web the engine names
 /// the page's module after it, and the page loads `pkg/<library>.js`.
 pub(crate) fn shadow_manifest(manifest: &str, root: &Path, bin: &str) -> String {
@@ -806,6 +855,44 @@ resources = "res"
         assert!(!dev.join("libdeps-064f36d8.a").exists());
         assert!(dev.join("counter.exe").exists());
         std::fs::remove_dir_all(&target).unwrap();
+    }
+
+    /// The engine's Android project declares the application's configuration changes, not the
+    /// engine's four (milestone 763), through a manifest `Dioxus.toml` names.
+    #[test]
+    fn the_engine_s_android_project_declares_the_configuration_changes() {
+        let shadow = std::env::temp_dir().join(format!("frus-hot-android-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&shadow);
+        std::fs::create_dir_all(&shadow).unwrap();
+        let changes = crate::config_changes::wanted(34);
+        android_project_files(&shadow, "com.acme.tides", &shadow.join("res"), &changes).unwrap();
+        let dioxus = std::fs::read_to_string(shadow.join("Dioxus.toml")).unwrap();
+        assert!(
+            dioxus.contains("android_manifest = \"AndroidManifest.xml\"\n"),
+            "{dioxus}"
+        );
+        assert!(
+            dioxus.contains("identifier = \"com.acme.tides\""),
+            "{dioxus}"
+        );
+        let manifest = std::fs::read_to_string(shadow.join(ANDROID_MANIFEST)).unwrap();
+        assert!(
+            manifest.contains(&format!("android:configChanges=\"{changes}\"")),
+            "{manifest}"
+        );
+        assert!(manifest.contains("uiMode|mcc"), "{manifest}");
+        // What the engine's own manifest gives the activity, kept.
+        for kept in [
+            "android:name=\"dev.dioxus.main.MainActivity\"",
+            "android:name=\"android.app.lib_name\" android:value=\"main\"",
+            "android.intent.category.LAUNCHER",
+            "android.permission.INTERNET",
+        ] {
+            assert!(manifest.contains(kept), "{kept}: {manifest}");
+        }
+        // The application's own files of these names are never linked over the written ones.
+        assert!(is_kept_out(ANDROID_MANIFEST));
+        std::fs::remove_dir_all(&shadow).unwrap();
     }
 
     #[test]

@@ -1,0 +1,4 @@
+# The wrapper scripts run as they are: the shell one breaks with CRLF, the batch one wants it.
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary

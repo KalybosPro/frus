@@ -234,13 +234,18 @@ pub(crate) fn safe_area() -> SafeArea {
 /// A pinch-zoomed page shows less of itself for a reason that is not a keyboard, and its
 /// visual viewport is not an inset of the window: none is reported then. Less than a pixel is
 /// rounding, not a keyboard.
+///
+/// Nor is a visual viewport with no height: Chrome on Android reports one after a rotation with
+/// the keyboard up, while the page is shown above the keyboard all along (milestone 765). The
+/// layout viewport, which that browser has already shrunk to what the keyboard leaves, is
+/// believed instead.
 pub(crate) fn keyboard_cover(
     canvas_bottom: f64,
     vv_top: f64,
     vv_height: f64,
     vv_scale: f64,
 ) -> f64 {
-    if (vv_scale - 1.0).abs() > 0.01 {
+    if (vv_scale - 1.0).abs() > 0.01 || vv_height < 1.0 {
         return 0.0;
     }
     let cover = canvas_bottom - (vv_top + vv_height);
@@ -437,5 +442,15 @@ mod tests {
         assert_eq!(keyboard_cover(788.0, 0.0, 787.5, 1.0), 0.0);
         // A pinch-zoomed page shows less of itself, and that is not a keyboard either.
         assert_eq!(keyboard_cover(787.84, 100.0, 393.92, 2.0), 0.0);
+    }
+
+    /// Chrome on Android, rotated to portrait with the keyboard up, reports a visual viewport
+    /// **0 pixels tall** (offset 96.86 on a 318-pixel page), on a plain page as on a frus one,
+    /// while the page is plainly shown above the keyboard (milestone 765). Taken at its word,
+    /// the keyboard covered the whole canvas and the application laid itself out in nothing.
+    #[test]
+    fn a_visual_viewport_with_no_height_is_not_a_keyboard() {
+        assert_eq!(keyboard_cover(318.04, 96.86, 0.0, 1.0), 0.0);
+        assert_eq!(keyboard_cover(318.04, 38.0, 0.0, 1.0), 0.0);
     }
 }

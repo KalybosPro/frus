@@ -233,6 +233,36 @@ pub(crate) fn element_top(
     field_top.min(lowest).max(canvas_top)
 }
 
+/// What becomes of the editing element in a frame (milestone 765).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Editing<F> {
+    /// Over this field, which the frame laid out.
+    Over(F),
+    /// Left where it is: the field still has the focus and still takes typing, but the frame
+    /// did not lay it out.
+    Hold,
+    /// Taken away: no field that takes typing has the focus.
+    Gone,
+}
+
+/// What becomes of the editing element, when a field that takes typing has the focus
+/// (`typing`) and the frame laid it out (`laid_out`) or not.
+///
+/// A field the frame did not lay out still has the focus — the keyboard follows the focus,
+/// on a phone's own build as here. It is not laid out when there is no room for it: in
+/// landscape a phone's keyboard leaves a page a few dozen pixels, less than its app bar, and
+/// the body that holds the field gets no height. Taking the element away then took the
+/// browser's focus and the keyboard with it; the page got its height back, the field was laid
+/// out, the element came back with the focus and the keyboard — and covered the page again,
+/// every half second, for as long as the field had the focus.
+pub(crate) fn editing<F>(typing: bool, laid_out: Option<F>) -> Editing<F> {
+    match (typing, laid_out) {
+        (false, _) => Editing::Gone,
+        (true, Some(field)) => Editing::Over(field),
+        (true, None) => Editing::Hold,
+    }
+}
+
 #[cfg(web)]
 pub(crate) use web::{Editor, Field};
 
@@ -354,6 +384,15 @@ mod web {
         /// The field being edited through the element, if one is.
         pub(crate) fn editing(&self) -> Option<WidgetId> {
             self.live.as_ref().map(|live| live.id)
+        }
+
+        /// Leaves the element as it is while field `id`, which has the focus, is not laid
+        /// out ([`super::editing`]). An element over another field is taken away: what is
+        /// typed must not go to a field that no longer has the focus.
+        pub(crate) fn hold(&mut self, id: WidgetId, css: f32) {
+            if self.editing() != Some(id) {
+                self.sync(None, css);
+            }
         }
 
         /// The changes the browser made since the last call, oldest first.
@@ -925,6 +964,19 @@ mod tests {
         assert_eq!(element_top(200.0, 50.0, 0.0, 788.0, 466.0, true), 200.0);
         // Never above the canvas.
         assert_eq!(element_top(-80.0, 50.0, 0.0, 788.0, 466.0, true), 0.0);
+    }
+
+    /// A focused field the frame had no room for keeps its element, and so the keyboard;
+    /// the element goes only with the focus (milestone 765). On the phone in landscape the
+    /// keyboard left the page 38 CSS pixels, the field was not laid out, and the element
+    /// was taken away, then brought back once the keyboard had gone: the keyboard went up
+    /// and down every half second.
+    #[test]
+    fn a_focused_field_with_no_room_keeps_its_element() {
+        assert_eq!(editing(true, Some("field")), Editing::Over("field"));
+        assert_eq!(editing::<&str>(true, None), Editing::Hold);
+        assert_eq!(editing(false, Some("field")), Editing::Gone);
+        assert_eq!(editing::<&str>(false, None), Editing::Gone);
     }
 
     #[test]
