@@ -145,6 +145,10 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
     }
 }
 
+/// What [`Autocomplete::field`] is given: the field as the autocomplete built it, to be
+/// returned dressed.
+type FieldBuilder<Msg> = dyn Fn(TextField<Msg>) -> TextField<Msg>;
+
 /// A text field with suggestions.
 pub struct Autocomplete<Msg = crate::callback::Callback> {
     value: String,
@@ -157,6 +161,9 @@ pub struct Autocomplete<Msg = crate::callback::Callback> {
     on_pick: Rc<dyn Fn(String) -> Msg>,
     labels: Vec<String>,
     text_style: Option<TextStyle>,
+    /// What the application does to the field before it is shown: its label, hint,
+    /// border, icons (see [`Autocomplete::field`]).
+    field: Option<Rc<FieldBuilder<Msg>>>,
     /// `[field]` or `[field, list]`.
     children: Vec<Box<dyn Widget<Msg>>>,
 }
@@ -180,6 +187,7 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
             on_pick: Rc::new(on_pick),
             labels: Vec::new(),
             text_style: None,
+            field: None,
             children: Vec::new(),
         };
         ac.rebuild();
@@ -190,6 +198,30 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
     #[must_use]
     pub fn text_style(mut self, style: TextStyle) -> Self {
         self.text_style = Some(style);
+        self.rebuild();
+        self
+    }
+
+    /// **Dresses the field** (milestone 759): `field` is handed the text field the
+    /// autocomplete built (its value, width and typing already wired) and returns it with
+    /// whatever else it should have — a label, a hint, a variant, icons:
+    ///
+    /// ```
+    /// # use frus_widgets::Autocomplete;
+    /// #[derive(Clone)]
+    /// enum Msg {
+    ///     Typed(String),
+    ///     Picked(String),
+    /// }
+    /// let tags = Autocomplete::new("", Msg::Typed, Msg::Picked)
+    ///     .field(|field| field.label("Tags").placeholder("apple, banana..."));
+    /// ```
+    ///
+    /// Without it the field is a bare box, which says nothing about what it is for until
+    /// something is typed in it.
+    #[must_use]
+    pub fn field(mut self, field: impl Fn(TextField<Msg>) -> TextField<Msg> + 'static) -> Self {
+        self.field = Some(Rc::new(field));
         self.rebuild();
         self
     }
@@ -231,6 +263,10 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
         let input = TextField::new(self.value.clone())
             .width(self.width)
             .on_input(move |text| on_input(text));
+        let input = match &self.field {
+            Some(dress) => dress(input),
+            None => input,
+        };
         self.children = vec![Box::new(input)];
 
         if !self.labels.is_empty() {
@@ -449,5 +485,34 @@ mod tests {
             second.is_some() && second != first,
             "a suggestion follows the field in the cycle"
         );
+    }
+
+    /// **The field can be dressed** (milestone 759): a label, a hint. Without a way to say
+    /// it, an empty autocomplete was a bare box with nothing to tell what it was for.
+    #[test]
+    fn the_field_can_be_dressed() {
+        let ac = Autocomplete::new("", Msg::Input, Msg::Pick)
+            .field(|field| field.label("Tags").placeholder("apple, banana"));
+        let ui = build_ui(
+            &ac,
+            Size::new(280.0, 120.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        fn texts(ps: &[Primitive], out: &mut Vec<String>) {
+            for p in ps {
+                match p {
+                    Primitive::Text { text, .. } => out.push(text.clone()),
+                    Primitive::Layer { primitives, .. } => texts(primitives, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut found = Vec::new();
+        texts(ui.scene().primitives(), &mut found);
+        assert!(found.iter().any(|t| t == "Tags"), "the label: {found:?}");
+        // Dressing keeps the wiring: the field still reports what is typed.
+        let field = &Widget::<Msg>::children(&ac)[0];
+        assert!(field.focusable(), "still a field: {}", found.join("|"));
     }
 }

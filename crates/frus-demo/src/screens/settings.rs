@@ -408,7 +408,9 @@ impl State for SettingsState {
             self.tag_draft.clone(),
             cx.handler(|s, text: String| s.tag_draft = text),
             cx.handler(|s, text: String| s.tag_draft = text),
-        );
+        )
+        // Empty, a bare field says nothing about what it is for (milestone 759).
+        .field(|field| field.label("Tags").placeholder("Try \"ap\" or \"b\""));
         if !self.tag_draft.is_empty() {
             let q = self.tag_draft.to_lowercase();
             for tag in TAGS {
