@@ -111,14 +111,18 @@ pub(crate) fn hand_over(app: &AndroidApp) {
 
 /// When `new` is in another task than `running` — a link opened from another application's
 /// task, or an intent that asked for a task of its own — `running`'s task is brought to the
-/// front: the application's own task, found among `ActivityManager.getAppTasks()` by its id,
-/// `moveToFront()`. No permission is needed for an application's own tasks, and `new` has just
-/// started, which allows it from the background. In the same task, finishing `new` is enough.
+/// front; `new` has just started, which allows it from the background. In the same task,
+/// finishing `new` is enough.
 ///
-/// *Not* an intent for the running activity with `FLAG_ACTIVITY_NEW_TASK |
-/// FLAG_ACTIVITY_SINGLE_TOP`: the system picks the task by affinity, and the new activity's own
-/// task (an intent with `FLAG_ACTIVITY_MULTIPLE_TASK`) has the same one — the intent went there,
-/// and the person was left on the home screen once the new activity finished.
+/// - First the application's own task list: `ActivityManager.getAppTasks()`, the task whose id
+///   is `running`'s, `moveToFront()`. No permission is needed. It works on Android 16; on
+///   Android 10 the list held only `new`'s task.
+/// - Otherwise `new` finishes **first**, then starts `running`'s activity with
+///   `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_SINGLE_TOP`. The system looks for the task by
+///   affinity and passes over a task whose activities are all finishing, so it finds
+///   `running`'s, brings it forward, and hands the intent to the activity on top instead of
+///   making another. The same intent sent while `new` was alive went to `new`'s own task (the
+///   same affinity, more recent), and the person was left on the home screen.
 fn bring_forward(new: &AndroidApp, running: &AndroidApp) {
     let Ok(vm) = (unsafe { JavaVM::from_raw(new.vm_as_ptr() as *mut jni::sys::JavaVM) }) else {
         return;
@@ -167,11 +171,40 @@ fn bring_forward(new: &AndroidApp, running: &AndroidApp) {
                 return Ok(true);
             }
         }
-        log::warn!(
-            "the running activity's task ({wanted}) was not found among the application's \
-             tasks ({seen:?})"
+        log::info!(
+            "the running activity's task ({wanted}) is not among the application's tasks \
+             ({seen:?}): the new activity finishes first, then asks for the running one"
         );
-        Ok(false)
+        env.call_method(&new, "finish", "()V", &[])?;
+        let component = env
+            .call_method(
+                &running,
+                "getComponentName",
+                "()Landroid/content/ComponentName;",
+                &[],
+            )?
+            .l()?;
+        let intent = env.new_object("android/content/Intent", "()V", &[])?;
+        env.call_method(
+            &intent,
+            "setComponent",
+            "(Landroid/content/ComponentName;)Landroid/content/Intent;",
+            &[JValue::Object(&component)],
+        )?;
+        // FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_SINGLE_TOP.
+        env.call_method(
+            &intent,
+            "addFlags",
+            "(I)Landroid/content/Intent;",
+            &[JValue::Int(0x1000_0000 | 0x2000_0000)],
+        )?;
+        env.call_method(
+            &new,
+            "startActivity",
+            "(Landroid/content/Intent;)V",
+            &[JValue::Object(&intent)],
+        )?;
+        Ok(true)
     })();
     match result {
         Ok(true) => log::info!("the running activity's task comes to the front"),

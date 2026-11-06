@@ -25,8 +25,8 @@ any release may break.
   build's Android project declares the same list instead of its engine's four. A second
   activity started in the process (a link or a notification whose intent asks for a new
   instance) no longer fails with "EventLoop can't be recreated": it hands its link to the
-  running activity, brings that activity's task to the front (seen on Android 16, not yet on
-  Android 10), and finishes. A loop that fails ends the process, so no later activity lands in
+  running activity, brings that activity's task to the front (checked on Android 10 and 16),
+  and finishes. A loop that fails ends the process, so no later activity lands in
   a process that cannot run it.
 - **Loading placeholders and grids take the width they are offered; an autocomplete's field can
   be dressed** (J759). A `Skeleton` with no width drew nothing wherever its parent did not
