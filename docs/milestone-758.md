@@ -66,9 +66,18 @@ itself to its content in that case. The table here now does the same.
   through `Application::view` at a phone's logical size, Settings → About. Every second-column
   label must start more than 120 px after the first-column label of its row, about half the
   table along. Before the fix the gap was 2 px.
-- The table and data table tests, the `frus-widgets` and `frus-demo` suites, clippy and the
-  goldens (see the PR for the run).
-- On the phone: a release APK of the demo, Settings → About, screenshot of the table.
+- `cargo test -p frus-widgets -p frus-demo` (2132 + 87 + 115 passed), `cargo clippy
+  --workspace --all-targets -D warnings`, `cargo fmt --check`, and `RUSTDOCFLAGS=-D warnings
+  cargo doc -p frus-widgets` (the unresolved link is gone).
+- Goldens (`frus-test`, under WSL): one changed, `data_table_lazy_page`. A paginated
+  `DataTable` in a padded `Container` used to be as wide as its footer (about 620 of the 668 px
+  on offer); its table now takes the whole 668, and the footer, whose spacer fills its row,
+  follows. That is the change this milestone makes, so the golden was regenerated. Every other
+  golden matched as it was.
+- On the phone (Huawei STK-L21, Android 10, 1080x2340 at density 408): a release APK of the
+  demo built from this branch, Settings → About. The table runs the width of the tab, and its
+  headings ("Metric" / "Value") and cells ("Widgets" / "35", "Milestones" / "39") sit in two
+  equal columns, the second starting halfway across.
 
 ## Not done
 
