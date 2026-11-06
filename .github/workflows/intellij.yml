@@ -1,0 +1,110 @@
+# The plugin for Android Studio and the JetBrains IDEs, in editors/intellij.
+#
+# Every change to it is tested and packaged. A tag `intellij-v<version>`, matching
+# `pluginVersion` in editors/intellij/gradle.properties, checks it against the IDEs it claims to
+# support, then publishes it:
+#
+#     git tag intellij-v0.1.0 && git push origin intellij-v0.1.0
+#
+#   - to the JetBrains Marketplace (which Android Studio's plugin manager reads), with the
+#     repository secret JETBRAINS_MARKETPLACE_TOKEN (a token from
+#     https://plugins.jetbrains.com/author/me/tokens). Without it, the run says so and goes on:
+#     the .zip it releases on GitHub can be uploaded by hand at
+#     https://plugins.jetbrains.com/plugin/add. The Marketplace takes the first version only
+#     by hand, whatever the token;
+#   - and as a GitHub release, the .zip attached, for installing from disk.
+name: Android Studio plugin
+
+on:
+  push:
+    branches: [master]
+    paths: ["editors/intellij/**", ".github/workflows/intellij.yml"]
+    tags: ["intellij-v*"]
+  pull_request:
+    paths: ["editors/intellij/**", ".github/workflows/intellij.yml"]
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: editors/intellij
+
+jobs:
+  package:
+    name: Test and package
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      # Also checks that gradle-wrapper.jar is a release of Gradle's.
+      - uses: gradle/actions/setup-gradle@v4
+      - id: meta
+        run: echo "version=$(sed -n 's/^pluginVersion *= *//p' gradle.properties)" >> "$GITHUB_OUTPUT"
+      # A tag that disagrees with gradle.properties stops here: the Marketplace keeps every
+      # version it is given.
+      - if: github.ref_type == 'tag'
+        run: |
+          if [ "$GITHUB_REF_NAME" != "intellij-v${{ steps.meta.outputs.version }}" ]; then
+            echo "::error::the tag is $GITHUB_REF_NAME but gradle.properties says ${{ steps.meta.outputs.version }}"
+            exit 1
+          fi
+      - run: ./gradlew test buildPlugin --console=plain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin
+          path: editors/intellij/build/distributions/*.zip
+
+  # Downloads every IDE it checks against (several GB), so only before a release.
+  verify:
+    name: Verify against the IDEs
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    needs: package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew verifyPlugin --console=plain
+
+  publish:
+    name: Publish
+    if: github.ref_type == 'tag'
+    needs: [package, verify]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/download-artifact@v8
+        with:
+          name: plugin
+          path: editors/intellij/dist
+      - name: JetBrains Marketplace
+        env:
+          JETBRAINS_MARKETPLACE_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+        run: |
+          if [ -z "$JETBRAINS_MARKETPLACE_TOKEN" ]; then
+            echo "::warning::no JETBRAINS_MARKETPLACE_TOKEN secret: not published to the Marketplace. Upload the .zip of this run's GitHub release at https://plugins.jetbrains.com/plugin/add (or the plugin's Upload Update)."
+            exit 0
+          fi
+          ./gradlew publishPlugin --console=plain
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.zip \
+            --repo "$GITHUB_REPOSITORY" --title "frus for Android Studio ${{ needs.package.outputs.version }}" \
+            --notes "The plugin for Android Studio, IntelliJ IDEA, RustRover and the other JetBrains IDEs (2025.1 on), also on the JetBrains Marketplace (search \"frus\"). To install this file by hand: Settings › Plugins › ⚙ › Install Plugin from Disk." \
+            --latest=false

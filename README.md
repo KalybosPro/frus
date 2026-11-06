@@ -215,6 +215,11 @@ platform's behaviour, `b` light or dark, `T` the text size, `P` a performance pa
 status bar (and starts or creates emulators from it), F5 with the log in the Debug Console,
 reload on save, and the keys above as commands.
 
+**Android Studio** (and IntelliJ IDEA, RustRover and the other JetBrains IDEs, 2025.1 on): the
+plugin in [`editors/intellij`](editors/intellij) adds a device selector in the toolbar (which
+starts or creates emulators too), a run configuration with the log in the Run console, reload
+on save, the keys above under Tools › frus, and File › New › New frus Project.
+
 ### Android
 
 ```sh
