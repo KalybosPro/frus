@@ -8,7 +8,7 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 764 so far, each documenting the objective, the alternatives
+> record — one per step, 765 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
@@ -21,6 +21,26 @@ any release may break.
   After typing, the caret belongs to the last character typed, so at a change of direction it
   is drawn beside it rather than at the far edge of the next run. A new golden renders spaced
   rich text with a selection at 2.625x.
+- **The Web on a real phone** (J765). Running the Web build in Chrome on an Android phone
+  found two faults, both fixed. In landscape the keyboard leaves the page so little room that
+  a focused field is not laid out, and the editing element went with the layout: the keyboard
+  closed, the page grew, the element came back, the keyboard opened, without end. The element
+  now follows the focus, as the keyboard does on Android itself. And after a rotation with the
+  keyboard up Chrome reports a visual viewport with no height; that was read as a keyboard over
+  the whole page and the application was laid out in nothing. Such a viewport is now ignored.
+  The rest of what earlier milestones checked in a headless browser held on the phone.
+- **A plugin for Android Studio** (J761), in `editors/intellij`, for Android Studio and the
+  other JetBrains IDEs from 2025.1 on (IntelliJ IDEA, RustRover, CLion). A device selector in
+  the toolbar, fed by `frus daemon`, lists this computer, phones, running emulators, browsers
+  and simulated devices, and starts or creates an emulator. Opening a project with a frus
+  application makes a run configuration for it: Run builds and starts it on the chosen device
+  through `frus run --machine`, the application's log in the Run console apart from the
+  build's. Saving a Rust file reloads the application with its state (by hand only, the
+  default, or on every save, or never); Reload and Restart are on Ctrl+\ and Ctrl+Shift+\.
+  Tools › frus has the keys of `frus run`, frus Doctor and Update frus; File › New has New frus
+  Project. Like the VS Code extension, it installs `frus` when missing and runs a copy of it,
+  so that an update can replace the installed one. A tag `intellij-v<version>` publishes it to
+  the JetBrains Marketplace.
 
 - **An Android application no longer closes when the system recreates its activity** (J763).
   Android recreates an activity for every configuration change its manifest does not declare,

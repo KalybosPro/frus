@@ -1637,11 +1637,15 @@ impl<A: Application> App<A> {
         let Some(editor) = self.web_editor.as_mut() else {
             return;
         };
-        let field = self.runtime.input.focused.and_then(|id| {
+        // The focused field that takes typing, whether or not this frame laid it out.
+        let typing = self.runtime.input.focused.filter(|&id| {
+            self.tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), id))
+                .is_some_and(wants_keyboard)
+        });
+        let field = typing.and_then(|id| {
             let widget = find_widget(self.tree.as_ref()?.as_ref(), id)?;
-            if !wants_keyboard(widget) {
-                return None;
-            }
             let (_, rect, semantics) = self
                 .ui
                 .as_ref()?
@@ -1660,7 +1664,17 @@ impl<A: Application> App<A> {
                 edit: self.runtime.edits.get(&id).copied().unwrap_or_default(),
             })
         });
-        editor.sync(field, css);
+        // A focused field with no room this frame keeps its element, and the keyboard
+        // (milestone 765).
+        match crate::web_editing::editing(typing.is_some(), field) {
+            crate::web_editing::Editing::Over(field) => editor.sync(Some(field), css),
+            crate::web_editing::Editing::Hold => {
+                if let Some(id) = typing {
+                    editor.hold(id, css);
+                }
+            }
+            crate::web_editing::Editing::Gone => editor.sync(None, css),
+        }
     }
 
     /// Puts what the browser did to the element into its field (milestone 711): the text
