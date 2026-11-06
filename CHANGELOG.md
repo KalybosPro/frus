@@ -21,6 +21,19 @@ any release may break.
   keyboard up Chrome reports a visual viewport with no height; that was read as a keyboard over
   the whole page and the application was laid out in nothing. Such a viewport is now ignored.
   The rest of what earlier milestones checked in a headless browser held on the phone.
+- **A plugin for Android Studio** (J761), in `editors/intellij`, for Android Studio and the
+  other JetBrains IDEs from 2025.1 on (IntelliJ IDEA, RustRover, CLion). A device selector in
+  the toolbar, fed by `frus daemon`, lists this computer, phones, running emulators, browsers
+  and simulated devices, and starts or creates an emulator. Opening a project with a frus
+  application makes a run configuration for it: Run builds and starts it on the chosen device
+  through `frus run --machine`, the application's log in the Run console apart from the
+  build's. Saving a Rust file reloads the application with its state (by hand only, the
+  default, or on every save, or never); Reload and Restart are on Ctrl+\ and Ctrl+Shift+\.
+  Tools › frus has the keys of `frus run`, frus Doctor and Update frus; File › New has New frus
+  Project. Like the VS Code extension, it installs `frus` when missing and runs a copy of it,
+  so that an update can replace the installed one. A tag `intellij-v<version>` publishes it to
+  the JetBrains Marketplace.
+
 - **An Android application no longer closes when the system recreates its activity** (J763).
   Android recreates an activity for every configuration change its manifest does not declare,
   and a frus application, which runs one event loop per process, closed then. Every change an
@@ -33,8 +46,8 @@ any release may break.
   build's Android project declares the same list instead of its engine's four. A second
   activity started in the process (a link or a notification whose intent asks for a new
   instance) no longer fails with "EventLoop can't be recreated": it hands its link to the
-  running activity, brings that activity's task to the front (seen on Android 16, not yet on
-  Android 10), and finishes. A loop that fails ends the process, so no later activity lands in
+  running activity, brings that activity's task to the front (checked on Android 10 and 16),
+  and finishes. A loop that fails ends the process, so no later activity lands in
   a process that cannot run it.
 - **Loading placeholders and grids take the width they are offered; an autocomplete's field can
   be dressed** (J759). A `Skeleton` with no width drew nothing wherever its parent did not
