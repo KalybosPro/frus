@@ -974,6 +974,14 @@ fn activity_ended(has_window: bool, destroyed: impl FnOnce() -> bool) -> bool {
     !has_window && destroyed()
 }
 
+/// Whether the caller is the first to run the event loop in this process (milestone 763):
+/// `running` turns true for good the first time. On Android every new activity starts the
+/// application's entry point again, in the same process, and only the first may build a loop.
+#[cfg_attr(not(android), allow(dead_code))]
+pub(crate) fn first_loop_of_process(running: &std::sync::atomic::AtomicBool) -> bool {
+    !running.swap(true, std::sync::atomic::Ordering::SeqCst)
+}
+
 /// Where the messages an effect produces on another thread are sent: the event loop's proxy,
 /// or nowhere for a driver no event loop runs.
 struct Mailbox<M: 'static>(Option<EventLoopProxy<M>>);
@@ -2507,6 +2515,10 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                     crate::android_ime::set_window(Some(window.clone()));
                     #[cfg(android)]
                     crate::dev_commands::set_window(Some(window.clone()));
+                    // What a second activity of this process asks a frame of, with the link it
+                    // hands over (milestone 763).
+                    #[cfg(android)]
+                    crate::android_lifecycle::set_window(Some(window.clone()));
                     self.renderer = Some(renderer);
                     // The surface was (re)created: force a full rebuild on the first frame.
                     self.build_dirty = true;
@@ -2561,6 +2573,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
         crate::android_ime::set_window(None);
         #[cfg(android)]
         crate::dev_commands::set_window(None);
+        #[cfg(android)]
+        crate::android_lifecycle::set_window(None);
         self.last_frame = None;
     }
 
@@ -3223,7 +3237,7 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 self.sync_address();
                 #[cfg(any(desktop, android))]
                 self.report_dev();
-                #[cfg(desktop)]
+                #[cfg(any(desktop, android))]
                 self.open_links_from_other_instances();
                 // Work a component started brought something: build again to show it.
                 let arrived = self.take_task_arrivals();
@@ -6436,10 +6450,15 @@ impl<A: Application> App<A> {
         dev.save_if_asked(|| states.snapshot());
     }
 
-    /// The links a second process handed to this one since the last frame.
-    #[cfg(desktop)]
+    /// The links a second process handed to this one since the last frame — on Android, a
+    /// second activity of this process (milestone 763).
+    #[cfg(any(desktop, android))]
     fn open_links_from_other_instances(&mut self) {
-        for link in crate::instance::take_links() {
+        #[cfg(desktop)]
+        let links = crate::instance::take_links();
+        #[cfg(android)]
+        let links = crate::android_lifecycle::take_links();
+        for link in links {
             if let Some(location) = crate::link::location_of_link(&link) {
                 let command = self.app.open_location(&location);
                 self.run_command(command);
@@ -10421,6 +10440,24 @@ mod tests {
         assert!(!asked, "with a window the activity is not asked");
         assert!(activity_ended(false, || true));
         assert!(!activity_ended(false, || false));
+    }
+
+    /// Only the first activity of a process runs the loop; every later one is told it is not
+    /// the first, however many arrive and from whichever thread (milestone 763).
+    #[test]
+    fn only_the_first_activity_of_a_process_runs_the_loop() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Arc;
+        let running = Arc::new(AtomicBool::new(false));
+        let firsts: usize = (0..8)
+            .map(|_| {
+                let running = running.clone();
+                std::thread::spawn(move || super::first_loop_of_process(&running))
+            })
+            .map(|thread| usize::from(thread.join().unwrap()))
+            .sum();
+        assert_eq!(firsts, 1);
+        assert!(!super::first_loop_of_process(&running));
     }
 
     use super::{

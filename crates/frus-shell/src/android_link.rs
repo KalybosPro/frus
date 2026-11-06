@@ -13,7 +13,8 @@
 //! Rust library cannot override without a class of its own to carry it; that is a bridge of
 //! the kind [`crate::android_ime`] is, and is not made here. With `launchMode="singleTask"`
 //! the running activity comes to the front and the link is lost; without it, a second activity
-//! starts and this reads its own.
+//! starts, reads its own link and hands it to the running one (milestone 763, see
+//! [`crate::android_lifecycle`]).
 //!
 //! As in [`crate::android_settings`], the read is best-effort and **every failure clears its
 //! exception**: a pending Java exception left behind takes the process down on the next,
