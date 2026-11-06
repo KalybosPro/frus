@@ -83,14 +83,16 @@ icon = "@mipmap/ic_launcher"
 theme = "@style/LaunchTheme"
 
 # The configuration changes the application follows in place: a rotation, a new font size, the
-# night setting, a new language, a keyboard plugged in. Android recreates the activity for any
-# change not listed here, and a frus application can only start again in a new process then.
+# night setting, a new language, a keyboard plugged in, bold text, another SIM. Android recreates
+# the activity for any change not listed here, and a frus application closes then, so every one
+# an activity can declare is listed. A name newer than `target_sdk_version` does not package:
+# below 34 leave out grammaticalGender, below 31 fontWeightAdjustment too.
 [package.metadata.android.application.activity]
-config_changes = "orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+config_changes = "orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode|mcc|mnc|touchscreen|navigation|colorMode|fontWeightAdjustment|grammaticalGender"
 
 # `frusdemo://task/3` opens the task's screen (milestone 563): a link with the application's own
 # scheme, from a browser, a mail or `adb shell am start -a android.intent.action.VIEW -d ...`.
-# Only the launch is read; a link opened while the demo runs is not forwarded to it.
+# A link opened while the demo runs starts a second activity, which hands it to the running one.
 # A task's reminder is a notification, which Android 13 and later ask the person to allow; the
 # question is only put to an application that asks for the permission here.
 [[package.metadata.android.uses_permission]]

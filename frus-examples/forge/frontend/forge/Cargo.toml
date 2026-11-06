@@ -40,7 +40,7 @@ theme = "@style/LaunchTheme"
 
 # The configuration changes followed in place (see frus-demo's manifest).
 [package.metadata.android.application.activity]
-config_changes = "orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+config_changes = "orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode|mcc|mnc|touchscreen|navigation|colorMode|fontWeightAdjustment|grammaticalGender"
 
 [package.metadata.android.sdk]
 min_sdk_version = 24
