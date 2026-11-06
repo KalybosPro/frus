@@ -318,7 +318,8 @@ fn split_path(text: &str) -> Option<Vec<String>> {
 ///
 /// Numbers, `bool`, `char`, `String` and `Option`s of them are; a type of the application's
 /// own implements the two methods — or, with the `serde` feature, any serde type goes
-/// through [`BuildContext::use_restorable_serde`].
+/// through `use_restorable_serde` on [`BuildContext`] (a method that only exists with the
+/// feature, so it is named here rather than linked: the link would not resolve without it).
 ///
 /// ```
 /// use frus_widgets::RestorableValue;
