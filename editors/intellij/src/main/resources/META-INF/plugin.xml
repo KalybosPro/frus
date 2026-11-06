@@ -1,0 +1,108 @@
+<idea-plugin>
+    <id>dev.frus</id>
+    <name>frus</name>
+    <vendor url="https://frus.dev">frus</vendor>
+    <description><![CDATA[
+<p>Build, run and reload <a href="https://frus.dev">frus</a> applications on any device —
+your computer, a phone, an emulator, a browser — from Android Studio, IntelliJ IDEA, RustRover
+and the other JetBrains IDEs.</p>
+
+<p>frus is a cross-platform UI framework written in Rust: one codebase, drawn by its own GPU
+renderer, running natively on Windows, macOS, Linux, Android and the web.</p>
+
+<ul>
+  <li><b>A device selector</b> in the toolbar: this computer, the phones plugged in, the running
+      emulators, the browsers, and phones and tablets simulated in a window. Start an emulator or
+      create one from the same menu.</li>
+  <li><b>Run</b> builds the application for that device, starts it there, and streams its log
+      into the Run console. The run configuration is made for you when you open a project.</li>
+  <li><b>Reload on save</b>: saving a Rust file patches the change into the running application,
+      every state kept. <b>Restart</b> brings every state back afresh.</li>
+  <li><b>The framework's tools</b> under Tools › frus: debug paint, the inspector, the
+      performance overlay, another platform's look, light and dark, the widget, focus and
+      semantics trees, screenshots.</li>
+  <li><b>New frus Project</b>, <b>frus Doctor</b> and <b>Update frus</b>.</li>
+</ul>
+
+<p>Only Rust needs installing by hand (<a href="https://rustup.rs">rustup.rs</a>): the plugin
+fetches the <code>frus</code> tool, and <code>frus</code> fetches what each platform needs.</p>
+]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService serviceImplementation="dev.frus.intellij.FrusSettings"/>
+        <applicationConfigurable parentId="tools" instance="dev.frus.intellij.FrusConfigurable"
+                                 id="dev.frus.settings" displayName="frus"/>
+        <configurationType implementation="dev.frus.intellij.FrusConfigurationType"/>
+        <postStartupActivity implementation="dev.frus.intellij.FrusStartup"/>
+        <notificationGroup id="frus" displayType="BALLOON"/>
+    </extensions>
+
+    <applicationListeners>
+        <listener class="dev.frus.intellij.SaveListener"
+                  topic="com.intellij.openapi.fileEditor.FileDocumentManagerListener"/>
+        <listener class="dev.frus.intellij.SaveActionListener"
+                  topic="com.intellij.openapi.actionSystem.ex.AnActionListener"/>
+    </applicationListeners>
+
+    <actions>
+        <action id="frus.DeviceSelector" class="dev.frus.intellij.DeviceSelectorAction"
+                text="frus Device" description="The device frus runs the application on">
+            <add-to-group group-id="MainToolbarRight" anchor="first"/>
+            <add-to-group group-id="ToolbarRunGroup" anchor="first"/>
+        </action>
+
+        <action id="frus.Reload" class="dev.frus.intellij.ReloadAction" text="Reload"
+                description="Patch the saved changes into the running frus application, every state kept"
+                icon="AllIcons.Actions.Lightning">
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl BACK_SLASH"/>
+            <keyboard-shortcut keymap="Mac OS X 10.5+" first-keystroke="meta BACK_SLASH" replace-all="true"/>
+        </action>
+        <action id="frus.Restart" class="dev.frus.intellij.RestartAction" text="Restart"
+                description="Restart the frus application, every state afresh"
+                icon="AllIcons.Actions.Restart">
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift BACK_SLASH"/>
+            <keyboard-shortcut keymap="Mac OS X 10.5+" first-keystroke="meta shift BACK_SLASH" replace-all="true"/>
+        </action>
+
+        <group id="frus.Menu" text="frus" popup="true" icon="/icons/frus.svg">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <reference ref="frus.Reload"/>
+            <reference ref="frus.Restart"/>
+            <separator/>
+            <action id="frus.ToggleDebugPaint" class="dev.frus.intellij.ToggleDebugPaintAction" text="Toggle Debug Paint"/>
+            <action id="frus.ToggleInspector" class="dev.frus.intellij.ToggleInspectorAction" text="Toggle Inspector"/>
+            <action id="frus.TogglePerformanceOverlay" class="dev.frus.intellij.TogglePerformanceOverlayAction"
+                    text="Toggle Performance Overlay"/>
+            <action id="frus.TogglePlatform" class="dev.frus.intellij.TogglePlatformAction" text="Toggle Platform"
+                    description="See the application as on another platform"/>
+            <action id="frus.ToggleBrightness" class="dev.frus.intellij.ToggleBrightnessAction" text="Toggle Brightness"
+                    description="Light and dark"/>
+            <separator/>
+            <action id="frus.PrintWidgetTree" class="dev.frus.intellij.PrintWidgetTreeAction" text="Print Widget Tree"/>
+            <action id="frus.PrintFocusTree" class="dev.frus.intellij.PrintFocusTreeAction" text="Print Focus Tree"/>
+            <action id="frus.PrintSemanticsTree" class="dev.frus.intellij.PrintSemanticsTreeAction"
+                    text="Print Semantics Tree" description="What a screen reader sees"/>
+            <action id="frus.Screenshot" class="dev.frus.intellij.ScreenshotAction" text="Save Screenshot"/>
+            <action id="frus.Detach" class="dev.frus.intellij.DetachAction" text="Detach"
+                    description="Leave the application running and end the run"/>
+            <separator/>
+            <action id="frus.LaunchEmulator" class="dev.frus.intellij.LaunchEmulatorAction" text="Launch Emulator…"/>
+            <action id="frus.CreateEmulator" class="dev.frus.intellij.CreateEmulatorAction" text="Create Emulator…"/>
+            <separator/>
+            <action id="frus.Doctor" class="dev.frus.intellij.DoctorAction" text="frus Doctor"
+                    description="What this machine has for each platform, and what it lacks"/>
+            <action id="frus.Update" class="dev.frus.intellij.UpdateAction" text="Update frus"
+                    description="Install the newest frus tool (cargo install frus-cli)"/>
+        </group>
+
+        <action id="frus.NewProject" class="dev.frus.intellij.NewProjectAction" text="New frus Project…"
+                description="Create a frus application: one codebase for the desktop, Android and the web"
+                icon="/icons/frus.svg">
+            <add-to-group group-id="NewProjectOrModuleGroup" anchor="last"/>
+            <add-to-group group-id="WelcomeScreen.QuickStart" anchor="last"/>
+            <add-to-group group-id="frus.Menu" anchor="first"/>
+        </action>
+    </actions>
+</idea-plugin>

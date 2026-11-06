@@ -219,6 +219,12 @@ détaille tout.
 la barre d'état (qui lance ou crée aussi des émulateurs), F5 avec le journal dans la Debug
 Console, le rechargement à l'enregistrement, et les touches ci-dessus en commandes.
 
+**Android Studio** (et IntelliJ IDEA, RustRover et les autres IDE JetBrains, depuis 2025.1) :
+le plugin de [`editors/intellij`](editors/intellij) ajoute un sélecteur d'appareil dans la barre
+d'outils (qui lance ou crée aussi des émulateurs), une configuration d'exécution avec le journal
+dans la console Run, le rechargement à l'enregistrement, les touches ci-dessus dans
+Tools › frus, et File › New › New frus Project.
+
 ### Android
 
 ```sh

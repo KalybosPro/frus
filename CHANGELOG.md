@@ -13,6 +13,19 @@ any release may break.
 
 ## [Unreleased]
 
+- **A plugin for Android Studio** (J761), in `editors/intellij`, for Android Studio and the
+  other JetBrains IDEs from 2025.1 on (IntelliJ IDEA, RustRover, CLion). A device selector in
+  the toolbar, fed by `frus daemon`, lists this computer, phones, running emulators, browsers
+  and simulated devices, and starts or creates an emulator. Opening a project with a frus
+  application makes a run configuration for it: Run builds and starts it on the chosen device
+  through `frus run --machine`, the application's log in the Run console apart from the
+  build's. Saving a Rust file reloads the application with its state (by hand only, the
+  default, or on every save, or never); Reload and Restart are on Ctrl+\ and Ctrl+Shift+\.
+  Tools › frus has the keys of `frus run`, frus Doctor and Update frus; File › New has New frus
+  Project. Like the VS Code extension, it installs `frus` when missing and runs a copy of it,
+  so that an update can replace the installed one. A tag `intellij-v<version>` publishes it to
+  the JetBrains Marketplace.
+
 - **An Android application no longer closes when the system recreates its activity** (J763).
   Android recreates an activity for every configuration change its manifest does not declare,
   and a frus application, which runs one event loop per process, closed then. Every change an
