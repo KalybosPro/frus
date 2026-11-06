@@ -22,6 +22,14 @@ any release may break.
   is drawn beside it rather than at the far edge of the next run. A new golden renders spaced
   rich text with a selection at 2.625x.
 
+- **Loading placeholders and grids take the width they are offered; an autocomplete's field can
+  be dressed** (J759). A `Skeleton` with no width drew nothing wherever its parent did not
+  stretch it (a box that only caps the width, a column aligned to the start): it came out zero
+  pixels wide. A `GridView` with no width in the same places was only as wide as its tiles'
+  content, so its columns huddled at the left. Both now take the width on offer when they were
+  given none, as an empty box and a scroll view do; one given a `width` keeps it. New
+  `Autocomplete::field` hands the application the text field to dress (label, hint, variant,
+  icons), where the field used to be a bare box with no way to say what it was for.
 - **A selection's highlight sits under its word on a dense screen** (J760). A `RichText` with a
   letter spacing (the theme's body styles have one) was drawn with its spacing left at its
   logical value on any screen above 1×, so its characters sat closer together than the layout

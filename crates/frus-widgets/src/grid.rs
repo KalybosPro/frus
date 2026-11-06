@@ -432,6 +432,22 @@ impl<Msg: Clone + 'static> Widget<Msg> for GridView<Msg> {
         }
     }
 
+    /// **The width offered, when it was given none** (milestone 759).
+    ///
+    /// A grid divides its width into equal columns, so it has to have a width to divide:
+    /// like a scrolling list, it takes the whole extent across its axis. Left to its cells
+    /// instead, a grid of small tiles was only as wide as its tiles' content wherever its
+    /// parent did not stretch it (a box that only caps the width, a column aligned to the
+    /// start), and every column shrank to the narrowest label it held. A grid given a
+    /// [`width`](GridView::width) keeps it.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        if matches!(self.width, Dimension::Auto) {
+            crate::widget::FillAxes::WIDTH
+        } else {
+            crate::widget::FillAxes::NONE
+        }
+    }
+
     fn tile_shape(&self) -> Option<f32> {
         // An exact height is an exact height: a ratio on top of it would be asking for
         // two heights at once, and the reference resolves the same clash the same way.
@@ -1187,6 +1203,53 @@ mod primary_tests {
         assert_eq!(
             Widget::<()>::scroll_physics(&grid().primary(false).physics(ScrollPhysics::NEVER)),
             Some(ScrollPhysics::NEVER)
+        );
+    }
+
+    /// **A grid takes the width it is offered** (milestone 759). Three small tiles in a
+    /// box that caps the width but does not size its child, in a start-aligned column: the
+    /// grid was as wide as its tiles' labels, so its three columns huddled at the left
+    /// instead of sharing the 300 px.
+    #[test]
+    fn a_grid_takes_the_width_it_is_offered() {
+        let grid = GridView::<()>::new(3)
+            .gap(10.0)
+            .cell(crate::text("A"))
+            .cell(crate::text("B"))
+            .cell(crate::text("C"));
+        let boxed = crate::ConstrainedBox::new(grid).max_width(300.0);
+        let screen = crate::Flex::<()>::column().align(Align::Start).child(boxed);
+        let ui = crate::build_ui(
+            &screen,
+            crate::Size::new(400.0, 300.0),
+            &crate::Runtime::default(),
+            &Theme::default(),
+        );
+        let x = |label: &str| {
+            ui.scene()
+                .primitives()
+                .iter()
+                .find_map(|p| match p {
+                    frus_core::Primitive::Text { text, position, .. } if text == label => {
+                        Some(position.x)
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{label} is painted"))
+        };
+        // Three columns of (300 - 2 x 10) / 3 = 93.3, so each starts 103.3 after the last.
+        let (a, b, c) = (x("A"), x("B"), x("C"));
+        assert!((b - a - 103.3).abs() < 1.0, "a={a} b={b}");
+        assert!((c - a - 206.7).abs() < 1.0, "a={a} c={c}");
+    }
+
+    /// A grid given a width keeps it.
+    #[test]
+    fn a_grid_given_a_width_keeps_it() {
+        let grid = GridView::<()>::new(2).width(120.0);
+        assert_eq!(
+            Widget::<()>::fill_axes(&grid, &Theme::default()),
+            crate::widget::FillAxes::NONE
         );
     }
 }
