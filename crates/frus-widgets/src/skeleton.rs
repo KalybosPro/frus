@@ -73,6 +73,21 @@ impl<Msg> Widget<Msg> for Skeleton {
         true
     }
 
+    /// **The width offered, when it was given none** (milestone 759).
+    ///
+    /// A placeholder stands in for a line of content, and a line takes the width of its
+    /// column. With no width of its own and no children to measure, a placeholder left to
+    /// its content came out zero pixels wide wherever its parent did not stretch it (a box
+    /// that only caps the width, a column aligned to the start), and drew nothing at all.
+    /// An empty box of a given height takes the width its parent allows; so does this.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        if matches!(self.width, Dimension::Auto) {
+            crate::widget::FillAxes::WIDTH
+        } else {
+            crate::widget::FillAxes::NONE
+        }
+    }
+
     fn paint(&self, bounds: Rect, status: Status, theme: &Theme, scene: &mut Scene) {
         let o = status.opacity;
         // A `0..1` pulse driven by time.
@@ -126,5 +141,51 @@ mod tests {
     fn intensity_varies_with_time() {
         // Two distinct instants of the pulse give different opacities.
         assert_ne!(alpha_at(0.0), alpha_at(0.6));
+    }
+
+    /// The bars a scene draws, wherever they are nested.
+    fn bars(ps: &[Primitive], out: &mut Vec<Rect>) {
+        for p in ps {
+            match p {
+                Primitive::Rect { rect, .. } => out.push(*rect),
+                Primitive::Layer { primitives, .. } => bars(primitives, out),
+                _ => {}
+            }
+        }
+    }
+
+    /// **A placeholder with no width takes the width it is offered** (milestone 759). In a
+    /// box that caps the width but does not size its child, in a start-aligned column — the
+    /// shape of a loading line under other content — it came out zero pixels wide and drew
+    /// nothing.
+    #[test]
+    fn a_placeholder_takes_the_width_it_is_offered() {
+        let boxed = crate::ConstrainedBox::new(Skeleton::new()).max_width(300.0);
+        let screen = crate::Flex::<()>::column()
+            .align(frus_layout::Align::Start)
+            .child(boxed);
+        let ui = crate::build_ui(
+            &screen,
+            crate::Size::new(400.0, 300.0),
+            &crate::Runtime::default(),
+            &Theme::default(),
+        );
+        let mut found = Vec::new();
+        bars(ui.scene().primitives(), &mut found);
+        assert!(
+            found
+                .iter()
+                .any(|r| r.height == 16.0 && (r.width - 300.0).abs() < 0.5),
+            "a 300 x 16 bar: {found:?}"
+        );
+    }
+
+    /// One given a width keeps it.
+    #[test]
+    fn a_placeholder_given_a_width_keeps_it() {
+        assert_eq!(
+            Widget::<()>::fill_axes(&Skeleton::new().width(80.0), &Theme::default()),
+            crate::widget::FillAxes::NONE
+        );
     }
 }

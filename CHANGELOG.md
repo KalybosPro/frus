@@ -28,6 +28,21 @@ any release may break.
   running activity, brings that activity's task to the front (seen on Android 16, not yet on
   Android 10), and finishes. A loop that fails ends the process, so no later activity lands in
   a process that cannot run it.
+- **Loading placeholders and grids take the width they are offered; an autocomplete's field can
+  be dressed** (J759). A `Skeleton` with no width drew nothing wherever its parent did not
+  stretch it (a box that only caps the width, a column aligned to the start): it came out zero
+  pixels wide. A `GridView` with no width in the same places was only as wide as its tiles'
+  content, so its columns huddled at the left. Both now take the width on offer when they were
+  given none, as an empty box and a scroll view do; one given a `width` keeps it. New
+  `Autocomplete::field` hands the application the text field to dress (label, hint, variant,
+  icons), where the field used to be a bare box with no way to say what it was for.
+- **A selection's highlight sits under its word on a dense screen** (J760). A `RichText` with a
+  letter spacing (the theme's body styles have one) was drawn with its spacing left at its
+  logical value on any screen above 1×, so its characters sat closer together than the layout
+  placed them. On a 2.625× phone a long press on a word mid-paragraph lit up a box about a
+  character to the right of it, handles included. The spacing now scales with the screen, as a
+  plain `Text`'s always did.
+
 - **A table with flexible columns takes the width it is offered** (J758). A `Table` whose
   columns are flexible (the default) and that had no `width` of its own was as wide as its
   content when its parent did not stretch it, in a box that only caps its width, say. A cell
