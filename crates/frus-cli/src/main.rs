@@ -18,6 +18,7 @@ mod build;
 mod bundle;
 mod cargo;
 mod clean;
+mod config_changes;
 mod create;
 mod daemon;
 mod devices;
