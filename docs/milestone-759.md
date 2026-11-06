@@ -76,3 +76,27 @@ field cannot be given a label breaks the rule that every widget's parts can be s
   through `Application::view` at a phone's size, Settings → About. Both placeholders must be
   more than 300 px wide, the "Done" tile must start more than 220 px after the "Total" one, and
   the tags field must read "Tags". **Fails before the fix** (the placeholders were 0 px wide).
+- `cargo test -p frus-widgets -p frus-demo --lib` after merging master (milestone 758's table
+  fix included): 2139 + 88 passed. `cargo clippy --workspace --all-targets -D warnings` clean,
+  `cargo fmt --check` clean.
+- Goldens (`frus-test`, under WSL, `CARGO_INCREMENTAL=0`): all 237 tests passed with no image
+  changed. No golden scene puts a width-less placeholder or grid where its parent does not
+  already size it.
+- On the phone (Huawei STK-L21, Android 10, 1080x2340 at density 408): a release APK of the
+  demo built from this branch, Settings → About. The two placeholders are grey bars running
+  the width of the tab, the three statistic tiles share the tab's width in equal thirds, and the
+  tags field reads "Tags". The table from milestone 758 still shows its two columns apart.
+
+## Not done
+
+- **The example projects and the gallery were not rebuilt.** They live outside the workspace;
+  the API change is an addition (`Autocomplete::field`), but a grid or a placeholder in them
+  with no width now takes the width offered, which was not looked at screen by screen.
+
+- **The autocomplete's field keeps a fixed width.** It is 260 px unless `width` says otherwise;
+  the leading toolkit's field takes the width its parent offers. Changing the default would
+  move every autocomplete already laid out around 260 px, and was left for its own step.
+- **A placeholder or a grid along a row** still gets no width from the request, since a row
+  divides its width among its children. Placed there without a width or a `flex`, they stay as
+  wide as before (zero for a placeholder). The leading toolkit would report an unbounded width
+  in the same place; nothing here warns about it.
