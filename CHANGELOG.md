@@ -8,11 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 757 so far, each documenting the objective, the alternatives
+> record — one per step, 758 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **A table with flexible columns takes the width it is offered** (J758). A `Table` whose
+  columns are flexible (the default) and that had no `width` of its own was as wide as its
+  content when its parent did not stretch it, in a box that only caps its width, say. A cell
+  paints its label rather than laying it out, so that content was nothing: every column came
+  out about zero pixels wide and was drawn on top of the first. The table now takes the width
+  on offer whenever a column is flexible, and divides it among those columns; `DataTable`
+  passes the request on. A table with a `width`, or with only fixed columns, is unchanged.
 - **An Android activity that ends no longer hangs the application** (J755). When Android destroyed
   the activity while the process lived ("Don't keep activities", Back at the root, the system
   finishing it, a configuration change), the application froze and could not be opened again
