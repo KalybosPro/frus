@@ -729,6 +729,93 @@ mod tests {
         }
     }
 
+    /// **A selection's highlight sits under its word on a dense screen** (milestone 760). On a
+    /// 2.625× phone, a long press on "framework" in a letter-spaced paragraph lit up a box a
+    /// character to the right of the word: the scene went to the screen with the runs' sizes
+    /// scaled and their spacing not, so the words were drawn tighter than they were laid out.
+    ///
+    /// The paragraph is painted with its selection, the scene scaled as the shell scales it,
+    /// and the scaled runs laid out as the renderer shapes them: the word's box there is the
+    /// highlight's, to a fraction of a pixel.
+    #[test]
+    fn the_highlight_sits_under_its_word_on_a_dense_screen() {
+        let theme = Theme::default();
+        let rich = RichText::new(
+            TextSpan::new("A ")
+                .child(TextSpan::new("fast").bold())
+                .child(TextSpan::new(", "))
+                .child(TextSpan::new("portable").italic().underline())
+                .child(TextSpan::new(" Rust UI framework — "))
+                .child(TextSpan::new("no GC").bold())
+                .child(TextSpan::new(".")),
+        )
+        .base_style(theme.text.body_medium)
+        .wrap();
+        let plain: String = "A fast, portable Rust UI framework — no GC.".into();
+        let start = plain[..plain.find("framework").unwrap()].chars().count();
+        let end = start + "framework".len();
+        let status = Status {
+            region: Some((start, end)),
+            ..Status::default()
+        };
+        let mut scene = Scene::new();
+        Widget::<()>::paint(
+            &rich,
+            Rect::new(44.0, 160.0, 315.0, 40.0),
+            status,
+            &theme,
+            &mut scene,
+        );
+
+        let dpi = 2.625;
+        let screen = scene.scaled(dpi);
+        let highlight = screen
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::Rect { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("the highlight");
+        let (at, word) = screen
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                Primitive::RichText {
+                    position,
+                    runs,
+                    max_width,
+                    soft_wrap,
+                    align,
+                    ..
+                } => {
+                    let drawn = TextLayout::of_runs_in(
+                        runs,
+                        frus_core::TextBlock {
+                            width: *max_width,
+                            soft_wrap: *soft_wrap,
+                            align: *align,
+                        },
+                    );
+                    Some((*position, drawn.selection_rects(start, end)[0]))
+                }
+                _ => None,
+            })
+            .expect("the paragraph");
+        let drawn_left = at.x + word.x;
+        let drawn_right = drawn_left + word.width;
+        assert!(
+            (highlight.x - drawn_left).abs() < 0.5,
+            "the highlight starts at {} where the word is drawn from {drawn_left}",
+            highlight.x
+        );
+        assert!(
+            (highlight.x + highlight.width - drawn_right).abs() < 0.5,
+            "the highlight ends at {} where the word is drawn to {drawn_right}",
+            highlight.x + highlight.width
+        );
+    }
+
     #[test]
     fn wrapped_rich_text_measures_and_keys_by_content() {
         let para = |text: &str| {
