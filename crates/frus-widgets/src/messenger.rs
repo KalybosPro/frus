@@ -135,16 +135,19 @@ pub(crate) fn current_snack_bar_slot() -> Option<(Box<dyn Widget>, Option<SnackB
 }
 
 /// A scaffold laid the bar on screen out in this frame.
+#[inline(never)]
 pub(crate) fn note_hosted() {
     HOSTED.with(|hosted| hosted.set(true));
 }
 
 /// Whether a scaffold laid the bar on screen out in this frame.
+#[inline(never)]
 pub(crate) fn hosted() -> bool {
     HOSTED.with(Cell::get)
 }
 
 /// A new frame: no scaffold has shown the bar yet.
+#[inline(never)]
 pub(crate) fn reset_hosted() {
     HOSTED.with(|hosted| hosted.set(false));
 }
