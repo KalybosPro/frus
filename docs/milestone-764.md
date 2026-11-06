@@ -82,8 +82,12 @@ Run against a copy of the branch with both changes taken out, three of the new t
   Hebrew field the stops are the logical word ends on every line, and backwards always moves
   back.
 - All 2144 `frus-widgets` unit tests pass.
-- `frus-test` goldens (WSL, llvmpipe, `CARGO_INCREMENTAL=0`): the new golden, and the whole
-  suite.
+- `frus-test` goldens (WSL, llvmpipe, `CARGO_INCREMENTAL=0`): the whole suite passes and the
+  new golden was created and looked over — the highlight covers "framework" from its "f" to its
+  "k". With milestone 760's fix taken out of `Primitive::scaled_xy` (in the WSL copy only), the
+  new golden fails: 8954 pixels differ.
+- `cargo clippy --workspace --all-targets -D warnings` and
+  `cargo clippy -p frus-shell --target wasm32-unknown-unknown -D warnings`: clean.
 
 ## Not done
 
