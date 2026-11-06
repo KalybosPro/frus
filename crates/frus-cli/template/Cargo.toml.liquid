@@ -52,6 +52,12 @@ icon = "@mipmap/ic_launcher"
 # area as well.
 theme = "@style/LaunchTheme"
 
+# The configuration changes the application follows in place: a rotation, a new font size, the
+# night setting, a new language, a keyboard plugged in. Android recreates the activity for any
+# change not listed here, and a frus application can only start again in a new process then.
+[package.metadata.android.application.activity]
+config_changes = "orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+
 [package.metadata.android.sdk]
 min_sdk_version = 24
 target_sdk_version = 34

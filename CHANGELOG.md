@@ -20,6 +20,27 @@ any release may break.
   out about zero pixels wide and was drawn on top of the first. The table now takes the width
   on offer whenever a column is flexible, and divides it among those columns; `DataTable`
   passes the request on. A table with a `width`, or with only fixed columns, is unchanged.
+- **An Android activity that ends no longer hangs the application** (J755). When Android destroyed
+  the activity while the process lived ("Don't keep activities", Back at the root, the system
+  finishing it, a configuration change), the application froze and could not be opened again
+  until the system killed it as not responding: the loop never ended, and the activity's
+  `onDestroy` waits for it. The loop now ends as soon as the activity is destroyed, and the
+  process with it; the next launch starts afresh, or from the state the system kept when the
+  application uses state restoration. Back at the root now does what the platform does (the
+  activity finishes, or from Android 12 goes to the background) instead of ending the process
+  under a running activity. The template, the demo, the sample crates and the example projects
+  declare `config_changes` for rotation, font size, night mode, language, density and keyboards,
+  so those no longer recreate the activity, and the shell reads the platform's settings again when
+  one arrives. An existing application adds the same line to its
+  `[package.metadata.android.application.activity]` to get that.
+
+- **The floating button with the keyboard up** (J757). `Scaffold` no longer stops the floating
+  action button below the status bar: it stands its margin above the keyboard whatever is above
+  it, over the app bar when the keyboard leaves little room and past the window's top edge when
+  it leaves less than the button. A **docked** button is no longer cut in half by the keyboard:
+  with the keyboard up it stands its margin above it, as a floating one does. A docked button
+  with no bar under it is kept whole above the gesture bar, instead of hanging half off the
+  window's edge. With a bar and no keyboard, it still straddles the bar's top edge.
 - **Page views, wheels and grids come back where they were after the system ended the process**
   (J756): `PageView::restoration_id`, `ListWheel::restoration_id` and `GridView::restoration_id`.
   A page view or a wheel keeps its **page** (not its offset, so a phone turned on its side

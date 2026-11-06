@@ -56,6 +56,10 @@ theme = "@style/LaunchTheme"
 [[package.metadata.android.uses_permission]]
 name = "android.permission.INTERNET"
 
+# The configuration changes followed in place (see frus-demo's manifest).
+[package.metadata.android.application.activity]
+config_changes = "orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+
 [package.metadata.android.sdk]
 min_sdk_version = 24
 target_sdk_version = 34
