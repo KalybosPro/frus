@@ -36,6 +36,8 @@ mod android_clipboard;
 #[cfg(android)]
 mod android_ime;
 #[cfg(android)]
+mod android_lifecycle;
+#[cfg(android)]
 mod android_link;
 #[cfg(all(android, feature = "notifications"))]
 mod android_notification;
@@ -449,9 +451,11 @@ pub fn run_android<A: Application>(app: A, android_app: AndroidApp) -> anyhow::R
     app.set_android_app(android_app);
     event_loop.run_app(&mut app)?;
 
-    // Android keeps the **process** cached after the activity ends, but winit allows
-    // only one `EventLoop` per process: relaunching within the same process would
-    // fail immediately (the icon stops "responding" until Android reaps the cache).
-    // So we end the process, and the next launch starts clean.
+    // The loop ends when the activity is destroyed (milestone 755: see `android_lifecycle`).
+    // Android would keep the **process** cached for the next launch, but winit allows only
+    // one `EventLoop` per process: a new activity in this process could not run. So the
+    // process ends here, while `onDestroy` still waits for this function: the system keeps
+    // what the activity saved, and the next launch starts a new process from it.
+    log::info!("the activity is gone: the process ends");
     std::process::exit(0);
 }

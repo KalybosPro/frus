@@ -965,6 +965,15 @@ fn build_view<A: Application>(
     tree
 }
 
+/// Whether the loop is to end because the activity is gone (milestone 755): never while there
+/// is a window, since the platform takes the surface away before it destroys the activity, and
+/// otherwise when `destroyed` says so. `destroyed` is a call across JNI, so it is only made
+/// without a window.
+#[cfg_attr(not(android), allow(dead_code))]
+fn activity_ended(has_window: bool, destroyed: impl FnOnce() -> bool) -> bool {
+    !has_window && destroyed()
+}
+
 /// Where the messages an effect produces on another thread are sent: the event loop's proxy,
 /// or nowhere for a driver no event loop runs.
 struct Mailbox<M: 'static>(Option<EventLoopProxy<M>>);
@@ -1299,9 +1308,9 @@ pub struct App<A: Application> {
     ///
     /// Cached rather than read per frame, because reading it is a walk across the JNI
     /// boundary and the answer changes about once a year. It is refreshed when the
-    /// surface appears — which on Android is also when it *reappears*, the activity being
-    /// recreated on a font-scale or night change since no `configChanges` is declared —
-    /// and on a theme change where the platform sends one.
+    /// surface appears — which on Android is also when it *reappears* — on a configuration
+    /// change the manifest declares (milestone 755: the font size, the night setting, the
+    /// language), and on a theme change where the platform sends one.
     platform: PlatformSettings,
     /// The **keyboard-free** inset baseline, along with the physical size it was
     /// taken at — a rotation resets it: whatever bottom inset exceeds it is credited
@@ -2573,6 +2582,19 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
     /// of them has arrived, and files still held over the window are looked for where
     /// the system can say (milestone 695).
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // The activity is being destroyed (milestone 755): its `onDestroy` waits for the loop
+        // to end, and winit does not pass the destruction on. The window is always gone first,
+        // so the activity is only asked while there is none.
+        #[cfg(android)]
+        if activity_ended(self.window.is_some(), || {
+            self.android_app
+                .as_ref()
+                .is_some_and(crate::android_lifecycle::activity_destroyed)
+        }) {
+            log::info!("the activity is being destroyed: the loop ends");
+            event_loop.exit();
+            return;
+        }
         #[cfg(all(desktop, feature = "global-shortcuts"))]
         self.shortcut_presses();
         #[cfg(all(desktop, feature = "tray"))]
@@ -2701,6 +2723,12 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
 
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale = scale_factor as f32;
+                // On Android this is how winit reports every configuration change, and the
+                // manifests declare the font size, the night setting and the language as
+                // changes the application follows in place (milestone 755): what the platform
+                // says about its user is read again.
+                #[cfg(android)]
+                self.refresh_platform_settings();
                 // Reconfigure the surface to the current physical size.
                 if let Some(window) = &self.window {
                     let size = window.inner_size();
@@ -8624,6 +8652,15 @@ impl<A: Application> App<A> {
     /// Android expects.
     fn system_back(&mut self, event_loop: &ActiveEventLoop) {
         if !self.system_back_step() {
+            // On Android the platform decides (milestone 755): the activity finishes, or from
+            // Android 12 its task goes to the background. A finished activity is destroyed,
+            // and the loop ends then. Ending the loop here instead ended the process under an
+            // activity the system still counted as running.
+            #[cfg(android)]
+            if let Some(app) = &self.android_app {
+                crate::android_lifecycle::back_at_root(app);
+                return;
+            }
             event_loop.exit();
         }
     }
@@ -10358,10 +10395,24 @@ mod debug_keys_tests {
 
 #[cfg(test)]
 mod tests {
+    /// Milestone 755: the loop ends once the activity is destroyed, and the activity is only
+    /// asked while there is no window.
+    #[test]
+    fn the_loop_ends_with_the_activity_and_only_asks_without_a_window() {
+        let mut asked = false;
+        assert!(!activity_ended(true, || {
+            asked = true;
+            true
+        }));
+        assert!(!asked, "with a window the activity is not asked");
+        assert!(activity_ended(false, || true));
+        assert!(!activity_ended(false, || false));
+    }
+
     use super::{
-        build_view, claim_area, claim_axis, draw_ghost_card, drop_insertion_line, fling_velocity,
-        gesture_was_a_tap, ghost_offset, install_ambient, reorder_motion, resolve_focus,
-        spring_toward, Drag, Point, Rect, ReorderAxis, ReorderMotion, Scene, Theme,
+        activity_ended, build_view, claim_area, claim_axis, draw_ghost_card, drop_insertion_line,
+        fling_velocity, gesture_was_a_tap, ghost_offset, install_ambient, reorder_motion,
+        resolve_focus, spring_toward, Drag, Point, Rect, ReorderAxis, ReorderMotion, Scene, Theme,
         VelocityEstimate, PRECISE_SLOP, TOUCH_SLOP,
     };
     use super::{clipboard_command, ClipCommand, KeyCode, PhysicalKey, WinitKey};

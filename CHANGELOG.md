@@ -13,6 +13,20 @@ any release may break.
 
 ## [Unreleased]
 
+- **An Android activity that ends no longer hangs the application** (J755). When Android destroyed
+  the activity while the process lived ("Don't keep activities", Back at the root, the system
+  finishing it, a configuration change), the application froze and could not be opened again
+  until the system killed it as not responding: the loop never ended, and the activity's
+  `onDestroy` waits for it. The loop now ends as soon as the activity is destroyed, and the
+  process with it; the next launch starts afresh, or from the state the system kept when the
+  application uses state restoration. Back at the root now does what the platform does (the
+  activity finishes, or from Android 12 goes to the background) instead of ending the process
+  under a running activity. The template, the demo, the sample crates and the example projects
+  declare `config_changes` for rotation, font size, night mode, language, density and keyboards,
+  so those no longer recreate the activity, and the shell reads the platform's settings again when
+  one arrives. An existing application adds the same line to its
+  `[package.metadata.android.application.activity]` to get that.
+
 - **The floating button with the keyboard up** (J757). `Scaffold` no longer stops the floating
   action button below the status bar: it stands its margin above the keyboard whatever is above
   it, over the app bar when the keyboard leaves little room and past the window's top edge when
