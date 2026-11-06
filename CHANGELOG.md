@@ -8,10 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 760 so far, each documenting the objective, the alternatives
+> record — one per step, 764 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Ctrl and an arrow move by the word drawn next to the caret** (J764). In a field or a
+  selectable text whose line mixes directions, Ctrl+Left and Ctrl+Right crossed words in the
+  text's order, so in `abc אבג def` the caret could land on the far side of a Hebrew word from
+  where the press pointed. They now cross the separators and then the word drawn on that side,
+  and stop at its edge on screen; on a line in one direction the stops are the same as before.
+  After typing, the caret belongs to the last character typed, so at a change of direction it
+  is drawn beside it rather than at the far edge of the next run. A new golden renders spaced
+  rich text with a selection at 2.625x.
 
 - **A selection's highlight sits under its word on a dense screen** (J760). A `RichText` with a
   letter spacing (the theme's body styles have one) was drawn with its spacing left at its
