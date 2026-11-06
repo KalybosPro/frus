@@ -2101,3 +2101,32 @@ fn the_about_table_keeps_its_columns_apart_on_a_phone() {
         );
     }
 }
+
+/// **The Tasks page comes back scrolled where it was left** (milestone 762). On the Android 10
+/// phone the draft came back but the page opened at the top; the demo, driven here on a short
+/// window so that the page scrolls, keeps the offset and opens on it from its first frame.
+#[test]
+fn the_tasks_page_comes_back_scrolled_where_it_was_left() {
+    let (w, h) = (392.7, 560.0);
+    let (app, _router, _demo) = crate::build();
+    let mut first = Driver::new(app, w, h);
+    first.run(1.0);
+    first.press(frus_widgets::Point::new(200.0, 450.0));
+    for step in 1..=20 {
+        first.move_to(frus_widgets::Point::new(200.0, 450.0 - step as f32 * 15.0));
+        first.run(1.0 / 60.0);
+    }
+    first.release(frus_widgets::Point::new(200.0, 150.0));
+    first.run(2.0);
+    let before = first.offsets()[0].1;
+    assert!(before.1 > 0.0, "the drag scrolled the page: {before:?}");
+    let data = first.restoration_data().expect("the demo asks for restoration");
+
+    let (app, _router, _demo) = crate::build();
+    let mut second = Driver::new(app, w, h);
+    assert!(second.restore(&data));
+    second.run(1.0 / 60.0);
+    assert_eq!(second.offsets()[0].1, before, "the first frame is already scrolled");
+    second.run(1.0);
+    assert_eq!(second.offsets()[0].1, before, "and it stays there");
+}

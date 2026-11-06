@@ -8,10 +8,26 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 758 so far, each documenting the objective, the alternatives
+> record — one per step, 762 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Restored rows follow their key; restoration before Android 10; free page views keep their
+  fraction** (J762).
+  - A row of a `ListView` with a key (`keyed(..)`, `Keyed`, `Component::with_key`) keeps its
+    restorable values under its key instead of its index, so they come back to the same item
+    when the data is in another order after the restart, or moved while the process lived.
+    Rows without a key still follow their index. The cells of a `GridView::builder` or
+    `GridView::extent` now have restoration scopes of their own too (they had none: the same
+    id in two cells collided), under their key or their index.
+  - Android before 10: an application whose manifest names `frus_native_activity_on_create` as
+    the activity's `android.app.func_name` has its state kept by answering the activity's own
+    save request, on every Android version. The demonstration, the sample crates and the
+    example projects declare it; other applications keep the Android 10 path until they add the
+    three lines (see `docs/milestone-762.md`).
+  - A `PageView` with `page_snapping(false)` keeps where it rests in pages, fraction included,
+    rather than the nearest page; a view that snaps keeps its page, as before.
 
 - **A table with flexible columns takes the width it is offered** (J758). A `Table` whose
   columns are flexible (the default) and that had no `width` of its own was as wide as its

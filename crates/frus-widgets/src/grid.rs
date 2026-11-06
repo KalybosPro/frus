@@ -99,11 +99,16 @@ pub struct GridView<Msg = crate::callback::Callback> {
     grain: f32,
     /// Where the offset is kept for restoration; see [`GridView::restoration_id`].
     restoration: Option<Vec<String>>,
+    /// The restoration scopes the cells built from an index are built in: below the grid's
+    /// own, `key <hex>` for a cell with a key and `cell <index>` for one without
+    /// (milestone 762).
+    cell_scopes: Rc<crate::restoration::ItemScopes>,
 }
 
 impl<Msg> GridView<Msg> {
     /// Creates a grid of `columns` columns, at least one.
     pub fn new(columns: usize) -> Self {
+        let cell_scopes = crate::restoration::ItemScopes::here("cell");
         Self {
             columns: columns.max(1),
             gap: 0.0,
@@ -123,6 +128,7 @@ impl<Msg> GridView<Msg> {
             on_scroll: None,
             grain: 0.0,
             restoration: None,
+            cell_scopes,
         }
     }
 
@@ -158,6 +164,8 @@ impl<Msg> GridView<Msg> {
         count: usize,
         build: impl Fn(usize) -> W + 'static,
     ) -> Self {
+        let cell_scopes = crate::restoration::ItemScopes::here("cell");
+        let scopes = cell_scopes.clone();
         Self {
             columns: 1,
             gap: 0.0,
@@ -171,7 +179,9 @@ impl<Msg> GridView<Msg> {
             cells: Cells::Built {
                 max: max_tile_width.max(f32::MIN_POSITIVE),
                 count,
-                build: Rc::new(move |i| Box::new(build(i)) as Box<dyn Widget<Msg>>),
+                build: Rc::new(move |i| {
+                    scopes.build(i, || Box::new(build(i)) as Box<dyn Widget<Msg>>)
+                }),
             },
             composed: OnceCell::new(),
             rows: OnceCell::new(),
@@ -181,6 +191,7 @@ impl<Msg> GridView<Msg> {
             on_scroll: None,
             grain: 0.0,
             restoration: None,
+            cell_scopes,
         }
     }
 
@@ -221,6 +232,8 @@ impl<Msg> GridView<Msg> {
         count: usize,
         build: impl Fn(usize) -> W + 'static,
     ) -> Self {
+        let cell_scopes = crate::restoration::ItemScopes::here("cell");
+        let scopes = cell_scopes.clone();
         Self {
             columns: columns.max(1),
             gap: 0.0,
@@ -234,7 +247,9 @@ impl<Msg> GridView<Msg> {
             cells: Cells::Windowed {
                 columns: columns.max(1),
                 count,
-                build: Rc::new(move |i| Box::new(build(i)) as Box<dyn Widget<Msg>>),
+                build: Rc::new(move |i| {
+                    scopes.build(i, || Box::new(build(i)) as Box<dyn Widget<Msg>>)
+                }),
             },
             composed: OnceCell::new(),
             rows: OnceCell::new(),
@@ -244,6 +259,7 @@ impl<Msg> GridView<Msg> {
             on_scroll: None,
             grain: 0.0,
             restoration: None,
+            cell_scopes,
         }
     }
 
@@ -377,8 +393,16 @@ impl<Msg> GridView<Msg> {
     /// scrolls — one made by [`GridView::builder`] — is kept under `id`, and a process
     /// started again opens it there. `id` names the grid within its restoration scope —
     /// the page, or a [`restoration_scope`](crate::restoration_scope).
+    ///
+    /// The cells of a grid made by [`GridView::builder`] or [`GridView::extent`] are built
+    /// in a restoration scope of their own — below this id when the grid has one — so the
+    /// same id can be used in every cell. What a cell with a key ([`Keyed`](crate::Keyed),
+    /// [`keyed`](crate::keyed), [`Component::with_key`](crate::Component::with_key)) keeps
+    /// follows its key; what a cell without one keeps follows its index (milestone 762).
     pub fn restoration_id(mut self, id: &str) -> Self {
-        self.restoration = Some(crate::restoration::path_here(id));
+        let path = crate::restoration::path_here(id);
+        self.cell_scopes.set_parent(Rc::from(path.clone()));
+        self.restoration = Some(path);
         self
     }
 
