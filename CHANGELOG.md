@@ -13,6 +13,13 @@ any release may break.
 
 ## [Unreleased]
 
+- **The floating button with the keyboard up** (J757). `Scaffold` no longer stops the floating
+  action button below the status bar: it stands its margin above the keyboard whatever is above
+  it, over the app bar when the keyboard leaves little room and past the window's top edge when
+  it leaves less than the button. A **docked** button is no longer cut in half by the keyboard:
+  with the keyboard up it stands its margin above it, as a floating one does. A docked button
+  with no bar under it is kept whole above the gesture bar, instead of hanging half off the
+  window's edge. With a bar and no keyboard, it still straddles the bar's top edge.
 - **Page views, wheels and grids come back where they were after the system ended the process**
   (J756): `PageView::restoration_id`, `ListWheel::restoration_id` and `GridView::restoration_id`.
   A page view or a wheel keeps its **page** (not its offset, so a phone turned on its side
@@ -23,13 +30,6 @@ any release may break.
   `restoration_id`. The demo restores its tour's panel and its settings screen's tab, advanced
   section, reminder and scroll. The shell's test driver now delivers `on_page_changed` and
   `on_selected` as the window does; it never did.
-- **The floating button with the keyboard up** (J757). `Scaffold` no longer stops the floating
-  action button below the status bar: it stands its margin above the keyboard whatever is above
-  it, over the app bar when the keyboard leaves little room and past the window's top edge when
-  it leaves less than the button. A **docked** button is no longer cut in half by the keyboard:
-  with the keyboard up it stands its margin above it, as a floating one does. A docked button
-  with no bar under it is kept whole above the gesture bar, instead of hanging half off the
-  window's edge. With a bar and no keyboard, it still straddles the bar's top edge.
 - **Hot reload is how `frus run` runs** (J754): a debug build now patches each saved change into
   the running application — desktop, web, Android — with every state where it was, instead of
   rebuilding and restarting it; `--hot` was needed for that before. `frus run --no-hot` restarts
