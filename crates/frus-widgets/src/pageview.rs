@@ -153,6 +153,8 @@ pub struct PageView<Msg = crate::callback::Callback> {
     physics: Option<ScrollPhysics>,
     build: Box<dyn Fn(usize) -> Box<dyn Widget<Msg>>>,
     on_page_changed: Option<Box<dyn Fn(usize) -> Msg>>,
+    /// Where the page is kept for restoration; see [`PageView::restoration_id`].
+    restoration: Option<Vec<String>>,
 }
 
 impl<Msg> PageView<Msg> {
@@ -181,6 +183,7 @@ impl<Msg> PageView<Msg> {
             physics: None,
             build: Box::new(move |index| Box::new(build(index)) as Box<dyn Widget<Msg>>),
             on_page_changed: None,
+            restoration: None,
         }
     }
 
@@ -270,6 +273,32 @@ impl<Msg> PageView<Msg> {
         self
     }
 
+    /// **Restores the page** after the system ended the process (milestone 756): when the
+    /// application has restoration on, the page on show is kept under `id`, and a process
+    /// started again opens on it rather than on [`page`](PageView::page).
+    ///
+    /// The view then reports the restored page through
+    /// [`on_page_changed`](PageView::on_page_changed), on its first frame, so an
+    /// application that follows the page — dots under a gallery, a title — hears where the
+    /// view is, and asks for that page from then on.
+    ///
+    /// What is kept is the page, not the offset, so a view whose pages are of another size
+    /// in the new process — the phone turned on its side — still opens on the page the
+    /// reader was on. `id` names the view within its restoration scope — the page, or a
+    /// [`restoration_scope`](crate::restoration_scope).
+    ///
+    /// ```
+    /// use frus_widgets::{PageView, Text};
+    ///
+    /// let gallery: PageView = PageView::new(12, |i| Text::new(format!("Picture {i}")))
+    ///     .restoration_id("gallery");
+    /// # let _ = gallery;
+    /// ```
+    pub fn restoration_id(mut self, id: &str) -> Self {
+        self.restoration = Some(crate::restoration::path_here(id));
+        self
+    }
+
     /// Overrides how the view behaves at its edges; see [`crate::SingleChildScrollView::physics`].
     /// The **fling** is a page view's own business either way.
     pub fn physics(mut self, physics: ScrollPhysics) -> Self {
@@ -299,6 +328,21 @@ impl<Msg> PageView<Msg> {
 }
 
 impl<Msg> Widget<Msg> for PageView<Msg> {
+    /// Registers the page under its restoration id, if it has one (milestone 756).
+    fn build_in(
+        &self,
+        id: crate::interaction::WidgetId,
+        runtime: &crate::runtime::Runtime,
+        theme: &Theme,
+    ) {
+        if let Some(path) = &self.restoration {
+            runtime
+                .restoration
+                .register_page(path.clone(), id, self.requested);
+        }
+        self.build_themed(theme)
+    }
+
     fn style(&self) -> Style {
         // Filling then paging: a default dimension that was never asked for must not
         // stand as a flex **basis**, or the view would need `+200` of free room

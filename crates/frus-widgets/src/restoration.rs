@@ -490,6 +490,8 @@ enum Source {
     Scroll(WidgetId),
     /// A field's caret and selection, from the runtime.
     Edit(WidgetId),
+    /// The page a paged view shows, from the runtime (milestone 756).
+    Page(WidgetId),
 }
 
 struct Live {
@@ -500,9 +502,17 @@ struct Live {
 }
 
 /// What was restored for a widget, waiting for the runtime to take it.
-enum Pending {
+pub(crate) enum Pending {
     Scroll(WidgetId, (f32, f32)),
     Edit(WidgetId, Edit),
+    /// A paged view's page, and the page the application asks for in the build that
+    /// claimed it: that request then stands as already honoured, so the restored page is
+    /// the one on show (milestone 756).
+    Page {
+        id: WidgetId,
+        page: usize,
+        requested: usize,
+    },
 }
 
 /// **The restoration of one application**: whether it has asked for it, what the platform
@@ -587,6 +597,11 @@ impl Restoration {
                     .get(id)
                     .map(write_edit)
                     .or_else(|| entry.last.clone()),
+                Source::Page(id) => runtime
+                    .page_shown
+                    .get(id)
+                    .map(usize::to_string)
+                    .or_else(|| entry.last.clone()),
             };
             if let Some(value) = now {
                 bucket.insert(path, value.clone());
@@ -656,6 +671,29 @@ impl Restoration {
         self.register_widget(path, Source::Edit(id));
     }
 
+    /// A paged view at `path` — a [`PageView`](crate::PageView), a
+    /// [`ListWheel`](crate::ListWheel) — is the one called `id` this frame, asking for the
+    /// page `requested`: the page it shows is kept, and the one restored for it, if any, is
+    /// handed to the runtime (milestone 756).
+    ///
+    /// A **page**, not an offset: a phone turned on its side between the two processes
+    /// has pages of another width, and the page is what the reader was on.
+    pub(crate) fn register_page(&self, path: Vec<String>, id: WidgetId, requested: usize) {
+        if !self.is_enabled() {
+            return;
+        }
+        if let Some(saved) = self.claim(&path) {
+            if let Ok(page) = saved.parse::<usize>() {
+                self.pending.borrow_mut().push(Pending::Page {
+                    id,
+                    page,
+                    requested,
+                });
+            }
+        }
+        self.register_widget(path, Source::Page(id));
+    }
+
     fn register_widget(&self, path: Vec<String>, source: Source) {
         let mut live = self.live.borrow_mut();
         match live.get_mut(&path) {
@@ -675,25 +713,10 @@ impl Restoration {
         self.restored.borrow_mut().remove_scope(scope);
     }
 
-    /// Hands what was restored for widgets to the runtime. Whether there was any.
-    pub(crate) fn apply(
-        &self,
-        scroll: &mut crate::runtime::ScrollState,
-        edits: &mut std::collections::HashMap<WidgetId, Edit>,
-    ) -> bool {
-        let pending = std::mem::take(&mut *self.pending.borrow_mut());
-        let any = !pending.is_empty();
-        for restored in pending {
-            match restored {
-                Pending::Scroll(id, offset) => {
-                    scroll.insert(id, offset);
-                }
-                Pending::Edit(id, edit) => {
-                    edits.insert(id, edit);
-                }
-            }
-        }
-        any
+    /// What was restored for widgets and not handed to the runtime yet, taken: the
+    /// runtime's [`apply_restored`](Runtime::apply_restored) puts it in place.
+    pub(crate) fn take_pending(&self) -> Vec<Pending> {
+        std::mem::take(&mut *self.pending.borrow_mut())
     }
 }
 
