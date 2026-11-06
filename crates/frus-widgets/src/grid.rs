@@ -97,6 +97,8 @@ pub struct GridView<Msg = crate::callback::Callback> {
     on_scroll: Option<Box<dyn Fn(crate::ScrollPosition) -> Msg>>,
     /// How far it must move before it says so again; see [`GridView::notify_every`].
     grain: f32,
+    /// Where the offset is kept for restoration; see [`GridView::restoration_id`].
+    restoration: Option<Vec<String>>,
 }
 
 impl<Msg> GridView<Msg> {
@@ -120,6 +122,7 @@ impl<Msg> GridView<Msg> {
             primary: None,
             on_scroll: None,
             grain: 0.0,
+            restoration: None,
         }
     }
 
@@ -177,6 +180,7 @@ impl<Msg> GridView<Msg> {
             primary: None,
             on_scroll: None,
             grain: 0.0,
+            restoration: None,
         }
     }
 
@@ -239,6 +243,7 @@ impl<Msg> GridView<Msg> {
             primary: None,
             on_scroll: None,
             grain: 0.0,
+            restoration: None,
         }
     }
 
@@ -367,6 +372,16 @@ impl<Msg> GridView<Msg> {
         self
     }
 
+    /// **Restores how far the grid was scrolled** after the system ended the process
+    /// (milestone 756): when the application has restoration on, the offset of a grid that
+    /// scrolls — one made by [`GridView::builder`] — is kept under `id`, and a process
+    /// started again opens it there. `id` names the grid within its restoration scope —
+    /// the page, or a [`restoration_scope`](crate::restoration_scope).
+    pub fn restoration_id(mut self, id: &str) -> Self {
+        self.restoration = Some(crate::restoration::path_here(id));
+        self
+    }
+
     /// Adds a cell, placed automatically in the grid.
     ///
     /// A grid built by [`GridView::extent`] gets its cells from its factory and ignores this.
@@ -379,6 +394,19 @@ impl<Msg> GridView<Msg> {
 }
 
 impl<Msg: Clone + 'static> Widget<Msg> for GridView<Msg> {
+    /// Registers the offset under its restoration id, if it has one (milestone 756).
+    fn build_in(
+        &self,
+        id: crate::interaction::WidgetId,
+        runtime: &crate::runtime::Runtime,
+        theme: &Theme,
+    ) {
+        if let Some(path) = &self.restoration {
+            runtime.restoration.register_scroll(path.clone(), id);
+        }
+        self.build_themed(theme)
+    }
+
     fn style(&self) -> Style {
         // A grid that builds late is a **leaf** to the layout: its cells live in a tree
         // of their own, laid out inside the box this style asks for. Declaring the grid
