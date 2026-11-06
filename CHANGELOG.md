@@ -8,10 +8,19 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 757 so far, each documenting the objective, the alternatives
+> record — one per step, 759 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **Loading placeholders and grids take the width they are offered; an autocomplete's field can
+  be dressed** (J759). A `Skeleton` with no width drew nothing wherever its parent did not
+  stretch it (a box that only caps the width, a column aligned to the start): it came out zero
+  pixels wide. A `GridView` with no width in the same places was only as wide as its tiles'
+  content, so its columns huddled at the left. Both now take the width on offer when they were
+  given none, as an empty box and a scroll view do; one given a `width` keeps it. New
+  `Autocomplete::field` hands the application the text field to dress (label, hint, variant,
+  icons), where the field used to be a bare box with no way to say what it was for.
 
 - **An Android activity that ends no longer hangs the application** (J755). When Android destroyed
   the activity while the process lived ("Don't keep activities", Back at the root, the system
