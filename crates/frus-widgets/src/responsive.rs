@@ -502,6 +502,12 @@ impl<Msg> Widget<Msg> for Responsive<Msg> {
         self.inner.as_ref().is_some_and(|w| w.overlay_traps_focus())
     }
 
+    fn overlay_follows_anchor_width(&self) -> bool {
+        self.inner
+            .as_ref()
+            .is_some_and(|w| w.overlay_follows_anchor_width())
+    }
+
     fn scroll_content(&self) -> Option<&dyn Widget<Msg>> {
         self.inner.as_ref().and_then(|w| w.scroll_content())
     }

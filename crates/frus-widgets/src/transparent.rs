@@ -648,6 +648,10 @@ macro_rules! forward_transparent {
                 self.inner.overlay_traps_focus()
             }
 
+            fn overlay_follows_anchor_width(&self) -> bool {
+                self.inner.overlay_follows_anchor_width()
+            }
+
             fn anim_target(&self) -> Option<f32> {
                 self.inner.anim_target()
             }

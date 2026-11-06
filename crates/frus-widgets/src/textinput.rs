@@ -1316,6 +1316,16 @@ impl<Msg> TextField<Msg> {
         self
     }
 
+    /// The width the field falls back to where the room on offer is unbounded, in place of
+    /// its own default: still only a default, so the field goes on taking the room wherever
+    /// the layout has room to give (milestone 767).
+    pub(crate) fn default_width(mut self, width: f32) -> Self {
+        if !self.sized {
+            self.width = Dimension::Length(width);
+        }
+        self
+    }
+
     /// Sets the width, in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = Dimension::Length(width);
