@@ -595,6 +595,15 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
 
     /// Where the FAB sits: which end of the row, and whether it floats clear of the
     /// bottom bar or docks astride its top edge. [`FabLocation::EndFloat`] by default.
+    ///
+    /// With the keyboard up (and the scaffold resizing for it), a floating button stands
+    /// its margin above the keyboard, and so does a docked one: half a button behind the
+    /// keyboard is no use. A docked button with no bar under it is kept whole above the
+    /// gesture bar. Nothing holds a button from above: a keyboard that leaves less room
+    /// than the button needs lifts it over the app bar, and past the window's top edge
+    /// when the room is shorter than the button. A screen that wants the button gone
+    /// while the keyboard is up leaves it out (the keyboard's height is in
+    /// [`MediaQuery`](crate::MediaQuery)).
     pub fn fab_location(mut self, location: FabLocation) -> Self {
         self.p().fab_location = location;
         self
@@ -1178,17 +1187,37 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 0.0
             };
             let content_bottom = bar_top.max(keyboard_clear);
+            // The intrusion the button keeps clear of when nothing below the body does:
+            // the gesture bar, unless a keyboard the shell resizes for is up and covers it.
+            let fab_clear = if resize_to_avoid_bottom_inset && view_insets.bottom > 0.0 {
+                0.0
+            } else {
+                view_padding.bottom
+            };
             let fab_bottom = if fab_location.docked() {
-                // Docked: the button's **centre** on that edge, straddling the bar.
-                (content_bottom - fab_size / 2.0).max(0.0)
+                // Docked: the button's **centre** on the bar's top edge, straddling it —
+                // when there is a bar to straddle, tall enough to show half the button
+                // above whatever the keyboard covers. Otherwise it is kept whole (milestone
+                // 757): above the gesture bar with no keyboard, its margin above the
+                // keyboard with one, as a floating button would be.
+                let margin = if content_bottom > keyboard_clear + fab_size / 2.0 {
+                    0.0
+                } else if keyboard_clear == 0.0 {
+                    fab_clear
+                } else {
+                    fab_size / 2.0 + FAB_MARGIN
+                };
+                margin + (content_bottom - fab_size / 2.0).max(0.0)
             } else {
                 // Floating: clear of the edge by the usual margin, and of the gesture bar
                 // when nothing below the body already is.
-                content_bottom.max(bottom_clear) + FAB_MARGIN
+                content_bottom.max(fab_clear) + FAB_MARGIN
             };
-            // **Never off the top.** A keyboard taller than the room left (a phone in
-            // landscape) would push the button past the status bar; it stops below it.
-            let fab_bottom = fab_bottom.min((height - insets.top - fab_size).max(0.0));
+            // **Nothing holds it below the top** (milestone 757). A keyboard taller than
+            // the room left (a phone in landscape) lifts the button over the app bar, and
+            // past the window's top edge when the room is shorter than the button: it is
+            // placed from the content's bottom alone, as the bars above are not its concern.
+
             // The margin on the side the button is placed, start or end; the safe area's
             // insets on the sides they name, whichever the direction (milestone 588). The row
             // runs start to end, so in a right-to-left script the start is the right, and
@@ -3068,23 +3097,120 @@ mod tests {
         }
     }
 
-    /// **The button is never pushed off the top.** A keyboard that leaves less room than
-    /// the button needs (a short window in landscape) stops it below the status bar.
+    /// **A keyboard taller than the room left lifts the floating button over whatever is
+    /// above the body** (milestone 757). The button floats its margin above the content's
+    /// bottom and nothing else holds it: in a short landscape window it covers the app bar,
+    /// and with even less room it runs past the window's top edge. It is not stopped below
+    /// the status bar, and it is not hidden.
     #[test]
-    fn the_button_stays_below_the_status_bar() {
+    fn a_tall_keyboard_lifts_the_button_over_the_app_bar() {
         let size = Size::new(846.0, 412.0);
-        let keyboard = 380.0;
-        let fab = painted(
-            shell_with_bars(size, phone_keyboard(keyboard), true),
-            size,
-            FAB_MARK,
-        );
+        for keyboard in [300.0, 340.0, 380.0] {
+            let fab = painted(
+                shell_with_bars(size, phone_keyboard(keyboard), true),
+                size,
+                FAB_MARK,
+            );
+            assert_eq!(fab.len(), 1, "{keyboard}: {fab:?}");
+            let bottom = fab[0].y + fab[0].height;
+            assert!(
+                (bottom - (size.height - keyboard - FAB_MARGIN)).abs() < 1.0,
+                "{keyboard}: the button floats its margin above the keyboard: {:?}",
+                fab[0]
+            );
+        }
+    }
+
+    /// A shell with a body, a floating button **docked**, and, if `bar`, a bottom
+    /// navigation bar under `insets`.
+    fn docked_shell(
+        size: Size,
+        insets: WindowInsets,
+        resize: bool,
+        bar: bool,
+    ) -> Box<dyn Widget<Msg>> {
+        let mut shell = Scaffold::new()
+            .size(size.width, size.height)
+            .window_insets(insets)
+            .resize_to_avoid_bottom_inset(resize)
+            .body(filling());
+        if bar {
+            shell = shell.bottom_navigation_bar(
+                Flex::column().child(crate::SafeArea::new(
+                    Container::<Msg>::new()
+                        .height(crate::BOTTOM_NAVIGATION_BAR_HEIGHT)
+                        .color(BAR_MARK),
+                )),
+            );
+        }
+        shell
+            .fab_location(FabLocation::EndDocked)
+            .fab_size(56.0)
+            .fab(
+                Container::<Msg>::new()
+                    .width(56.0)
+                    .height(56.0)
+                    .color(FAB_MARK),
+            )
+            .build()
+    }
+
+    /// The bottom of the docked button, measured from the window's bottom edge.
+    fn docked_lift(size: Size, insets: WindowInsets, resize: bool, bar: bool) -> f32 {
+        let fab = painted(docked_shell(size, insets, resize, bar), size, FAB_MARK);
+        assert_eq!(fab.len(), 1, "{fab:?}");
+        size.height - (fab[0].y + fab[0].height)
+    }
+
+    /// **A docked button with no bar to dock on** (milestone 757). With nothing below the
+    /// body, half of it would hang off the window: it sits whole instead, on the gesture
+    /// bar's top edge (the intrusion that does not move), as the docked placement keeps
+    /// a button it cannot straddle anything with.
+    #[test]
+    fn a_docked_button_without_a_bar_sits_above_the_gesture_bar() {
+        let size = Size::new(412.0, 846.0);
+        let insets = WindowInsets::bars(Insets::new(24.0, 0.0, 48.0, 0.0));
+        let lift = docked_lift(size, insets, true, false);
         assert!(
-            fab[0].y >= 24.0 - 0.5,
-            "the button is under the status bar: {:?}",
-            fab[0]
+            (lift - 48.0).abs() < 1.0,
+            "held off the gesture bar: {lift}"
         );
-        assert!(fab[0].height > 55.0, "and whole: {:?}", fab[0]);
+        // And with no gesture bar, on the window's edge.
+        let lift = docked_lift(size, WindowInsets::ZERO, true, false);
+        assert!(lift.abs() < 1.0, "on the edge: {lift}");
+        // A screen that declines to resize keeps that place under the keyboard.
+        let lift = docked_lift(size, phone_keyboard(300.0), false, false);
+        assert!(
+            (lift - 48.0).abs() < 1.0,
+            "the keyboard is an overlay: {lift}"
+        );
+    }
+
+    /// **A docked button floats clear of the keyboard** (milestone 757). The keyboard is
+    /// not a bar to straddle: half the button would be behind it. With the keyboard up the
+    /// docked button stands its margin above the keyboard, as a floating one does — with a
+    /// bar under the keyboard or without one.
+    #[test]
+    fn a_docked_button_floats_clear_of_the_keyboard() {
+        for size in [Size::new(412.0, 846.0), Size::new(846.0, 412.0)] {
+            let keyboard = 220.0;
+            for bar in [false, true] {
+                let lift = docked_lift(size, phone_keyboard(keyboard), true, bar);
+                assert!(
+                    (lift - (keyboard + FAB_MARGIN)).abs() < 1.0,
+                    "{size:?}, bar {bar}: the button stands above the keyboard: {lift}"
+                );
+            }
+        }
+        // With the keyboard down and a bar, it straddles the bar's top edge as before.
+        let size = Size::new(412.0, 846.0);
+        let insets = WindowInsets::bars(Insets::new(24.0, 0.0, 48.0, 0.0));
+        let lift = docked_lift(size, insets, true, true);
+        let bar_top = 48.0 + crate::BOTTOM_NAVIGATION_BAR_HEIGHT;
+        assert!(
+            (lift - (bar_top - 28.0)).abs() < 1.0,
+            "centred on the bar's top edge: {lift}"
+        );
     }
 
     /// The persistent footer is below the body, so it is covered with the bar: it does

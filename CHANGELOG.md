@@ -8,10 +8,18 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 754 so far, each documenting the objective, the alternatives
+> record — one per step, 757 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **The floating button with the keyboard up** (J757). `Scaffold` no longer stops the floating
+  action button below the status bar: it stands its margin above the keyboard whatever is above
+  it, over the app bar when the keyboard leaves little room and past the window's top edge when
+  it leaves less than the button. A **docked** button is no longer cut in half by the keyboard:
+  with the keyboard up it stands its margin above it, as a floating one does. A docked button
+  with no bar under it is kept whole above the gesture bar, instead of hanging half off the
+  window's edge. With a bar and no keyboard, it still straddles the bar's top edge.
 
 - **Hot reload is how `frus run` runs** (J754): a debug build now patches each saved change into
   the running application — desktop, web, Android — with every state where it was, instead of
