@@ -13,6 +13,15 @@ any release may break.
 
 ## [Unreleased]
 
+- **The Web on a real phone** (J765). Running the Web build in Chrome on an Android phone
+  found two faults, both fixed. In landscape the keyboard leaves the page so little room that
+  a focused field is not laid out, and the editing element went with the layout: the keyboard
+  closed, the page grew, the element came back, the keyboard opened, without end. The element
+  now follows the focus, as the keyboard does on Android itself. And after a rotation with the
+  keyboard up Chrome reports a visual viewport with no height; that was read as a keyboard over
+  the whole page and the application was laid out in nothing. Such a viewport is now ignored.
+  The rest of what earlier milestones checked in a headless browser held on the phone.
+
 - **A table with flexible columns takes the width it is offered** (J758). A `Table` whose
   columns are flexible (the default) and that had no `width` of its own was as wide as its
   content when its parent did not stretch it, in a box that only caps its width, say. A cell
