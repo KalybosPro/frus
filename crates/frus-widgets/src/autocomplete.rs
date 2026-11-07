@@ -3,8 +3,9 @@
 
 //! [`Autocomplete`]: a text field with a floating **suggestion list**. Controlled:
 //! the application supplies the value **and** the suggestions (already filtered);
-//! the list only floats when it is non-empty. Adjustable width
-//! ([`width`](Autocomplete::width)); the suggestions take keyboard focus.
+//! the list only floats when it is non-empty. The field takes the width it is offered
+//! unless given one ([`width`](Autocomplete::width)), and the list is as wide as the
+//! field; the suggestions take keyboard focus.
 //!
 //! Each suggestion **brings out** the portion matching the query (in the `primary`
 //! color), and the **active** suggestion ([`active`](Autocomplete::active), stepped
@@ -23,6 +24,9 @@ use crate::textinput::TextField;
 use crate::theme::Theme;
 use crate::widget::Widget;
 
+/// The field's width where the room on offer is unbounded (in a row beside other
+/// children, in a horizontal scroll): only a default, replaced by the room wherever the
+/// layout has room to give.
 const DEFAULT_WIDTH: f32 = 260.0;
 const ROW_H: f32 = 32.0;
 const PAD_X: f32 = 10.0;
@@ -69,7 +73,8 @@ struct Suggestion<Msg> {
     label: String,
     /// The current query, used to highlight the matching portion.
     query: String,
-    width: f32,
+    /// `None`: as wide as the list, which is as wide as the field.
+    width: Option<f32>,
     /// The **active** suggestion (the one that would be picked): a tinted background.
     active: bool,
     text_style: Option<TextStyle>,
@@ -79,7 +84,7 @@ struct Suggestion<Msg> {
 impl<Msg> Suggestion<Msg> {
     fn sizing(&self, theme: Option<&Theme>) -> Style {
         Style {
-            width: Dimension::Length(self.width),
+            width: self.width.map_or(Dimension::Auto, Dimension::Length),
             height: Dimension::Length(row_height(&label_style(self.text_style, theme))),
             ..Default::default()
         }
@@ -93,6 +98,15 @@ impl<Msg: Clone> Widget<Msg> for Suggestion<Msg> {
 
     fn style_themed(&self, theme: &Theme) -> Style {
         self.sizing(Some(theme))
+    }
+
+    /// A suggestion with no width of its own runs the width of the list.
+    fn fill_axes(&self, _theme: &Theme) -> crate::widget::FillAxes {
+        if self.width.is_none() {
+            crate::widget::FillAxes::WIDTH
+        } else {
+            crate::widget::FillAxes::NONE
+        }
     }
 
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
@@ -152,7 +166,8 @@ type FieldBuilder<Msg> = dyn Fn(TextField<Msg>) -> TextField<Msg>;
 /// A text field with suggestions.
 pub struct Autocomplete<Msg = crate::callback::Callback> {
     value: String,
-    width: f32,
+    /// `None`: the width on offer (milestone 767).
+    width: Option<f32>,
     /// The **active** suggestion (stepped to from the keyboard, highlighted), if any.
     active: Option<usize>,
     /// The maximum number of visible suggestions; beyond that the list **scrolls**.
@@ -180,7 +195,7 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
         let on_pick = crate::callback::handler1(on_pick);
         let mut ac = Self {
             value: value.into(),
-            width: DEFAULT_WIDTH,
+            width: None,
             active: None,
             max_visible: None,
             on_input: Rc::new(on_input),
@@ -226,9 +241,14 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
         self
     }
 
-    /// The width of the field and the suggestions, in logical pixels (260 by default).
+    /// The width of the field and the suggestions, in logical pixels.
+    ///
+    /// Without it the field takes the width it is offered — the width of a column it is
+    /// stretched across, of a box it fills — and the suggestions are as wide as the field.
+    /// Where the room is unbounded (a row beside other children, a horizontal scroll) it
+    /// falls back to 260.
     pub fn width(mut self, width: f32) -> Self {
-        self.width = width;
+        self.width = Some(width);
         self.rebuild();
         self
     }
@@ -260,9 +280,11 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
         // The field: rebuilt on every setting (width, value). The shared `on_input`
         // callback (an Rc) is captured by the field.
         let on_input = self.on_input.clone();
-        let input = TextField::new(self.value.clone())
-            .width(self.width)
-            .on_input(move |text| on_input(text));
+        let input = TextField::new(self.value.clone()).on_input(move |text| on_input(text));
+        let input = match self.width {
+            Some(width) => input.width(width),
+            None => input.default_width(DEFAULT_WIDTH),
+        };
         let input = match &self.field {
             Some(dress) => dress(input),
             None => input,
@@ -296,12 +318,12 @@ impl<Msg: Clone + 'static> Autocomplete<Msg> {
                     // where the same number reaches both the rows and their viewport.
                     let row = row_height(&label_style(self.text_style, None));
                     let viewport = n as f32 * row + (n as f32 - 1.0) * ROW_GAP;
-                    self.children.push(Box::new(
-                        SingleChildScrollView::new()
-                            .width(self.width)
-                            .height(viewport)
-                            .child(list),
-                    ));
+                    let scroll = SingleChildScrollView::new().height(viewport).child(list);
+                    let scroll = match self.width {
+                        Some(width) => scroll.width(width),
+                        None => scroll,
+                    };
+                    self.children.push(Box::new(scroll));
                 }
                 _ => self.children.push(Box::new(list)),
             }
@@ -331,6 +353,12 @@ impl<Msg: Clone> Widget<Msg> for Autocomplete<Msg> {
         self.children
             .get(1)
             .map(|list| (list.as_ref(), Placement::Below))
+    }
+
+    /// The list is as wide as the field, whatever width the field was given — by
+    /// [`width`](Autocomplete::width), by the room on offer, or by [`field`](Autocomplete::field).
+    fn overlay_follows_anchor_width(&self) -> bool {
+        true
     }
 }
 
@@ -514,5 +542,103 @@ mod tests {
         // Dressing keeps the wiring: the field still reports what is typed.
         let field = &Widget::<Msg>::children(&ac)[0];
         assert!(field.focusable(), "still a field: {}", found.join("|"));
+    }
+    /// The rectangles of the focusable parts, in traversal order: the field, then each
+    /// suggestion.
+    fn parts(screen: &dyn Widget<Msg>, size: Size) -> Vec<Rect> {
+        let ui = build_ui(screen, size, &Runtime::default(), &Theme::default());
+        ui.traversal_order()
+            .into_iter()
+            .filter_map(|id| ui.widget_rect(id))
+            .collect()
+    }
+
+    /// **The field takes the width it is offered** (milestone 767), and the list hangs at
+    /// the field's width. Before, both were 260 wherever they were put.
+    #[test]
+    fn the_field_and_its_list_take_the_width_offered() {
+        let ac = Autocomplete::new("ap", Msg::Input, Msg::Pick)
+            .suggestion("apple")
+            .suggestion("apricot");
+        let boxed = crate::ConstrainedBox::new(ac).max_width(340.0);
+        let screen = Flex::<Msg>::column()
+            .align(frus_layout::Align::Start)
+            .child(boxed);
+        let parts = parts(&screen, Size::new(400.0, 300.0));
+        assert_eq!(parts.len(), 3, "the field and two suggestions: {parts:?}");
+        assert!(
+            (parts[0].width - 340.0).abs() < 0.5,
+            "the field takes the 340 on offer: {:?}",
+            parts[0]
+        );
+        for row in &parts[1..] {
+            assert!(
+                (row.width - parts[0].width).abs() < 0.5 && (row.x - parts[0].x).abs() < 0.5,
+                "a suggestion runs the field's width: field {:?}, row {row:?}",
+                parts[0]
+            );
+        }
+    }
+
+    /// A list capped to a few rows scrolls inside a viewport, and the viewport follows the
+    /// field too.
+    #[test]
+    fn a_capped_list_takes_the_fields_width() {
+        let ac = Autocomplete::new("a", Msg::Input, Msg::Pick)
+            .max_visible(2)
+            .suggestion("a1")
+            .suggestion("a2")
+            .suggestion("a3");
+        let screen = Flex::<Msg>::column()
+            .align(frus_layout::Align::Start)
+            .child(crate::ConstrainedBox::new(ac).max_width(320.0));
+        let parts = parts(&screen, Size::new(400.0, 300.0));
+        assert!((parts[0].width - 320.0).abs() < 0.5, "{parts:?}");
+        assert!(
+            (parts[1].width - 320.0).abs() < 0.5,
+            "the first suggestion is as wide as the field: {parts:?}"
+        );
+    }
+
+    /// A width given is a width kept, for the field and the list.
+    #[test]
+    fn a_width_given_is_kept() {
+        let ac = Autocomplete::new("ap", Msg::Input, Msg::Pick)
+            .width(180.0)
+            .suggestion("apple");
+        let screen = Flex::<Msg>::column().child(ac);
+        let parts = parts(&screen, Size::new(400.0, 300.0));
+        assert!((parts[0].width - 180.0).abs() < 0.5, "{parts:?}");
+        assert!((parts[1].width - 180.0).abs() < 0.5, "{parts:?}");
+    }
+
+    /// Where the room is unbounded — a row beside a label — there is nothing to take, and
+    /// the field falls back to its default; the list still follows it.
+    #[test]
+    fn in_a_row_the_field_falls_back_to_its_default() {
+        let ac = Autocomplete::new("ap", Msg::Input, Msg::Pick).suggestion("apple");
+        let screen = Flex::<Msg>::row()
+            .child(crate::Text::new("Fruit"))
+            .child(ac);
+        let parts = parts(&screen, Size::new(600.0, 300.0));
+        assert!(
+            (parts[0].width - DEFAULT_WIDTH).abs() < 0.5,
+            "the default stands in a row: {parts:?}"
+        );
+        assert!((parts[1].width - DEFAULT_WIDTH).abs() < 0.5, "{parts:?}");
+    }
+
+    /// A width given through the field's own dressing is the one the list follows.
+    #[test]
+    fn the_list_follows_a_width_given_to_the_field() {
+        let ac = Autocomplete::new("ap", Msg::Input, Msg::Pick)
+            .field(|field| field.width(150.0))
+            .suggestion("apple");
+        let screen = Flex::<Msg>::column()
+            .align(frus_layout::Align::Start)
+            .child(ac);
+        let parts = parts(&screen, Size::new(400.0, 300.0));
+        assert!((parts[0].width - 150.0).abs() < 0.5, "{parts:?}");
+        assert!((parts[1].width - 150.0).abs() < 0.5, "{parts:?}");
     }
 }

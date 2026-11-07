@@ -1174,6 +1174,14 @@ pub trait Widget<Msg = crate::callback::Callback> {
         false
     }
 
+    /// If `true`, this widget's overlay, when it hangs **below** it
+    /// ([`Placement::Below`](crate::Placement::Below)), is laid out at the widget's own
+    /// width: a suggestion list as wide as the field it completes. Its height stays its
+    /// own. Default: `false` (the overlay takes its natural width).
+    fn overlay_follows_anchor_width(&self) -> bool {
+        false
+    }
+
     /// Target of the widget's own animated value (e.g. `1.0` for a switch that is on,
     /// `0.0` for off). The runtime drives the retained value towards this target and
     /// hands it back through `Status::value`. `None` = no animated value.
@@ -2407,6 +2415,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn overlay_traps_focus(&self) -> bool {
         (**self).overlay_traps_focus()
+    }
+    fn overlay_follows_anchor_width(&self) -> bool {
+        (**self).overlay_follows_anchor_width()
     }
     fn anim_target(&self) -> Option<f32> {
         (**self).anim_target()

@@ -2491,12 +2491,34 @@ fn build_layout_scoped<'a, Msg>(
         // other row was as wide as the menu, and its chevron was drawn off the menu's start
         // edge (milestone 607). A column stretches it across instead; an anchor that fills
         // only the height keeps the row.
+        // An anchor whose size is **only a default** (a text field completed by an
+        // autocomplete) hands that default to the portal and takes the portal's size
+        // instead (milestone 767). The portal passes the soft size on, so wherever its
+        // parent grants the room, the default gives way and the anchor is as wide as the
+        // room; where the room cannot be granted (a row beside other children), the
+        // default stands — on the portal, which the anchor then fills.
+        // Having handed its default over, the anchor **fills the portal** on that axis:
+        // left at its content size, a page whose list was the anchor (the application's
+        // root portal) collapsed to nothing.
         let mut style = effective_style(widget, id, runtime, theme);
         style.flex_direction = if fills.vertical && !fills.horizontal {
             frus_layout::FlexDirection::Row
         } else {
             frus_layout::FlexDirection::Column
         };
+        let anchor_style = effective_style(anchor_w, child_id(id, 0, anchor_w), runtime, theme);
+        for horizontal in [true, false] {
+            if fills.wants(horizontal) && fills.soft(horizontal) {
+                layout.clear_size(anchor, horizontal);
+                if horizontal {
+                    style.width = anchor_style.width;
+                } else {
+                    style.height = anchor_style.height;
+                }
+                let parallel = horizontal == style.flex_direction.is_horizontal();
+                layout.fill_parent(anchor, horizontal, parallel);
+            }
+        }
         return (layout.container(style, &[anchor]), fills);
     }
     let children = widget.children();
@@ -2718,8 +2740,8 @@ pub(crate) fn natural_size<Msg>(
 }
 
 /// A deferred overlay: `(content, id, the anchor's bounds, placement, dismissal,
-/// progress 0..=1, whether it takes the pointer, the scrim's colour, the theme it was
-/// declared under)`. The progress animates the appearance — a drawer sliding in, a
+/// progress 0..=1, whether it takes the pointer, whether it is as wide as its anchor, the
+/// scrim's colour, the theme it was declared under)`. The progress animates the appearance — a drawer sliding in, a
 /// scrim fading — and is `1.0` for overlays that are not animated.
 ///
 /// The **theme travels with it** because an overlay is painted long after the walk has
@@ -2735,6 +2757,7 @@ type Overlay<'a, Msg> = (
     Placement,
     Option<Msg>,
     f32,
+    bool,
     bool,
     Option<frus_core::Color>,
     std::rc::Rc<Theme>,
@@ -5591,6 +5614,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     widget.overlay_dismiss(),
                     progress,
                     widget.overlay_traps_focus(),
+                    widget.overlay_follows_anchor_width(),
                     widget.overlay_scrim(&self.theme),
                     self.theme.clone(),
                 ));
@@ -6105,6 +6129,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             None,
             1.0,
             false,
+            false,
             None,
             self.theme.clone(),
         ));
@@ -6176,6 +6201,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             None,
             1.0,
             false,
+            false,
             None,
             self.theme.clone(),
         ));
@@ -6185,8 +6211,18 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
     /// everything (their clickable areas win). May spawn further overlays (nested portals).
     fn process_overlays(&mut self) {
         let window = Rect::new(0.0, 0.0, self.available.width, self.available.height);
-        while let Some((content, oid, anchor, placement, dismiss, progress, traps, scrim, theme)) =
-            self.overlays.pop()
+        while let Some((
+            content,
+            oid,
+            anchor,
+            placement,
+            dismiss,
+            progress,
+            traps,
+            follows,
+            scrim,
+            theme,
+        )) = self.overlays.pop()
         {
             // The application's snack bar, already shown inside a scaffold's own layout —
             // above its bottom bar, its floating button above it — is not shown again over
@@ -6218,11 +6254,20 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 Placement::Bottom | Placement::Notification => (false, true),
                 _ => (true, true),
             };
-            let mut rects = self.cached_rects(
-                oid,
-                content,
-                Constraints::scroll(self.available.width, self.available.height, free_x, free_y),
-            );
+            // A list hanging under the field that opened it is **as wide as the field**
+            // (milestone 767): its width is handed to it, its height is its own.
+            let follows = follows && placement == Placement::Below;
+            let constraints = if follows {
+                Constraints::axes(
+                    anchor.width,
+                    self.available.height,
+                    [false, true],
+                    [true, false],
+                )
+            } else {
+                Constraints::scroll(self.available.width, self.available.height, free_x, free_y)
+            };
+            let mut rects = self.cached_rects(oid, content, constraints);
             let mut size = rects
                 .first()
                 .copied()
@@ -6245,7 +6290,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             // here would only move the spill inside the surface.
             let inset = content.style_themed(&self.theme).margin;
             let room = (self.available.width - inset.left - inset.right).max(0.0);
-            if free_x && size.width > room {
+            if free_x && !follows && size.width > room {
                 rects = self.cached_rects(
                     oid,
                     content,
