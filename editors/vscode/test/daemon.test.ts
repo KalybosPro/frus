@@ -5,7 +5,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 
-import { DaemonMessage, Devices, isSimulated } from "../src/daemon";
+import { DaemonMessage, Device, Devices, isSimulated, preferredDevice, sortDevices } from "../src/daemon";
 
 /** A `Devices` talking to a stand-in daemon: what it is sent, and a way to answer. */
 function connected() {
@@ -78,4 +78,47 @@ test("a simulated phone is told apart from this computer", () => {
   // Phones, emulators and browsers are not.
   assert.equal(isSimulated({ id: "emulator-5554", platform: "android", category: "mobile" }), false);
   assert.equal(isSimulated({ id: "edge", platform: "web", category: "web" }), false);
+});
+
+const device = (id: string, platform: string, category: Device["category"], more: Partial<Device> = {}): Device => ({
+  id,
+  name: id,
+  platform,
+  category,
+  detail: "",
+  emulator: false,
+  available: true,
+  unavailableReason: null,
+  ...more,
+});
+
+test("simulated devices come last, not before this computer", () => {
+  // "Android phone" sorts before "Windows" by name: it was shown first.
+  const sorted = sortDevices([
+    device("windows", "windows", "desktop", { name: "Windows" }),
+    device("android-phone", "windows", "desktop", { name: "Android phone" }),
+    device("edge", "web", "web"),
+    device("R58M", "android", "mobile"),
+  ]);
+  assert.deepEqual(
+    sorted.map((d) => d.id),
+    ["windows", "R58M", "edge", "android-phone"],
+  );
+});
+
+test("the device a run goes to unless one is chosen", () => {
+  const host = device("windows", "windows", "desktop", { name: "Windows" });
+  const simulated = device("android-phone", "windows", "desktop", { name: "Android phone" });
+  const stopped = device("Pixel_7", "android", "mobile", { emulator: true });
+  const emulator = device("emulator-5554", "android", "mobile", { emulator: true });
+  const phone = device("R58M", "android", "mobile");
+  const edge = device("edge", "web", "web");
+  // Never a simulated device, nor an emulator that has to be started: this computer.
+  assert.equal(preferredDevice([simulated, stopped, host, edge])?.id, "windows");
+  // A running emulator before this computer, a phone plugged in before both.
+  assert.equal(preferredDevice([simulated, host, emulator])?.id, "emulator-5554");
+  assert.equal(preferredDevice([simulated, host, emulator, phone])?.id, "R58M");
+  // A phone that cannot be used is passed over.
+  assert.equal(preferredDevice([host, { ...phone, available: false }])?.id, "windows");
+  assert.equal(preferredDevice([simulated]), undefined);
 });

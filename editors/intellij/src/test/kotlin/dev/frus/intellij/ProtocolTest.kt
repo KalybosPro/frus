@@ -84,6 +84,38 @@ class ProtocolTest {
     }
 
     @Test
+    fun simulatedDevicesComeLastNotBeforeThisComputer() {
+        // "Android phone" sorts before "Windows" by name: it was listed, and chosen, first.
+        val sorted = Device.sorted(
+            listOf(
+                device("windows", "windows", "desktop", name = "Windows"),
+                device("android-phone", "windows", "desktop", name = "Android phone"),
+                device("edge", "web", "web"),
+            ),
+        )
+        assertEquals(listOf("windows", "edge", "android-phone"), sorted.map { it.id })
+    }
+
+    @Test
+    fun theDeviceARunGoesToUnlessOneIsChosen() {
+        val host = device("windows", "windows", "desktop", name = "Windows")
+        val simulated = device("android-phone", "windows", "desktop", name = "Android phone")
+        val stopped = device("Pixel_7", "android", "mobile", emulator = true, name = "Pixel 7")
+        val emulator = device("emulator-5554", "android", "mobile", emulator = true, name = "Pixel 7")
+        val phone = device("R58M", "android", "mobile", name = "Galaxy A51")
+        val edge = device("edge", "web", "web")
+        // Never a simulated device, nor an emulator that has to be started: this computer.
+        assertEquals("windows", Device.preferred(listOf(simulated, stopped, host, edge))?.id)
+        // A running emulator before this computer, a phone plugged in before both.
+        assertEquals("emulator-5554", Device.preferred(listOf(simulated, host, emulator))?.id)
+        assertEquals("R58M", Device.preferred(listOf(simulated, host, emulator, phone))?.id)
+        // A phone that cannot be used (unauthorized) is passed over.
+        assertEquals("windows", Device.preferred(listOf(host, phone.copy(available = false)))?.id)
+        // Only simulated devices: none, and frus picks.
+        assertNull(Device.preferred(listOf(simulated)))
+    }
+
+    @Test
     fun emulatorsAndUnsupportedPlatforms() {
         assertEquals(listOf(Emulator("Pixel_7", "Pixel 7", "android")), Emulator.from(listOf(mapOf("id" to "Pixel_7", "name" to "Pixel 7", "platformType" to "android"), "junk")))
         val reasons = unsupportedReasons(
@@ -111,13 +143,31 @@ class ProtocolTest {
 
     @Test
     fun theRunArguments() {
-        assertEquals(listOf("run", "--machine"), runArguments(null, false, HotMode.DEFAULT, emptyList()))
+        // Hot reload on by default, said as --hot so that frus 0.5.0, whose default is off, has it.
+        assertEquals(HotMode.ON, FrusRunOptions().hot)
+        assertEquals(listOf("run", "--machine", "--hot"), runArguments(null, false, HotMode.ON, emptyList()))
         assertEquals(
-            listOf("run", "--machine", "-d", "emulator-5554", "--release", "--hot", "--", "--x", "y z"),
+            listOf("run", "--machine", "-d", "emulator-5554", "--release", "--", "--x", "y z"),
             runArguments("emulator-5554", true, HotMode.ON, listOf("--x", "y z")),
         )
         assertEquals(listOf("run", "--machine", "-d", "web", "--no-hot"), runArguments("web", false, HotMode.OFF, emptyList()))
-        assertEquals(listOf("run", "--machine"), runArguments("  ", false, HotMode.DEFAULT, emptyList()))
+        // frus 0.5.0 refuses --no-hot; off is its default.
+        assertEquals(
+            listOf("run", "--machine", "-d", "web"),
+            runArguments("web", false, HotMode.OFF, emptyList(), knowsNoHot = false),
+        )
+        assertEquals(listOf("run", "--machine"), runArguments("  ", false, HotMode.FRUS, emptyList()))
+    }
+
+    @Test
+    fun hotModesSayWhatTheyDo() {
+        // An older plugin saved its default as DEFAULT: it is on now.
+        assertEquals(HotMode.ON, HotMode.named("DEFAULT"))
+        assertEquals(HotMode.ON, HotMode.named(null))
+        assertEquals(HotMode.OFF, HotMode.named("OFF"))
+        // No label promises a default the frus installed may not have.
+        assertTrue(HotMode.entries.none { it.label.contains("debug build") })
+        assertEquals(HotMode.entries.size, HotMode.entries.map { it.hint }.toSet().size)
     }
 
     @Test
@@ -205,6 +255,31 @@ class MachineOutputTest {
         assertNull(MachineOutput.translate("""{"event":"app.stop","params":{}}""").text)
         assertNull(MachineOutput.translate("""{"event":"daemon.connected","params":{}}""").text)
         assertEquals(Said("warning: unused", Shown.TOOL), MachineOutput.translate("warning: unused"))
+    }
+
+    @Test
+    fun everyEndIsShownWithItsExitCodeAndTheLastError() {
+        val clean = RunEnding()
+        clean.saw(null, Shown.TOOL_ERROR, stopped = true)
+        assertEquals(Said("frus run ended (exit code 0).", Shown.TOOL), clean.message(0))
+        assertEquals("frus run ended (exit code 0, without saying it was stopping).", RunEnding().message(0).text)
+
+        val failed = RunEnding()
+        failed.sawStderr("   Compiling app v0.1.0")
+        failed.saw("the engine says hello", Shown.TOOL)
+        failed.sawStderr("error: frus run has no option `--no-hot`")
+        failed.sawStderr("warning: unused")
+        val said = failed.message(1)
+        assertEquals(Shown.TOOL_ERROR, said.shown)
+        assertEquals("frus run failed (exit code 1). The last error: error: frus run has no option `--no-hot`", said.text)
+
+        val stopped = RunEnding()
+        stopped.saw("the hot-reload engine stopped (exit code: 1)", Shown.TOOL_ERROR, stopped = true)
+        assertTrue(stopped.message(1).text!!.endsWith("The last error: the hot-reload engine stopped (exit code: 1)"))
+        val dxPanic = RunEnding()
+        dxPanic.sawStderr("thread 'main' panicked at src/main.rs:3:5:")
+        assertTrue(dxPanic.message(101).text!!.contains("panicked"))
+        assertTrue(RunEnding().message(-1).text!!.contains("It said no error"))
     }
 
     @Test

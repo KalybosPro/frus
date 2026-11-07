@@ -6,7 +6,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 
-import { FrusDebugAdapter } from "../src/adapter";
+import { FrusDebugAdapter, RunEnding, runArguments } from "../src/adapter";
 
 /** A stand-in for `frus run --machine`: what it is sent, and what it says. */
 function fakeFrus() {
@@ -15,7 +15,10 @@ function fakeFrus() {
   process.stderr = new PassThrough();
   process.stdin = new PassThrough();
   process.exitCode = null;
-  process.kill = () => process.emit("exit", 1);
+  process.kill = () => {
+    process.emit("exit", 1);
+    process.emit("close", 1, null);
+  };
   const sent: any[] = [];
   process.stdin.on("data", (chunk: Buffer) =>
     chunk
@@ -62,20 +65,22 @@ test("launch runs frus run --machine on the device, with its options", () => {
   assert.equal(messages.find((m) => m.command === "launch").success, true);
 });
 
-test("a hot launch asks frus run for hot reload", () => {
+test("a debug launch asks for hot reload by default, with --hot, so frus 0.5.0 has it too", () => {
   const spawned: { args?: string[] } = {};
-  const { request } = session(spawned);
-  request("launch", { frus: "frus", cwd: ".", hot: true });
+  session(spawned).request("launch", { frus: "frus", cwd: "." });
   assert.deepEqual(spawned.args, ["run", "--machine", "--hot"]);
+  // A release build runs without, unless asked.
+  assert.deepEqual(runArguments({ release: true }), ["run", "--machine", "--release"]);
+  assert.deepEqual(runArguments({ release: true, hot: true }), ["run", "--machine", "--release", "--hot"]);
 });
 
-test("hot: false asks frus run to restart instead, and no hot leaves it to frus", () => {
+test("hot: false restarts instead, and \"frus\" leaves it to frus", () => {
   const off: { args?: string[] } = {};
   session(off).request("launch", { frus: "frus", cwd: ".", hot: false });
   assert.deepEqual(off.args, ["run", "--machine", "--no-hot"]);
-  const unset: { args?: string[] } = {};
-  session(unset).request("launch", { frus: "frus", cwd: "." });
-  assert.deepEqual(unset.args, ["run", "--machine"]);
+  // frus 0.5.0 refuses --no-hot; off is its default.
+  assert.deepEqual(runArguments({ hot: false, knowsNoHot: false }), ["run", "--machine"]);
+  assert.deepEqual(runArguments({ hot: "frus" }), ["run", "--machine"]);
 });
 
 test("the application's log reaches the Debug Console, errors as errors", async () => {
@@ -109,7 +114,10 @@ test("reload, restart and stop become frus's commands", async () => {
   );
   frus.say({ event: "app.stop", params: { appId: "a", error: null } });
   await tick();
+  frus.process.emit("close", 0, null);
+  await tick();
   assert.equal(messages.filter((m) => m.event === "terminated").length, 1);
+  assert.ok(outputs(messages, "console").includes("frus run ended (exit code 0).\n"));
   // Once ended, nothing more is sent to it.
   request("hotReload");
   await tick();
@@ -119,10 +127,40 @@ test("reload, restart and stop become frus's commands", async () => {
 test("a run that ends on its own ends the session", async () => {
   const { frus, messages, request } = session();
   request("launch", { frus: "frus", cwd: "." });
-  frus.process.emit("exit", 0);
-  frus.process.emit("exit", 0);
+  frus.process.emit("close", 0, null);
+  frus.process.emit("close", 0, null);
   await tick();
   assert.equal(messages.filter((m) => m.event === "terminated").length, 1);
+});
+
+test("a run that fails says so, with its exit code and the last error", async () => {
+  const { frus, messages, request } = session();
+  request("launch", { frus: "frus", cwd: "." });
+  frus.process.stderr.write("   Compiling app v0.1.0\n");
+  frus.process.stderr.write("error: frus run has no option `--no-hot`\n");
+  await tick();
+  frus.process.emit("close", 1, null);
+  await tick();
+  assert.deepEqual(outputs(messages, "stderr"), [
+    "frus run failed (exit code 1). The last error: error: frus run has no option `--no-hot`\n",
+  ]);
+  assert.equal(messages.filter((m) => m.event === "terminated").length, 1);
+});
+
+test("the end of a run names the last error it saw, or says there was none", () => {
+  const ending = new RunEnding();
+  ending.saw("Building…", false);
+  ending.saw("the hot-reload engine stopped (exit code: 1)", true, true);
+  ending.sawStderr("warning: unused");
+  assert.equal(
+    ending.message(1).text,
+    "frus run failed (exit code 1). The last error: the hot-reload engine stopped (exit code: 1)",
+  );
+  const panic = new RunEnding();
+  panic.sawStderr("thread 'main' panicked at src/main.rs:3:5:");
+  assert.match(panic.message(101).text, /panicked/);
+  assert.match(new RunEnding().message(null, "SIGKILL").text, /ended by SIGKILL\)\. It said no error/);
+  assert.equal(new RunEnding().message(0).text, "frus run ended (exit code 0, without saying it was stopping).");
 });
 
 // The real thing: FRUS_E2E_FRUS=<frus.exe> FRUS_E2E_APP=<an application's directory>.

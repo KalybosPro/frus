@@ -637,12 +637,16 @@ fn run_hot(project: &Project, options: &RunOptions) -> Result<ExitCode, String> 
                     // The engine says what is wrong but not where: the compiler, asked again, does.
                     locate_errors(project, &shadow, &target);
                 }
-                DxLine::Exited if restarting.is_none() => {
-                    report::say(&format!("{} has stopped.", project.package));
+                DxLine::Exited(why) if restarting.is_none() => {
                     crate::hot::stop(&mut dx);
+                    // A crash is an error, said as one: not "has stopped" and a success.
+                    if let Some(why) = why {
+                        return Err(format!("{} stopped: {why}", project.package));
+                    }
+                    report::say(&format!("{} has stopped.", project.package));
                     return Ok(ExitCode::SUCCESS);
                 }
-                DxLine::Exited | DxLine::Noise => {}
+                DxLine::Exited(_) | DxLine::Noise => {}
             }
         }
         if let Some(at) = launched_at.filter(|_| !retouched) {
@@ -1152,7 +1156,7 @@ fn run_android_hot(
                     locate_errors(project, &shadow, &target);
                 }
                 // The application's log is read from the device (above), not from the engine.
-                DxLine::App(..) | DxLine::Exited | DxLine::Noise => {}
+                DxLine::App(..) | DxLine::Exited(_) | DxLine::Noise => {}
             }
         }
         if let Some(at) = launched_at.filter(|_| !retouched) {
@@ -1637,7 +1641,7 @@ fn run_web_hot(
                     report::say("Rebuilt in full: the page reloads, its state kept.");
                 }
                 DxLine::App(text, true) => report::warn(&text),
-                DxLine::App(..) | DxLine::Exited | DxLine::Noise => {}
+                DxLine::App(..) | DxLine::Exited(_) | DxLine::Noise => {}
             }
         }
         // The engine watches the files a few seconds after it starts: edits made before are

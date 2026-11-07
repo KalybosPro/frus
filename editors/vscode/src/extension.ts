@@ -8,9 +8,9 @@ import * as vscode from "vscode";
 
 import { FrusDebugAdapter } from "./adapter";
 import { resolveProgram, runnableCopy, watchProgram } from "./copy";
-import { Device, Devices, isSimulated } from "./daemon";
+import { Device, Devices, isSimulated, preferredDevice } from "./daemon";
 import { ReloadOnSave, savesReload } from "./save";
-import { frusProgram } from "./frus";
+import { frusProgram, knowsNoHot } from "./frus";
 import { createArgs, DEFAULT_ORG, nameProblem, orgProblem } from "./project";
 
 const SELECTED = "frus.device";
@@ -80,7 +80,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const selected = () => context.workspaceState.get<string>(SELECTED);
   const refresh = () => {
     const id = selected();
-    const device = id ? devices.get(id) : devices.list()[0];
+    const device = id ? devices.get(id) : preferredDevice(devices.list());
     status.text = `$(device-mobile) ${device ? device.name : "No device"}`;
     status.show();
   };
@@ -197,9 +197,12 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         config.cwd ??= await application(context, folder);
         if (!config.cwd) return undefined;
-        config.deviceId ||= selected();
+        // The device in the status bar: the one chosen, else the preferred one, never a
+        // simulated device unless chosen.
+        config.deviceId ||= selected() ?? preferredDevice(devices.list())?.id;
         try {
           config.frus = await runnable();
+          config.knowsNoHot ??= await knowsNoHot(config.frus);
         } catch (error: any) {
           vscode.window.showErrorMessage(`frus: ${error.message}`);
           return undefined;

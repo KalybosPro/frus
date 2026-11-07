@@ -266,8 +266,21 @@
                 "default": false
               },
               "hot": {
-                "type": "boolean",
-                "description": "True hot reload (desktop, web, Android): each saved change is patched into the running application, every state kept. Left out, frus decides: on for a debug build. false restarts to reload instead (frus run --no-hot); true insists, a release build too (frus run --hot)."
+                "type": [
+                  "boolean",
+                  "string"
+                ],
+                "enum": [
+                  true,
+                  false,
+                  "frus"
+                ],
+                "enumDescriptions": [
+                  "On, a release build too (frus run --hot).",
+                  "Off: a reload restarts the application (frus run --no-hot).",
+                  "Nothing passed: frus decides. frus newer than 0.5.0 hot reloads a debug build; 0.5.0 and older do not."
+                ],
+                "description": "True hot reload (desktop, web, Android): each saved change is patched into the running application, every state kept. Left out, it is on for a debug build: F5 passes --hot, so that it is on with every frus, 0.5.0 included. false restarts to reload instead (frus run --no-hot); true is on for a release build too; \"frus\" passes nothing and lets the frus installed decide."
               },
               "args": {
                 "type": "array",

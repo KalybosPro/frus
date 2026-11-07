@@ -47,9 +47,23 @@ data class Device(
 
         private val ORDER = mapOf("desktop" to 0, "mobile" to 1, "web" to 2)
 
-        /** The devices in the picker's order: the desktop first, then phones, then browsers. */
+        /** The devices in the picker's order: this computer first, then phones, then browsers,
+         *  then the phones and tablets simulated in a window, as `frus devices` lists them. */
         fun sorted(devices: Collection<Device>): List<Device> =
-            devices.sortedWith(compareBy<Device>({ ORDER[it.category] ?: 3 }, { it.name.lowercase() }))
+            devices.sortedWith(compareBy<Device>({ if (it.isSimulated) 4 else ORDER[it.category] ?: 3 }, { it.name.lowercase() }))
+
+        /**
+         * The device a run goes to when none was chosen: a phone plugged in, then a running
+         * emulator, then this computer, then a browser. Never a simulated device or an emulator
+         * that is not running: those are run on only when chosen.
+         */
+        fun preferred(devices: Collection<Device>): Device? {
+            val usable = sorted(devices).filter { it.available && !it.isSimulated && !it.isStoppedEmulator }
+            return usable.firstOrNull { it.category == "mobile" && !it.emulator }
+                ?: usable.firstOrNull { it.isRunningEmulator }
+                ?: usable.firstOrNull { it.category == "desktop" }
+                ?: usable.firstOrNull()
+        }
     }
 }
 
@@ -94,22 +108,49 @@ enum class ReloadOnSave(val label: String) {
     }
 }
 
-/** Whether `frus run` patches each change into the running application. */
-enum class HotMode(val label: String) {
-    DEFAULT("frus decides: on for a debug build"),
-    ON("On, a release build too (--hot)"),
-    OFF("Off: a reload restarts the application (--no-hot)"),
+/** Whether `frus run` patches each change into the running application. On is the default,
+ *  passed as `--hot`, so that hot reload is on with every frus, those whose own default is off
+ *  included. */
+enum class HotMode(val label: String, val hint: String) {
+    ON(
+        "On (--hot)",
+        "Each saved change is patched into the running application, every state kept (desktop, web, Android). " +
+            "A release build runs without it.",
+    ),
+    OFF(
+        "Off (--no-hot)",
+        "A reload rebuilds and restarts the application, which comes back on the same page with the states it keeps.",
+    ),
+    FRUS(
+        "Let frus decide (no flag)",
+        "Nothing passed: frus newer than 0.5.0 hot reloads a debug build, frus 0.5.0 and older do not.",
+    ),
+    ;
+
+    companion object {
+        /** A mode saved by name; an unknown name (an older plugin's `DEFAULT`) is on. */
+        fun named(name: String?): HotMode = entries.find { it.name == name } ?: ON
+    }
 }
 
-/** The arguments of the `frus run --machine` an editor drives. */
-fun runArguments(deviceId: String?, release: Boolean, hot: HotMode, appArgs: List<String>): List<String> {
+/**
+ * The arguments of the `frus run --machine` an editor drives. `knowsNoHot`: whether this frus
+ * takes `--no-hot` (frus 0.5.0 does not, and refuses to run; off is its default anyway).
+ */
+fun runArguments(
+    deviceId: String?,
+    release: Boolean,
+    hot: HotMode,
+    appArgs: List<String>,
+    knowsNoHot: Boolean = true,
+): List<String> {
     val args = mutableListOf("run", "--machine")
     if (!deviceId.isNullOrBlank()) args += listOf("-d", deviceId)
     if (release) args += "--release"
     when (hot) {
-        HotMode.ON -> args += "--hot"
-        HotMode.OFF -> args += "--no-hot"
-        HotMode.DEFAULT -> {}
+        HotMode.ON -> if (!release) args += "--hot"
+        HotMode.OFF -> if (knowsNoHot) args += "--no-hot"
+        HotMode.FRUS -> {}
     }
     if (appArgs.isNotEmpty()) args += listOf("--") + appArgs
     return args
