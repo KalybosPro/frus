@@ -8,11 +8,23 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 765 so far, each documenting the objective, the alternatives
+> record — one per step, 767 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
 
+- **An autocomplete takes the width it is offered; table labels never overlap** (J767). An
+  `Autocomplete` with no `width` used to be 260 px wide wherever it was put. Its field now
+  takes the width on offer, like any text field, and keeps 260 only where the room is
+  unbounded (a row beside other children); its suggestion list is as wide as the field,
+  whatever gave the field its width. New `Widget::overlay_follows_anchor_width` lays an
+  overlay hanging below a widget out at that widget's width. A `Table` with flexible columns
+  where the width is unbounded (in a row, in a horizontal scroll) drew every column at zero
+  width, labels on top of each other; each flexible column is now at least as wide as the
+  widest label in it (heading, icon and sort arrow included). Where the table has a width to
+  share, columns still share it equally while their labels fit, and a column whose label does
+  not fit keeps the label's width instead of drawing it across the next column. `DataTable`
+  gets the same floors.
 - **Restored rows follow their key; restoration before Android 10; free page views keep their
   fraction** (J762).
   - A row of a `ListView` with a key (`keyed(..)`, `Keyed`, `Component::with_key`) keeps its

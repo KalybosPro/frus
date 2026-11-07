@@ -130,6 +130,105 @@ fn cell_style(width: Dimension, header: bool, theme: Option<&Theme>) -> Style {
 const ICON: f32 = 16.0;
 /// Gap between a header icon and its label.
 const ICON_GAP: f32 = 6.0;
+/// Room after a heading for its sort arrow: the gap before it and its half-width past its
+/// centre, as [`Cell::paint`] draws it.
+const SORT_ROOM: f32 = 12.0;
+
+/// What a heading paints beside its label, for measuring the room it needs.
+#[derive(Clone, Default)]
+struct HeadingFloor {
+    label: String,
+    icon: bool,
+    /// A sortable heading keeps room for its arrow whether or not it is the one sorted, so
+    /// that sorting by another column does not move the edges.
+    sortable: bool,
+    /// The room the heading's action widget takes on its right, when it has one and says
+    /// how wide it is.
+    action: f32,
+}
+
+/// **The narrowest each flexible column may be** (milestone 767): as wide as the widest
+/// label in it, heading included, with the cell's padding on both sides.
+///
+/// A cell paints its label rather than laying it out, so to the layout a text cell has no
+/// content and a flexible column no width of its own. Where the table has a width to share
+/// that went unnoticed; where it has none — in a row beside other children, in a
+/// horizontal scroll — every column came out at zero and the labels were painted on top of
+/// each other. The floor is the column's, not the cell's: every row is a row of its own to
+/// the layout, and a floor measured per cell would put each row's edges somewhere else.
+///
+/// Measured once per pair of text styles and kept: the styles come from the theme, which
+/// is only known when the table is laid out.
+struct ColumnFloors {
+    headings: Vec<HeadingFloor>,
+    /// Per column, every data label in it.
+    data: Vec<Vec<String>>,
+    measured: std::cell::RefCell<Option<(ResolvedTextStyle, ResolvedTextStyle, Vec<f32>)>>,
+}
+
+impl ColumnFloors {
+    /// The floor of column `c` under `theme`'s text styles.
+    fn of(&self, c: usize, theme: Option<&Theme>) -> f32 {
+        let (heading, data) = (heading_style(theme), data_style(theme));
+        let mut measured = self.measured.borrow_mut();
+        let fresh = matches!(&*measured, Some((h, d, _)) if *h == heading && *d == data);
+        if !fresh {
+            let width = |text: &str, style: &ResolvedTextStyle| {
+                if text.is_empty() {
+                    0.0
+                } else {
+                    frus_text::measure_resolved(text, style).width
+                }
+            };
+            let columns = self.headings.len().max(self.data.len());
+            let floors = (0..columns)
+                .map(|c| {
+                    let head = self.headings.get(c).map_or(0.0, |h| {
+                        let icon = if h.icon { ICON + ICON_GAP } else { 0.0 };
+                        let sort = if h.sortable { SORT_ROOM } else { 0.0 };
+                        icon + width(&h.label, &heading) + sort + h.action
+                    });
+                    let cells = self.data.get(c).map_or(0.0, |labels| {
+                        labels
+                            .iter()
+                            .map(|l| width(l, &data))
+                            .fold(0.0f32, f32::max)
+                    });
+                    // Whole pixels, rounded up: the layout rounds boxes, and a floor shaved
+                    // by a fraction lets the last letter run into the next column.
+                    (head.max(cells) + 2.0 * PAD_X).ceil()
+                })
+                .collect();
+            *measured = Some((heading, data, floors));
+        }
+        measured
+            .as_ref()
+            .and_then(|(_, _, floors)| floors.get(c).copied())
+            .unwrap_or(0.0)
+    }
+}
+
+/// A flexible column's floor, as a cell carries it: the table's shared measurements and the
+/// column's index.
+type Floor = Option<(Rc<ColumnFloors>, usize)>;
+
+/// `style` with a flexible column's floor applied. A fixed column is fixed.
+///
+/// The basis is zero, so that every cell of the column starts from the same place: with
+/// the default basis a heading holding an action widget started from its content and took
+/// a bigger share of its row than the cells under it took of theirs, and the heading's
+/// edges drifted off the column's. From zero, each cell of a column gets the same share,
+/// and the same floor.
+fn with_floor(style: Style, floor: &Floor, theme: Option<&Theme>) -> Style {
+    match floor {
+        Some((floors, c)) if matches!(style.width, Dimension::Auto) => Style {
+            min_width: Dimension::Length(floors.of(*c, theme)),
+            flex_basis: Dimension::Length(0.0),
+            ..style
+        },
+        _ => style,
+    }
+}
 
 /// A text cell (a header or a data cell), themed at render time.
 struct Cell<Msg> {
@@ -153,11 +252,17 @@ struct Cell<Msg> {
     /// while the rest of the header goes on sorting — hence a `Vec`, to expose it through
     /// [`children`](Widget::children).
     action: Vec<Box<dyn Widget<Msg>>>,
+    /// The column's floor, when it is flexible.
+    floor: Floor,
 }
 
 impl<Msg> Cell<Msg> {
     fn sizing(&self, theme: Option<&Theme>) -> Style {
-        let base = cell_style(self.width, self.header, theme);
+        let base = with_floor(
+            cell_style(self.width, self.header, theme),
+            &self.floor,
+            theme,
+        );
         // With an action widget, it sits on the **right** (the label goes on being painted
         // on the left) and is vertically centred.
         if self.action.is_empty() {
@@ -686,6 +791,14 @@ fn col_dimension(widths: &[f32], c: usize) -> Dimension {
     }
 }
 
+/// Column `c`'s floor as a cell carries it: `None` for a fixed column.
+fn floor_of(floors: &Rc<ColumnFloors>, widths: &[f32], c: usize) -> Floor {
+    match col_dimension(widths, c) {
+        Dimension::Auto => Some((floors.clone(), c)),
+        _ => None,
+    }
+}
+
 impl<Msg: Clone + 'static> Table<Msg> {
     /// Creates a table of `columns` columns (flexible, of equal width by default).
     pub fn new(columns: usize) -> Self {
@@ -977,6 +1090,51 @@ impl<Msg: Clone + 'static> Table<Msg> {
         col_dimension(&self.widths, c)
     }
 
+    /// The labels each flexible column's floor is measured from: the text headings and
+    /// every text row. A virtualised table builds its rows on demand, so only its headings
+    /// are known here.
+    fn column_floors(&self) -> Rc<ColumnFloors> {
+        let headings = if self.header_widgets.is_empty() {
+            self.headers
+                .iter()
+                .enumerate()
+                .map(|(c, label)| HeadingFloor {
+                    label: label.clone(),
+                    icon: self.header_icons.get(c).copied().flatten().is_some(),
+                    sortable: self.on_sort.is_some(),
+                    action: self.header_actions.get(c).and_then(|a| a.as_ref()).map_or(
+                        0.0,
+                        |make| match Widget::<Msg>::style(&make()).width {
+                            // Its own width and the padding the cell keeps after it.
+                            Dimension::Length(w) => w + PAD_X,
+                            _ => 0.0,
+                        },
+                    ),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut data = vec![Vec::new(); self.columns];
+        for row in &self.rows {
+            if let RowKind::Text(cells) = row {
+                for (c, label) in cells.iter().enumerate().take(self.columns) {
+                    data[c].push(label.clone());
+                }
+            }
+        }
+        Rc::new(ColumnFloors {
+            headings,
+            data,
+            measured: std::cell::RefCell::new(None),
+        })
+    }
+
+    /// Column `c`'s floor as a cell carries it: `None` for a fixed column.
+    fn floor(&self, floors: &Rc<ColumnFloors>, c: usize) -> Floor {
+        floor_of(floors, &self.widths, c)
+    }
+
     /// One `Flex` row, at the table's total width when one is set.
     fn new_row(&self) -> Flex<Msg> {
         let row = Flex::row().gap(ROW_GAP);
@@ -1068,6 +1226,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             message: self.on_sort.as_ref().map(|f| f(c)),
             reorder: None,
             action: Vec::new(),
+            floor: None,
         }
     }
 
@@ -1103,6 +1262,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                     message: self.on_select.as_ref().map(|f| f(r)),
                     reorder: None,
                     action: Vec::new(),
+                    floor: None,
                 });
             }
             col = col.child(rr);
@@ -1198,6 +1358,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
 
         let checks = self.on_check.is_some();
         let mut col = Flex::column().gap(ROW_GAP);
+        let floors = self.column_floors();
 
         // The header row (when there are text labels, widget headers, or checkboxes).
         let widget_headers = !self.header_widgets.is_empty();
@@ -1250,6 +1411,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                         message,
                         reorder,
                         action,
+                        floor: self.floor(&floors, c),
                     });
                 }
             }
@@ -1266,6 +1428,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
             let selected = self.selected.clone();
             let on_select = self.on_select.clone();
             let on_check = self.on_check.clone();
+            let floors = floors.clone();
             let list = ListView::new(count, ROW_H, move |i| {
                 let is_selected = selected.contains(&i);
                 let message = on_select.as_ref().map(|f| f(i));
@@ -1298,6 +1461,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                                 message: message.clone(),
                                 reorder: None,
                                 action: Vec::new(),
+                                floor: floor_of(&floors, &widths, c),
                             });
                         }
                     }
@@ -1353,6 +1517,7 @@ impl<Msg: Clone + 'static> Table<Msg> {
                             message,
                             reorder: None,
                             action: Vec::new(),
+                            floor: self.floor(&floors, c),
                         });
                     }
                 }
@@ -2346,6 +2511,226 @@ mod tests {
         assert!(
             (n - widgets - 151.0).abs() < 1.0,
             "and so does the second cell: widgets={widgets} 35={n}"
+        );
+    }
+    /// The width a label is painted at, in a data cell or a heading.
+    fn painted(text: &str, header: bool) -> f32 {
+        frus_text::measure_resolved(text, &cell_text_style(header, Some(&Theme::default()))).width
+    }
+
+    /// Asserts that, row by row, each label ends before the next column's label starts.
+    fn assert_apart(ui: &crate::Ui<()>, rows: &[(&str, &str, bool)]) {
+        for (first, second, header) in rows {
+            let (a, b) = (label_x(ui, first).unwrap(), label_x(ui, second).unwrap());
+            assert!(
+                a + painted(first, *header) < b,
+                "{first:?} (at {a}, {} wide) runs into {second:?} (at {b})",
+                painted(first, *header)
+            );
+        }
+    }
+
+    /// **Labels never overlap where the width is unbounded** (milestone 767). In a row
+    /// beside other children a table has no width to share, and its flexible columns came
+    /// out at zero: every label was painted two pixels after the one before it. Each
+    /// flexible column is now at least as wide as the widest label in it.
+    #[test]
+    fn flexible_columns_keep_their_labels_apart_in_a_row() {
+        let table = Table::<()>::new(2)
+            .header(&["Metric", "Value"])
+            .row(&["Widgets", "35"])
+            .row(&["Milestones and more", "39"]);
+        let screen = crate::Flex::<()>::row()
+            .child(crate::Text::new("Stats"))
+            .child(table);
+        let ui = build_ui(
+            &screen,
+            Size::new(600.0, 300.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        assert_apart(
+            &ui,
+            &[
+                ("Metric", "Value", true),
+                ("Widgets", "35", false),
+                ("Milestones and more", "39", false),
+            ],
+        );
+        // One column, one edge: the second column starts at the same x in every row.
+        let xs = [
+            label_x(&ui, "Value").unwrap(),
+            label_x(&ui, "35").unwrap(),
+            label_x(&ui, "39").unwrap(),
+        ];
+        assert!(
+            xs.iter().all(|x| (x - xs[0]).abs() < 0.5),
+            "the second column lines up: {xs:?}"
+        );
+        // And it is no wider than its widest label needs: the floor, not the screen.
+        let start = label_x(&ui, "Milestones and more").unwrap() - PAD_X;
+        let floor = (painted("Milestones and more", false) + 2.0 * PAD_X).ceil();
+        assert!(
+            (xs[0] - PAD_X - start - floor - ROW_GAP).abs() < 1.0,
+            "the first column is as wide as its widest label: starts {start}, second at {}",
+            xs[0]
+        );
+    }
+
+    /// The same in a horizontal scroll, the other place a table is offered no width.
+    #[test]
+    fn flexible_columns_keep_their_labels_apart_in_a_horizontal_scroll() {
+        let table = Table::<()>::new(3).header(&["Name", "Role", "City"]).row(&[
+            "Ada Lovelace",
+            "Analyst",
+            "London",
+        ]);
+        let screen = SingleChildScrollView::<()>::new()
+            .axis(Axis::Horizontal)
+            .child(table);
+        let ui = build_ui(
+            &screen,
+            Size::new(300.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        assert_apart(
+            &ui,
+            &[
+                ("Name", "Role", true),
+                ("Role", "City", true),
+                ("Ada Lovelace", "Analyst", false),
+                ("Analyst", "London", false),
+            ],
+        );
+    }
+
+    /// Where the table has a width to share, a column whose label needs more than its share
+    /// keeps the label's width and the others divide what is left — rather than drawing
+    /// the label across the next column.
+    #[test]
+    fn a_share_too_narrow_for_its_label_gives_way_to_the_label() {
+        let table = Table::<()>::new(2)
+            .width(260.0)
+            .header(&["Description of the item", "N"])
+            .row(&["A rather long description", "7"]);
+        let ui = build_ui(
+            &table,
+            Size::new(400.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        assert_apart(
+            &ui,
+            &[
+                ("Description of the item", "N", true),
+                ("A rather long description", "7", false),
+            ],
+        );
+    }
+
+    /// A sortable heading keeps room for its arrow, so the arrow does not land on the next
+    /// column either.
+    #[test]
+    fn a_sortable_heading_keeps_room_for_its_arrow() {
+        let table = Table::<()>::new(2)
+            .header(&["Score", "Rank"])
+            .row(&["1", "2"])
+            .on_sort(|_| ())
+            .sorted(0, true);
+        let screen = crate::Flex::<()>::row()
+            .child(crate::Text::new("Ranks"))
+            .child(table);
+        let ui = build_ui(
+            &screen,
+            Size::new(600.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let (score, rank) = (
+            label_x(&ui, "Score").unwrap(),
+            label_x(&ui, "Rank").unwrap(),
+        );
+        assert!(
+            score + painted("Score", true) + SORT_ROOM < rank,
+            "the arrow after \"Score\" stays out of the next column: {score} {rank}"
+        );
+    }
+
+    /// A fixed column is not floored: its width is the one it was given.
+    #[test]
+    fn a_fixed_column_keeps_its_width() {
+        let table = Table::<()>::new(2)
+            .column_widths(&[40.0])
+            .header(&["A long heading", "B"])
+            .row(&["x", "y"]);
+        let screen = crate::Flex::<()>::row().child(table);
+        let ui = build_ui(
+            &screen,
+            Size::new(600.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let (a, b) = (label_x(&ui, "x").unwrap(), label_x(&ui, "y").unwrap());
+        assert!(
+            (b - a - 40.0 - ROW_GAP).abs() < 0.5,
+            "the fixed column stays 40 wide: {a} {b}"
+        );
+    }
+
+    /// A `DataTable` is a table, and keeps its labels apart the same way.
+    #[test]
+    fn a_data_table_in_a_row_keeps_its_labels_apart() {
+        let rows = vec![
+            vec!["Grace Hopper".to_string(), "1906".to_string()],
+            vec!["Alan Turing".to_string(), "1912".to_string()],
+        ];
+        let dt: crate::DataTable<()> = crate::DataTable::new(["Name", "Born"], rows);
+        let screen = crate::Flex::<()>::row()
+            .child(crate::Text::new("People"))
+            .child(dt);
+        let ui = build_ui(
+            &screen,
+            Size::new(600.0, 300.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        assert_apart(
+            &ui,
+            &[
+                ("Name", "Born", true),
+                ("Grace Hopper", "1906", false),
+                ("Alan Turing", "1912", false),
+            ],
+        );
+    }
+
+    /// A heading with an action widget starts its column where the cells under it start
+    /// theirs. Its content used to give it a bigger share of its row than the cells below
+    /// got of theirs, so the heading's edge sat somewhere else than the column's.
+    #[test]
+    fn a_heading_with_an_action_stays_in_its_column() {
+        let table = Table::<()>::new(2)
+            .width(300.0)
+            .header(&["Name", "Status"])
+            .on_sort(|_| ())
+            .header_action(1, || {
+                Box::new(crate::Button::<()>::new("Filter").on_press(()))
+            })
+            .row(&["Ada", "Active"]);
+        let ui = build_ui(
+            &table,
+            Size::new(400.0, 200.0),
+            &Runtime::default(),
+            &Theme::default(),
+        );
+        let (heading, cell) = (
+            label_x(&ui, "Status").unwrap(),
+            label_x(&ui, "Active").unwrap(),
+        );
+        assert!(
+            (heading - cell).abs() < 0.5,
+            "the heading starts with its column: heading {heading}, cell {cell}"
         );
     }
 }
