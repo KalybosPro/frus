@@ -200,6 +200,9 @@ PHONE
 
 ## Not done
 
+- **No phone or emulator check of this milestone's final state.** The placements, the
+  footer, the snack bar lifting the button and the notch were checked by unit tests and
+  goldens only; an x86 APK was built but not run.
 - **A floating bar without a width of its own** still keeps its measured width. The
   reference's floating bar has the same expanded content row, and without a width it is only
   wrapped in its margin (`snack_bar.dart:815-824`), so it too fills the width it is offered,
