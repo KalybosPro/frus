@@ -66,24 +66,24 @@
 //! reports itself scrollable to the gesture arena. Scrolling is a property of the
 //! content, and the content is the screen's.
 
-use frus_core::{Color, Insets, WindowInsets};
+use frus_core::{Color, Insets, Point, Rect, Size, TextDirection, WindowInsets};
 use frus_layout::Justify;
 
 use crate::bottomappbar::BottomAppBar;
 use crate::container::Container;
+use crate::customlayout::{ChildAxis, ChildConstraints, ChildLayout, CustomMultiChildLayout};
 use crate::flex::Flex;
 use crate::media::MediaQuery;
 use crate::navrail::{BottomBar, NavigationDestination, NavigationRail, RailLabels, BAR_HEIGHT};
-use crate::stack::Stack;
+use crate::toast::{SnackBar, SnackBarBehavior};
 use crate::widget::Widget;
+use std::cell::Cell;
+use std::rc::Rc;
 
 /// The FAB's margin from the edge, and from the bottom bar.
 const FAB_MARGIN: f32 = 16.0;
 /// The padding around the persistent footer's row.
 const FOOTER_PAD: f32 = 12.0;
-/// The height a floating action button is assumed to have, absent
-/// [`Scaffold::fab_size`]. The conventional Material diameter.
-const FAB_SIZE: f32 = 56.0;
 
 /// What a caller wants done to the [`NavigationRail`] the shell built for it, once it is
 /// built and before it is measured. See [`Scaffold::rail`].
@@ -117,44 +117,323 @@ pub enum NavPlacement {
     Rail,
 }
 
+/// How much closer to the edges a **mini** placement puts the button: a mini button is
+/// smaller, and the same margin would leave it looking adrift.
+pub const MINI_FAB_OFFSET_ADJUSTMENT: f32 = 4.0;
+
 /// Where the floating action button sits.
 ///
-/// Two questions, and they are independent: which end of the row, and whether the
-/// button **floats** clear of the bottom bar or **docks** astride its top edge. The
-/// docked placements are the ones a notched bottom bar is cut for.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+/// Three questions, answered together: **which end** of the row (start, centre, end, with
+/// the start on the right in a right-to-left script), **what height** (at the top, astride
+/// the app bar's bottom edge; floating above whatever is at the bottom; docked astride the
+/// bottom bar's top edge; or contained inside the bottom bar), and whether the button is a
+/// **mini** one, which sits [`MINI_FAB_OFFSET_ADJUSTMENT`] closer to the edges.
+///
+/// A placement none of these gives is written as a [`FabLocator`]: a function from the
+/// scaffold's [`FabGeometry`] to the button's top-left corner.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum FabLocation {
+    /// Leading end, astride the app bar's bottom edge.
+    StartTop,
+    /// [`StartTop`](Self::StartTop), for a mini button.
+    MiniStartTop,
+    /// Centred, astride the app bar's bottom edge.
+    CenterTop,
+    /// [`CenterTop`](Self::CenterTop), for a mini button.
+    MiniCenterTop,
+    /// Trailing end, astride the app bar's bottom edge.
+    EndTop,
+    /// [`EndTop`](Self::EndTop), for a mini button.
+    MiniEndTop,
     /// Leading end, clear of the bar.
     StartFloat,
+    /// [`StartFloat`](Self::StartFloat), for a mini button.
+    MiniStartFloat,
     /// Centred, clear of the bar.
     CenterFloat,
-    /// Trailing end, clear of the bar — the default, and where a thumb reaches.
+    /// [`CenterFloat`](Self::CenterFloat), for a mini button.
+    MiniCenterFloat,
+    /// Trailing end, clear of the bar: the default, and where a thumb reaches.
     #[default]
     EndFloat,
+    /// [`EndFloat`](Self::EndFloat), for a mini button.
+    MiniEndFloat,
     /// Leading end, centred on the bar's top edge.
     StartDocked,
+    /// [`StartDocked`](Self::StartDocked), for a mini button.
+    MiniStartDocked,
     /// Centred on the bar's top edge, horizontally centred.
     CenterDocked,
+    /// [`CenterDocked`](Self::CenterDocked), for a mini button.
+    MiniCenterDocked,
     /// Trailing end, centred on the bar's top edge.
     EndDocked,
+    /// [`EndDocked`](Self::EndDocked), for a mini button.
+    MiniEndDocked,
+    /// Trailing end, **inside** the bottom bar: centred in the room the bar has above the
+    /// gesture bar.
+    EndContained,
+}
+
+/// The height a [`FabLocation`] puts the button at.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum FabHeight {
+    Top,
+    Float,
+    Docked,
+    Contained,
 }
 
 impl FabLocation {
-    /// Whether the button straddles the bar's top edge rather than floating above it.
-    pub fn docked(self) -> bool {
-        matches!(
-            self,
-            FabLocation::StartDocked | FabLocation::CenterDocked | FabLocation::EndDocked
-        )
-    }
-
     /// Which end of the row it goes to.
     pub fn justify(self) -> Justify {
+        use FabLocation::*;
         match self {
-            FabLocation::StartFloat | FabLocation::StartDocked => Justify::Start,
-            FabLocation::CenterFloat | FabLocation::CenterDocked => Justify::Center,
-            FabLocation::EndFloat | FabLocation::EndDocked => Justify::End,
+            StartTop | MiniStartTop | StartFloat | MiniStartFloat | StartDocked
+            | MiniStartDocked => Justify::Start,
+            CenterTop | MiniCenterTop | CenterFloat | MiniCenterFloat | CenterDocked
+            | MiniCenterDocked => Justify::Center,
+            EndTop | MiniEndTop | EndFloat | MiniEndFloat | EndDocked | MiniEndDocked
+            | EndContained => Justify::End,
         }
+    }
+
+    fn height(self) -> FabHeight {
+        use FabLocation::*;
+        match self {
+            StartTop | MiniStartTop | CenterTop | MiniCenterTop | EndTop | MiniEndTop => {
+                FabHeight::Top
+            }
+            StartFloat | MiniStartFloat | CenterFloat | MiniCenterFloat | EndFloat
+            | MiniEndFloat => FabHeight::Float,
+            StartDocked | MiniStartDocked | CenterDocked | MiniCenterDocked | EndDocked
+            | MiniEndDocked => FabHeight::Docked,
+            EndContained => FabHeight::Contained,
+        }
+    }
+
+    /// Whether the button straddles the bar's top edge rather than floating above it.
+    pub fn docked(self) -> bool {
+        self.height() == FabHeight::Docked
+    }
+
+    /// Whether the button hangs from the app bar rather than standing at the bottom.
+    pub fn top(self) -> bool {
+        self.height() == FabHeight::Top
+    }
+
+    /// Whether this is a placement for a **mini** button, [`MINI_FAB_OFFSET_ADJUSTMENT`]
+    /// closer to the edges.
+    pub fn mini(self) -> bool {
+        use FabLocation::*;
+        matches!(
+            self,
+            MiniStartTop
+                | MiniCenterTop
+                | MiniEndTop
+                | MiniStartFloat
+                | MiniCenterFloat
+                | MiniEndFloat
+                | MiniStartDocked
+                | MiniCenterDocked
+                | MiniEndDocked
+        )
+    }
+}
+
+impl FabLocator for FabLocation {
+    fn offset(&self, geometry: &FabGeometry) -> Point {
+        let adjustment = if self.mini() {
+            MINI_FAB_OFFSET_ADJUSTMENT
+        } else {
+            0.0
+        };
+        let x = match self.justify() {
+            Justify::Start => geometry.start_x(adjustment),
+            Justify::Center => geometry.center_x(),
+            _ => geometry.end_x(adjustment),
+        };
+        let y = match self.height() {
+            FabHeight::Top => geometry.top_y(),
+            FabHeight::Float => geometry.float_y(adjustment),
+            FabHeight::Docked => geometry.docked_y(),
+            FabHeight::Contained => geometry.contained_y(),
+        };
+        Point::new(x, y)
+    }
+
+    fn snack_bar_above(&self) -> bool {
+        !self.top()
+    }
+}
+
+/// **A placement of one's own** for the floating action button: given what the scaffold
+/// measured, where the button's top-left corner goes, in the scaffold's coordinates.
+///
+/// [`FabLocation`] is one, and so is any `Fn(&FabGeometry) -> Point`. The geometry's
+/// methods are the halves the standard placements are made of, so a placement that is a
+/// standard one moved over is short:
+///
+/// ```
+/// use frus_core::Point;
+/// use frus_widgets::{FabGeometry, Scaffold};
+///
+/// // At the end, floating, but twice as far from the edges.
+/// let _shell = Scaffold::<()>::new().fab_location(|g: &FabGeometry| {
+///     Point::new(g.end_x(0.0) - 16.0, g.float_y(0.0) - 16.0)
+/// });
+/// ```
+pub trait FabLocator {
+    /// The button's top-left corner.
+    fn offset(&self, geometry: &FabGeometry) -> Point;
+
+    /// Whether a **floating** snack bar is shown above the button, which then stays where
+    /// it is. `true`, except for the placements at the top, under which the bar stays at
+    /// the bottom.
+    fn snack_bar_above(&self) -> bool {
+        true
+    }
+}
+
+impl<F: Fn(&FabGeometry) -> Point> FabLocator for F {
+    fn offset(&self, geometry: &FabGeometry) -> Point {
+        self(geometry)
+    }
+}
+
+/// What a scaffold knows when it places its floating action button: every slot measured,
+/// in the scaffold's own coordinates (milestone 766).
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct FabGeometry {
+    /// The scaffold's size.
+    pub scaffold_size: Size,
+    /// The button's size, measured.
+    pub fab_size: Size,
+    /// The app bar's bottom edge: its height, `0` without one, whether or not the body runs
+    /// behind it.
+    pub content_top: f32,
+    /// Where the body stops: above the bottom bar and the persistent footer, or above the
+    /// keyboard when that reaches higher.
+    pub content_bottom: f32,
+    /// What the scaffold keeps its content clear of: the safe area, with the keyboard as
+    /// the bottom when the scaffold resizes for it (`0` otherwise).
+    pub min_insets: Insets,
+    /// What the scaffold keeps its controls clear of: the system's intrusions ignoring the
+    /// keyboard, with the bottom `0` while a keyboard the scaffold resizes for covers it.
+    pub min_view_padding: Insets,
+    /// The persistent bottom sheet's size, zero without one.
+    pub bottom_sheet_size: Size,
+    /// The snack bar's size when it is **fixed** to the bottom, zero otherwise: a floating
+    /// one goes above the button rather than lifting it.
+    pub snack_bar_size: Size,
+    /// The reading direction: the start is the right in a right-to-left script.
+    pub direction: TextDirection,
+}
+
+impl FabGeometry {
+    fn left_x(&self, adjustment: f32) -> f32 {
+        FAB_MARGIN + self.min_insets.left - adjustment
+    }
+
+    fn right_x(&self, adjustment: f32) -> f32 {
+        self.scaffold_size.width - FAB_MARGIN - self.min_insets.right - self.fab_size.width
+            + adjustment
+    }
+
+    /// The `x` of a button at the **start** of the line: its margin from the edge, clear of
+    /// the safe area there, and `adjustment` closer to the edge.
+    pub fn start_x(&self, adjustment: f32) -> f32 {
+        if self.direction.is_rtl() {
+            self.right_x(adjustment)
+        } else {
+            self.left_x(adjustment)
+        }
+    }
+
+    /// The `x` of a centred button.
+    pub fn center_x(&self) -> f32 {
+        (self.scaffold_size.width - self.fab_size.width) / 2.0
+    }
+
+    /// The `x` of a button at the **end** of the line.
+    pub fn end_x(&self, adjustment: f32) -> f32 {
+        if self.direction.is_rtl() {
+            self.left_x(adjustment)
+        } else {
+            self.right_x(adjustment)
+        }
+    }
+
+    /// The `y` of a button astride the app bar's bottom edge, or just below the status bar
+    /// without an app bar.
+    pub fn top_y(&self) -> f32 {
+        if self.content_top > self.min_view_padding.top {
+            self.content_top - self.fab_size.height / 2.0
+        } else {
+            self.min_view_padding.top
+        }
+    }
+
+    /// The `y` of a **floating** button: its margin above the content's bottom and clear
+    /// of the gesture bar, above a fixed snack bar, astride a bottom sheet's top edge, and
+    /// then `adjustment` lower.
+    pub fn float_y(&self, adjustment: f32) -> f32 {
+        let fab_height = self.fab_size.height;
+        let bottom_content = self.scaffold_size.height - self.content_bottom;
+        let safe_margin =
+            FAB_MARGIN.max(self.min_view_padding.bottom - bottom_content + FAB_MARGIN);
+        let y = self.lifted(self.content_bottom - fab_height - safe_margin);
+        y + adjustment
+    }
+
+    /// The `y` of a **docked** button: its centre on the bottom bar's top edge when the bar
+    /// shows half of it, otherwise kept whole above the gesture bar or the keyboard; above
+    /// a fixed snack bar, and astride a bottom sheet's top edge.
+    pub fn docked_y(&self) -> f32 {
+        let fab_height = self.fab_size.height;
+        let content_margin = self.scaffold_size.height - self.content_bottom;
+        let bottom_min_inset = self.min_insets.bottom;
+        let safe_margin = if content_margin > bottom_min_inset + fab_height / 2.0 {
+            // A bar tall enough to show half the button above what the keyboard covers.
+            0.0
+        } else if bottom_min_inset == 0.0 {
+            // No keyboard: whole, above the gesture bar.
+            self.min_view_padding.bottom
+        } else {
+            // A keyboard: its margin above it, as a floating button.
+            fab_height / 2.0 + FAB_MARGIN
+        };
+        let y = self.lifted(self.content_bottom - fab_height / 2.0 - safe_margin);
+        let max_y = self.scaffold_size.height - fab_height - safe_margin;
+        y.min(max_y)
+    }
+
+    /// The `y` of a button **inside** the bottom bar: centred in the room the bar has above
+    /// the gesture bar, and kept above the gesture bar when the bar is too short for it.
+    pub fn contained_y(&self) -> f32 {
+        let fab_height = self.fab_size.height;
+        let content_margin = self.scaffold_size.height - self.content_bottom;
+        let view_padding = self.min_view_padding.bottom;
+        let safe_margin = if content_margin > view_padding + fab_height {
+            0.0
+        } else {
+            view_padding
+        };
+        let y = self.content_bottom + (content_margin - view_padding - fab_height) / 2.0;
+        let max_y = self.scaffold_size.height - fab_height - safe_margin;
+        y.min(max_y)
+    }
+
+    /// `y`, raised above a fixed snack bar and to a bottom sheet's top edge.
+    fn lifted(&self, mut y: f32) -> f32 {
+        let fab_height = self.fab_size.height;
+        if self.snack_bar_size.height > 0.0 {
+            y = y.min(self.content_bottom - self.snack_bar_size.height - fab_height - FAB_MARGIN);
+        }
+        if self.bottom_sheet_size.height > 0.0 {
+            y = y.min(self.content_bottom - self.bottom_sheet_size.height - fab_height / 2.0);
+        }
+        y
     }
 }
 
@@ -190,13 +469,16 @@ struct ScaffoldParts<Msg> {
     bottom_app_bar: Option<BottomAppBar<Msg>>,
     bottom_navigation_bar: Option<Box<dyn Widget<Msg>>>,
     fab: Option<Box<dyn Widget<Msg>>>,
-    fab_location: FabLocation,
-    fab_size: f32,
+    fab_location: Rc<dyn FabLocator>,
     persistent_footer: Option<Box<dyn Widget<Msg>>>,
     persistent_footer_alignment: Justify,
     persistent_footer_divider: bool,
     persistent_footer_color: Option<Color>,
     bottom_sheet: Option<(Box<dyn Widget<Msg>>, bool, Msg)>,
+    persistent_bottom_sheet: Option<Box<dyn Widget<Msg>>>,
+    /// The snack bar the caller put in the shell, with the placing it asked for itself.
+    snack_bar: Option<(Box<dyn Widget<Msg>>, Option<SnackBarBehavior>)>,
+    host_snack_bars: bool,
     primary: bool,
     drawer_scrim_color: Option<Color>,
     drawer_barrier_dismissible: bool,
@@ -266,8 +548,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             bottom_app_bar: None,
             bottom_navigation_bar: None,
             fab: None,
-            fab_location: FabLocation::default(),
-            fab_size: FAB_SIZE,
+            fab_location: Rc::new(FabLocation::default()),
             persistent_footer: None,
             persistent_footer_alignment: Justify::End,
             // The reference's footer carries a one-pixel line along its top by default
@@ -275,6 +556,9 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             persistent_footer_divider: true,
             persistent_footer_color: None,
             bottom_sheet: None,
+            persistent_bottom_sheet: None,
+            snack_bar: None,
+            host_snack_bars: true,
             primary: true,
             drawer_scrim_color: None,
             drawer_barrier_dismissible: true,
@@ -593,31 +877,29 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         self
     }
 
-    /// Where the FAB sits: which end of the row, and whether it floats clear of the
-    /// bottom bar or docks astride its top edge. [`FabLocation::EndFloat`] by default.
+    /// Where the FAB sits: a [`FabLocation`] (which end of the row; at the top, floating,
+    /// docked or contained; mini or not), or a [`FabLocator`] of the caller's own.
+    /// [`FabLocation::EndFloat`] by default.
     ///
-    /// With the keyboard up (and the scaffold resizing for it), a floating button stands
-    /// its margin above the keyboard, and so does a docked one: half a button behind the
-    /// keyboard is no use. A docked button with no bar under it is kept whole above the
-    /// gesture bar. Nothing holds a button from above: a keyboard that leaves less room
-    /// than the button needs lifts it over the app bar, and past the window's top edge
-    /// when the room is shorter than the button. A screen that wants the button gone
-    /// while the keyboard is up leaves it out (the keyboard's height is in
+    /// The button is placed from what the shell has **measured**: the app bar, the bottom
+    /// bar, the persistent footer, a fixed snack bar, a persistent bottom sheet and the
+    /// button itself. With the keyboard up (and the scaffold resizing for it), a floating
+    /// button stands its margin above the keyboard, and so does a docked one: half a
+    /// button behind the keyboard is no use. A docked button with no bar under it is kept
+    /// whole above the gesture bar. Nothing holds a button from above: a keyboard that
+    /// leaves less room than the button needs lifts it over the app bar, and past the
+    /// window's top edge when the room is shorter than the button. A screen that wants the
+    /// button gone while the keyboard is up leaves it out (the keyboard's height is in
     /// [`MediaQuery`](crate::MediaQuery)).
-    pub fn fab_location(mut self, location: FabLocation) -> Self {
-        self.p().fab_location = location;
+    pub fn fab_location(mut self, location: impl FabLocator + 'static) -> Self {
+        self.p().fab_location = Rc::new(location);
         self
     }
 
-    /// The height the FAB is taken to have when it is **docked**, since that
-    /// placement puts its centre on the bar's edge and so has to know how tall it is.
-    /// 56 px — the conventional diameter — unless said otherwise.
-    ///
-    /// A declared number rather than a measured one, and that is a divergence worth
-    /// naming: the scaffold is handed the button as an opaque widget it cannot
-    /// measure. A button of another size docks correctly once it says so.
-    pub fn fab_size(mut self, size: f32) -> Self {
-        self.p().fab_size = size;
+    /// Not read any more: the button is **measured** since milestone 766, so a docked
+    /// button of any size sits on the bar's edge without being declared.
+    #[deprecated(note = "the floating action button is measured; this has no effect")]
+    pub fn fab_size(self, _size: f32) -> Self {
         self
     }
 
@@ -646,6 +928,59 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         toggle: Msg,
     ) -> Self {
         self.p().bottom_sheet = Some((Box::new(panel), open, toggle));
+        self
+    }
+
+    /// A **persistent** bottom sheet: a panel standing on the bottom bar, above the body,
+    /// with no scrim, which the page around it stays usable beside. The body keeps its
+    /// height, the sheet is drawn over it, and a floating or docked button moves up to sit
+    /// astride the sheet's top edge.
+    ///
+    /// It is as wide as the body (a sheet with a width of its own keeps it, centred) and
+    /// as tall as it wants, up to the room between the app bar and the bottom bar. A
+    /// **modal** sheet, which covers the button with its scrim, is
+    /// [`Scaffold::bottom_sheet`].
+    pub fn persistent_bottom_sheet(mut self, sheet: impl Widget<Msg> + 'static) -> Self {
+        self.p().persistent_bottom_sheet = Some(Box::new(sheet));
+        self
+    }
+
+    /// A **snack bar** shown by this shell, in its own layout rather than over it.
+    ///
+    /// A bar fixed to the bottom ([`SnackBarBehavior::Fixed`], the default) stands on the
+    /// bottom bar and the persistent footer, and the floating action button rises above
+    /// it. A floating one goes above the button, which stays where it is. The bar's own
+    /// placing decides, then the theme's.
+    ///
+    /// A bar shown with `host::show_snack_bar` is put here by every shell that is
+    /// [`primary`](Self::primary) without being asked, unless
+    /// [`host_snack_bars`](Self::host_snack_bars) says otherwise.
+    pub fn snack_bar(mut self, bar: SnackBar<Msg>) -> Self
+    where
+        Msg: Clone,
+    {
+        let behavior = bar.behavior_word();
+        self.p().snack_bar = Some((Box::new(bar), behavior));
+        self
+    }
+
+    /// A **snack bar** of any make, with where it sits said here: a bar wrapped in a
+    /// transition of the caller's choosing, say. See [`Scaffold::snack_bar`].
+    pub fn snack_bar_widget(
+        mut self,
+        bar: impl Widget<Msg> + 'static,
+        behavior: SnackBarBehavior,
+    ) -> Self {
+        self.p().snack_bar = Some((Box::new(bar), Some(behavior)));
+        self
+    }
+
+    /// Whether this shell shows the bar `host::show_snack_bar` put on screen, in its own
+    /// layout, above its bottom bar and below its floating button. `true` by default for a
+    /// [`primary`](Self::primary) shell. Without a shell to show it, the bar is shown along
+    /// the bottom of the window.
+    pub fn host_snack_bars(mut self, host: bool) -> Self {
+        self.p().host_snack_bars = host;
         self
     }
 
@@ -731,12 +1066,14 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             bottom_navigation_bar,
             fab,
             fab_location,
-            fab_size,
             persistent_footer,
             persistent_footer_alignment,
             persistent_footer_divider,
             persistent_footer_color,
             bottom_sheet,
+            persistent_bottom_sheet,
+            snack_bar,
+            host_snack_bars,
             primary,
             drawer_scrim_color,
             drawer_barrier_dismissible,
@@ -793,13 +1130,12 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             None
         };
 
-        // Where the button's centre falls, in the window's own coordinates. Needed
-        // before the bottom bar is built, because a notched bar is cut around it.
-        let fab_centre_x = match fab_location.justify() {
-            Justify::Start => insets.left + FAB_MARGIN + fab_size / 2.0,
-            Justify::Center => width / 2.0,
-            _ => width - insets.right - FAB_MARGIN - fab_size / 2.0,
-        };
+        // Where the button landed, which a notched bar is cut around. The layout below
+        // measures the button and places it, then writes its box here, in the bar's own
+        // coordinates, before the bar is painted (milestone 766). It used to be worked out
+        // here from a declared size and the location alone, so a button the keyboard had
+        // lifted off the bar left its notch behind.
+        let notch: Rc<Cell<Option<Rect>>> = Rc::new(Cell::new(None));
 
         // A bottom app bar takes the bottom slot when there is no navigation in it —
         // being able to leave the screen outranks the actions on it. Its notch is cut
@@ -813,12 +1149,8 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             }
             (None, Some(bar)) => {
                 bottom_bar_height = bar.declared_height();
-                let bar = if fab.is_some() && fab_location.docked() {
-                    // In the bar's own coordinates, which are the window's: since
-                    // milestone 418 the bottom slot spans the full width and consumes
-                    // the side intrusions itself, so its origin is no longer held off
-                    // by `insets.left` and the notch is no longer moved back by it.
-                    bar.notched_at(fab_centre_x, fab_size / 2.0)
+                let bar = if fab.is_some() {
+                    bar.notched_by(notch.clone())
                 } else {
                     bar
                 };
@@ -984,7 +1316,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
         // of its content — a body taller than the room made that column taller than the
         // screen, and an unsized scroll view in it never had a bound to scroll within
         // (milestone 590).
-        let body_pane = crate::Expanded::new(Flex::column().child(crate::MediaScope::tweak(
+        let body_pane = Flex::column().child(crate::MediaScope::tweak(
             move |mq: &mut crate::MediaQuery| {
                 mq.padding.top = body_top;
                 mq.padding.left = body_left;
@@ -997,30 +1329,7 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
                 }
             },
             body_widget,
-        )));
-
-        // Whether the bottom clearance falls to the body — and **which** clearance.
-        //
-        // The keyboard, and nothing else (milestone 423). It is taken as a **sibling**
-        // rather than as padding inside the body: the room the body is given shrinks, so a
-        // scrolling body scrolls within what is left instead of running under the keyboard.
-        // The gesture bar is *not* here any more; it reaches the body as a description, and
-        // a body that wants to be held clear of it says `SafeArea` — which is what the
-        // reference does, `minInsets.bottom` being the keyboard alone.
-        //
-        // With a bar or a footer below it they hold the edge off, and a body told to run
-        // under them has asked for the room.
-        //
-        // A body extended under the bars is shortened by the keyboard all the same: the
-        // bars are drawn over it and the keyboard over them, and a field at its end must
-        // still come up above the keyboard.
-        let body_owns_bottom = footer.is_none() && !bar_below_body;
-        let body_spacer = (body_owns_bottom || extend_body) && keyboard_clear > 0.0;
-        // With the bottom bar or the footer below the body, the keyboard covers them and
-        // the body stops at whichever reaches higher (milestone 752): the reference's
-        // `contentBottom = height - max(minInsets.bottom, bottomWidgetsHeight)`. They stay
-        // at the bottom of a block at least as tall as the keyboard.
-        let keyboard_floor = !body_spacer && keyboard_clear > 0.0;
+        ));
 
         // Which slots the body must make room for, and which it runs under. A slot that
         // is extended behind moves out of the body's column and into an overlay layer
@@ -1082,178 +1391,130 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
             ))
         };
 
-        // The pinned shell: app bar · body · footer · (bottom bar | rail).
+        // **The shell is one layout that measures its slots** (milestone 766), the way the
+        // reference's is: the app bar, then the bottom bar and the persistent footer from the
+        // bottom up, then the body in what they leave, then the persistent sheet and the snack
+        // bar, and the floating button last, from all of those sizes. It used to be a column
+        // with the button in a layer over it, placed from declared heights before anything
+        // was laid out: a footer, a snack bar or a sheet never moved it, because nothing
+        // knew how tall they were.
+        //
+        // The children are given in the order they are painted, which is the order the
+        // column and its layers used to paint them in: what the body runs under is drawn
+        // after it.
+        let mut nav = nav;
+        let rail = if rail_nav { nav.take() } else { None };
         let mut app_bar = app_bar;
         let mut footer = footer;
-        let mut nav = nav;
-        let main: Box<dyn Widget<Msg>> = if !rail_nav {
-            let mut col = Flex::column().width(width).height(height);
-            if !bar_over_body {
-                if let Some(bar) = app_bar.take() {
-                    col = col.child(app_bar_pad(bar, insets.left));
-                }
-            }
-            col = col.child(body_pane);
-            if body_spacer {
-                col = col.child(Container::new().height(keyboard_clear));
-            }
-            if !bottom_over_body {
-                let mut below: Vec<Box<dyn Widget<Msg>>> = Vec::new();
-                if let Some(f) = footer.take() {
-                    below.push(f);
-                }
-                if let Some(n) = nav.take() {
-                    below.push(nav_pad(n));
-                }
-                col = push_below_body(col, below, keyboard_floor.then_some(keyboard_clear));
-            }
-            Box::new(col)
-        } else {
-            let mut row = Flex::row().width(width).height(height);
-            if let Some(n) = nav.take() {
-                // The rail is a sibling, never an overlay: `extend_body` speaks of the
-                // bottom bar, and a body sliding under a side rail is nobody's design.
-                //
-                // Told, not padded (milestone 420): the trailing side is the body's, so
-                // it is removed; the leading side, the top and the bottom are the rail's
-                // to consume, which is the set the reference's own safe area takes
-                // (`navigation_rail.dart:556`). The rule down the rail's edge then runs
-                // the full height of the screen instead of stopping at the notch.
-                let (rail_top, rail_left) = (insets.top, insets.left);
-                row = row.child(crate::MediaScope::tweak(
+        // The application's bar, shown here rather than over the window when this shell is
+        // the one at the top of the screen and the page put none of its own in.
+        let (snack_bar, hosted) = match snack_bar {
+            Some(bar) => (Some(bar), false),
+            None if primary && host_snack_bars => (hosted_snack_bar::<Msg>(), true),
+            None => (None, false),
+        };
+        let mut children: Vec<(Slot, Box<dyn Widget<Msg>>)> = Vec::new();
+        if let Some(rail) = rail {
+            // The rail is a sibling, never an overlay: `extend_body` speaks of the bottom
+            // bar, and a body sliding under a side rail is nobody's design.
+            //
+            // Told, not padded (milestone 420): the trailing side is the body's, so it is
+            // removed; the leading side, the top and the bottom are the rail's to consume,
+            // which is the set the reference's own safe area takes
+            // (`navigation_rail.dart:556`). The rule down the rail's edge then runs the full
+            // height of the screen instead of stopping at the notch.
+            let (rail_top, rail_left) = (insets.top, insets.left);
+            children.push((
+                Slot::Rail,
+                Box::new(crate::MediaScope::tweak(
                     move |mq: &mut crate::MediaQuery| {
                         mq.padding.top = rail_top;
                         mq.padding.right = 0.0;
                         mq.padding.left = rail_left;
                         mq.padding.bottom = bottom_clear;
                     },
-                    n,
-                ));
-            }
-            let mut content = Flex::column().flex(1.0);
-            if !bar_over_body {
-                if let Some(bar) = app_bar.take() {
-                    content = content.child(app_bar_pad(bar, 0.0));
-                }
-            }
-            content = content.child(body_pane);
-            if body_spacer {
-                content = content.child(Container::new().height(keyboard_clear));
-            }
-            if !bottom_over_body {
-                let below: Vec<Box<dyn Widget<Msg>>> = footer.take().into_iter().collect();
-                content = push_below_body(content, below, keyboard_floor.then_some(keyboard_clear));
-            }
-            row = row.child(content);
-            Box::new(row)
-        };
-
-        // Whatever the body was told to run under is drawn over it, in a layer of its
-        // own: the bar at the top, the footer and the bar at the bottom, a spring
-        // between. Nothing here needs a measurement — the spring takes what is left.
-        let main: Box<dyn Widget<Msg>> = if app_bar.is_some() || footer.is_some() || nav.is_some() {
-            let mut over = Flex::column().width(width).height(height);
-            if let Some(bar) = app_bar {
-                over = over.child(app_bar_pad(bar, insets.left));
-            }
-            over = over.child(Container::new().flex(1.0));
-            if let Some(f) = footer {
-                over = over.child(f);
-            }
-            if let Some(n) = nav {
-                over = over.child(nav_pad(n));
-            }
-            Box::new(
-                Stack::new()
-                    .width(width)
-                    .height(height)
-                    .layer(main)
-                    .layer(over),
-            )
-        } else {
-            main
-        };
-
-        // The FAB, in a layer of its own over the shell, at the corner it was given.
-        let mut content: Box<dyn Widget<Msg>> = main;
-        if let Some(fab) = fab {
-            // Where the body stops, which is what both vertical placements are measured
-            // from: the top of the bottom bar, or of the keyboard when that reaches higher
-            // (milestone 752) — the keyboard covers the bar, and the button stays in sight
-            // above whichever is in front.
-            let bar_top = if nav_h > 0.0 {
-                bottom_clear + nav_h
-            } else {
-                0.0
-            };
-            let content_bottom = bar_top.max(keyboard_clear);
-            // The intrusion the button keeps clear of when nothing below the body does:
-            // the gesture bar, unless a keyboard the shell resizes for is up and covers it.
-            let fab_clear = if resize_to_avoid_bottom_inset && view_insets.bottom > 0.0 {
-                0.0
-            } else {
-                view_padding.bottom
-            };
-            let fab_bottom = if fab_location.docked() {
-                // Docked: the button's **centre** on the bar's top edge, straddling it —
-                // when there is a bar to straddle, tall enough to show half the button
-                // above whatever the keyboard covers. Otherwise it is kept whole (milestone
-                // 757): above the gesture bar with no keyboard, its margin above the
-                // keyboard with one, as a floating button would be.
-                let margin = if content_bottom > keyboard_clear + fab_size / 2.0 {
-                    0.0
-                } else if keyboard_clear == 0.0 {
-                    fab_clear
-                } else {
-                    fab_size / 2.0 + FAB_MARGIN
-                };
-                margin + (content_bottom - fab_size / 2.0).max(0.0)
-            } else {
-                // Floating: clear of the edge by the usual margin, and of the gesture bar
-                // when nothing below the body already is.
-                content_bottom.max(fab_clear) + FAB_MARGIN
-            };
-            // **Nothing holds it below the top** (milestone 757). A keyboard taller than
-            // the room left (a phone in landscape) lifts the button over the app bar, and
-            // past the window's top edge when the room is shorter than the button: it is
-            // placed from the content's bottom alone, as the bars above are not its concern.
-
-            // The margin on the side the button is placed, start or end; the safe area's
-            // insets on the sides they name, whichever the direction (milestone 588). The row
-            // runs start to end, so in a right-to-left script the start is the right, and
-            // the button there clears the right-hand inset, not the left-hand one.
-            let (start_margin, end_margin) = match fab_location.justify() {
-                Justify::Start => (FAB_MARGIN, 0.0),
-                Justify::End => (0.0, FAB_MARGIN),
-                _ => (0.0, 0.0),
-            };
-            let fab_layer = Flex::column()
-                .width(width)
-                .height(height)
-                .justify(Justify::End)
-                .child(
-                    Flex::row()
-                        .justify(fab_location.justify())
-                        .padding_each(0.0, insets.right, 0.0, insets.left)
-                        .child(
-                            Container::new()
-                                .padding_insets(frus_core::InsetsDirectional::new(
-                                    0.0,
-                                    end_margin,
-                                    fab_bottom,
-                                    start_margin,
-                                ))
-                                .child(fab),
-                        ),
-                );
-            content = Box::new(
-                Stack::new()
-                    .width(width)
-                    .height(height)
-                    .layer(content)
-                    .layer(fab_layer),
-            );
+                    rail,
+                )),
+            ));
         }
+        if !bar_over_body {
+            if let Some(bar) = app_bar.take() {
+                // Beside a rail, the rail has taken the leading intrusion.
+                let left = if rail_nav { 0.0 } else { insets.left };
+                children.push((Slot::AppBar, app_bar_pad(bar, left)));
+            }
+        }
+        children.push((Slot::Body, Box::new(body_pane)));
+        if !bottom_over_body {
+            if let Some(f) = footer.take() {
+                children.push((Slot::Footer, f));
+            }
+            if let Some(n) = nav.take() {
+                children.push((Slot::Nav, nav_pad(n)));
+            }
+        }
+        // Whatever the body was told to run under is drawn over it.
+        if let Some(bar) = app_bar {
+            children.push((Slot::AppBar, app_bar_pad(bar, insets.left)));
+        }
+        if let Some(f) = footer {
+            children.push((Slot::Footer, f));
+        }
+        if let Some(n) = nav {
+            children.push((Slot::Nav, nav_pad(n)));
+        }
+        if let Some(sheet) = persistent_bottom_sheet {
+            // Told what the body is told about its sides; its bottom is held off by what it
+            // stands on.
+            let (left, right) = (insets.left, insets.right);
+            children.push((
+                Slot::Sheet,
+                Box::new(crate::MediaScope::tweak(
+                    move |mq: &mut crate::MediaQuery| {
+                        mq.padding.top = 0.0;
+                        mq.padding.left = left;
+                        mq.padding.right = right;
+                    },
+                    sheet,
+                )),
+            ));
+        }
+        let mut snack_bar_behavior = None;
+        if let Some((bar, behavior)) = snack_bar {
+            snack_bar_behavior = behavior;
+            children.push((Slot::SnackBar, bar));
+        }
+        if let Some(fab) = fab {
+            children.push((Slot::Fab, fab));
+        }
+        let placement = ScaffoldLayout {
+            bar_over_body,
+            bottom_over_body,
+            keyboard_clear,
+            bottom_clear,
+            insets,
+            min_view_padding: Insets {
+                bottom: if resize_to_avoid_bottom_inset && view_insets.bottom > 0.0 {
+                    0.0
+                } else {
+                    view_padding.bottom
+                },
+                ..view_padding
+            },
+            fab_location,
+            snack_bar_behavior,
+            hosts_snack_bar: hosted,
+            notch,
+        };
+        let mut shell = CustomMultiChildLayout::new(move |size, layout: &mut ChildLayout<'_>| {
+            placement.place(size, layout)
+        })
+        .width(width)
+        .height(height);
+        for (slot, child) in children {
+            shell = shell.child(slot, child);
+        }
+        let mut content: Box<dyn Widget<Msg>> = Box::new(shell);
 
         // What this shell knows, for the slots that cannot see it (milestone 422). Taken
         // before the drawers are consumed below, since the message is what a bar needs.
@@ -1323,59 +1584,244 @@ impl<Msg: Clone + 'static> Scaffold<Msg> {
     }
 }
 
-/// Puts the widgets below the body — the footer, the bottom bar — at the end of `column`.
-///
-/// With a keyboard up (`floor`, its height from the window's edge), they go at the bottom
-/// of a block at least that tall: the keyboard covers them where they are, and the body
-/// above stops at the top of whichever reaches higher.
-fn push_below_body<Msg: Clone + 'static>(
-    column: Flex<Msg>,
-    below: Vec<Box<dyn Widget<Msg>>>,
-    floor: Option<f32>,
-) -> Flex<Msg> {
-    match floor {
-        Some(floor) if !below.is_empty() => column.child(KeyboardFloor {
-            floor,
-            children: below,
-        }),
-        _ => below
-            .into_iter()
-            .fold(column, |column, w| column.child_boxed(w)),
-    }
+/// The bar `host::show_snack_bar` put on screen, as a widget of this shell's message type,
+/// with the placing it asked for itself. `None` without one, and for a shell whose
+/// messages are not the application's callbacks, which could not have shown it.
+fn hosted_snack_bar<Msg: 'static>() -> Option<(Box<dyn Widget<Msg>>, Option<SnackBarBehavior>)> {
+    let (bar, behavior) = crate::messenger::current_snack_bar_slot()?;
+    let bar: Box<dyn std::any::Any> = Box::new(bar);
+    let bar = bar.downcast::<Box<dyn Widget<Msg>>>().ok()?;
+    Some((*bar, behavior))
 }
 
-/// A column at least `floor` tall, its children at its bottom: the room under the body
-/// while the keyboard covers the bars (milestone 752).
-struct KeyboardFloor<Msg> {
-    floor: f32,
-    children: Vec<Box<dyn Widget<Msg>>>,
+/// A [`Scaffold`]'s slots, as its layout names them.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+enum Slot {
+    Rail,
+    AppBar,
+    Body,
+    Footer,
+    Nav,
+    Sheet,
+    SnackBar,
+    Fab,
 }
 
-impl<Msg: Clone> Widget<Msg> for KeyboardFloor<Msg> {
-    fn style(&self) -> frus_layout::Style {
-        frus_layout::Style {
-            flex_direction: frus_layout::FlexDirection::Column,
-            justify: Justify::End,
-            min_height: frus_layout::Dimension::Length(self.floor),
-            ..Default::default()
+/// How a [`Scaffold`] places its slots: what the reference's scaffold layout does, slot for
+/// slot (milestone 766).
+struct ScaffoldLayout {
+    /// The body runs behind the app bar, which is drawn over it.
+    bar_over_body: bool,
+    /// The body runs under the bottom bar and the footer, which are drawn over it.
+    bottom_over_body: bool,
+    /// The keyboard the body is shortened for, `0` when the shell does not resize for it.
+    keyboard_clear: f32,
+    /// How far the bottom-most slot is held off the edge.
+    bottom_clear: f32,
+    /// The safe area.
+    insets: Insets,
+    /// The system's intrusions ignoring the keyboard, the bottom `0` while a keyboard the
+    /// shell resizes for covers it.
+    min_view_padding: Insets,
+    fab_location: Rc<dyn FabLocator>,
+    /// The placing the snack bar asked for itself; the theme's when `None`.
+    snack_bar_behavior: Option<SnackBarBehavior>,
+    /// The snack bar is the application's, which is then not shown over the window.
+    hosts_snack_bar: bool,
+    /// Where the button landed, in the bottom bar's coordinates, for its notch.
+    notch: Rc<Cell<Option<Rect>>>,
+}
+
+impl ScaffoldLayout {
+    fn place(&self, size: Size, layout: &mut ChildLayout<'_>) {
+        let (width, height) = (size.width, size.height);
+        let direction = layout.theme().direction;
+        let snack_bar_floating = self
+            .snack_bar_behavior
+            .or(layout.theme().widgets.snack_bar.behavior)
+            .unwrap_or_default()
+            == SnackBarBehavior::Floating;
+
+        // The rail, the whole height, on the leading side; the rest is beside it.
+        let (mut content_x, mut content_width) = (0.0, width);
+        if layout.has_child(Slot::Rail) {
+            let rail = layout.layout_child(
+                Slot::Rail,
+                ChildConstraints::free().height(ChildAxis::Exactly(height)),
+            );
+            let rail_width = rail.width.min(width);
+            let x = if direction.is_rtl() {
+                width - rail_width
+            } else {
+                0.0
+            };
+            layout.position_child(Slot::Rail, Point::new(x, 0.0));
+            content_x = if direction.is_rtl() { 0.0 } else { rail_width };
+            content_width = width - rail_width;
         }
-    }
 
-    fn children(&self) -> &[Box<dyn Widget<Msg>>] {
-        &self.children
-    }
+        // The app bar, at the top: over the content, or across the whole shell when the
+        // body runs behind it.
+        let mut app_bar_height = 0.0;
+        if layout.has_child(Slot::AppBar) {
+            let (x, across) = if self.bar_over_body {
+                (0.0, width)
+            } else {
+                (content_x, content_width)
+            };
+            app_bar_height = layout
+                .layout_child(
+                    Slot::AppBar,
+                    ChildConstraints::free().width(ChildAxis::Exactly(across)),
+                )
+                .height;
+            layout.position_child(Slot::AppBar, Point::new(x, 0.0));
+        }
+        let content_top = if self.bar_over_body {
+            0.0
+        } else {
+            app_bar_height
+        };
 
-    fn paint(
-        &self,
-        _bounds: frus_core::Rect,
-        _status: crate::interaction::Status,
-        _theme: &crate::theme::Theme,
-        _scene: &mut frus_core::Scene,
-    ) {
-    }
+        // The widgets below the body, from the bottom up: the bottom bar at the window's
+        // edge, the footer on it. The keyboard covers them where they stand (milestone 752).
+        let mut bottom_widgets = 0.0;
+        let mut nav_top = None;
+        if layout.has_child(Slot::Nav) {
+            bottom_widgets += layout
+                .layout_child(
+                    Slot::Nav,
+                    ChildConstraints::free().width(ChildAxis::Exactly(width)),
+                )
+                .height;
+            let top = (height - bottom_widgets).max(0.0);
+            nav_top = Some(top);
+            layout.position_child(Slot::Nav, Point::new(0.0, top));
+        }
+        if layout.has_child(Slot::Footer) {
+            let room = (height - bottom_widgets - content_top).max(0.0);
+            bottom_widgets += layout
+                .layout_child(
+                    Slot::Footer,
+                    ChildConstraints::free()
+                        .width(ChildAxis::Exactly(content_width))
+                        .height(ChildAxis::AtMost(room)),
+                )
+                .height;
+            layout.position_child(
+                Slot::Footer,
+                Point::new(content_x, (height - bottom_widgets).max(0.0)),
+            );
+        }
+        // Where the body stops: the higher of the keyboard and the widgets below the body,
+        // never the two added up.
+        let content_bottom = (height - self.keyboard_clear.max(bottom_widgets)).max(0.0);
 
-    fn on_click(&self) -> Option<Msg> {
-        None
+        // The body, in what is left; under the bottom widgets when told to run there, though
+        // never under the keyboard.
+        let body_bottom = if self.bottom_over_body {
+            (height - self.keyboard_clear).max(0.0)
+        } else {
+            content_bottom
+        };
+        layout.layout_child(
+            Slot::Body,
+            ChildConstraints::tight(Size::new(
+                content_width,
+                (body_bottom - content_top).max(0.0),
+            )),
+        );
+        layout.position_child(Slot::Body, Point::new(content_x, content_top));
+
+        // A persistent sheet stands on the bottom widgets, centred, over the body.
+        let mut sheet = Size::ZERO;
+        if layout.has_child(Slot::Sheet) {
+            sheet = layout.layout_child(
+                Slot::Sheet,
+                ChildConstraints::free()
+                    .width(ChildAxis::Exactly(content_width))
+                    .height(ChildAxis::AtMost((content_bottom - content_top).max(0.0))),
+            );
+            layout.position_child(
+                Slot::Sheet,
+                Point::new(
+                    content_x + (content_width - sheet.width) / 2.0,
+                    content_bottom - sheet.height,
+                ),
+            );
+        }
+
+        // A snack bar fixed to the bottom is measured before the button, which rises above
+        // it. It keeps clear of the gesture bar when nothing below the body does, as the
+        // reference's own safe area inside a fixed bar keeps it.
+        let mut snack_bar = Size::ZERO;
+        let mut snack_bar_lift = 0.0;
+        if layout.has_child(Slot::SnackBar) {
+            snack_bar = layout.layout_child(
+                Slot::SnackBar,
+                ChildConstraints::free().width(ChildAxis::Exactly(width)),
+            );
+            if !snack_bar_floating && bottom_widgets == 0.0 {
+                snack_bar_lift = self.bottom_clear;
+            }
+            if self.hosts_snack_bar {
+                crate::messenger::note_hosted();
+            }
+        }
+        let fixed_snack_bar = if snack_bar_floating {
+            Size::ZERO
+        } else {
+            Size::new(snack_bar.width, snack_bar.height + snack_bar_lift)
+        };
+
+        // The button, from everything measured.
+        let mut fab = None;
+        if layout.has_child(Slot::Fab) {
+            let fab_size = layout.layout_child(Slot::Fab, ChildConstraints::loose(size));
+            let geometry = FabGeometry {
+                scaffold_size: size,
+                fab_size,
+                content_top: app_bar_height,
+                content_bottom,
+                min_insets: Insets {
+                    bottom: self.keyboard_clear,
+                    ..self.insets
+                },
+                min_view_padding: self.min_view_padding,
+                bottom_sheet_size: sheet,
+                snack_bar_size: fixed_snack_bar,
+                direction,
+            };
+            let at = self.fab_location.offset(&geometry);
+            layout.position_child(Slot::Fab, at);
+            if fab_size.width > 0.0 && fab_size.height > 0.0 {
+                fab = Some(Rect::new(at.x, at.y, fab_size.width, fab_size.height));
+            }
+        }
+
+        // The snack bar: a floating one above the button (and the bottom bar), which stays;
+        // otherwise on whatever is at the bottom.
+        if layout.has_child(Slot::SnackBar) {
+            let base = match fab {
+                Some(fab) if snack_bar_floating && self.fab_location.snack_bar_above() => {
+                    nav_top.map_or(fab.y, |top| top.min(fab.y))
+                }
+                _ if snack_bar_floating => {
+                    content_bottom.min(height - self.min_view_padding.bottom)
+                }
+                _ => content_bottom - snack_bar_lift,
+            };
+            layout.position_child(
+                Slot::SnackBar,
+                Point::new((width - snack_bar.width) / 2.0, base - snack_bar.height),
+            );
+        }
+
+        // The notch follows the button: its box in the bar's coordinates, or nothing.
+        self.notch.set(fab.zip(nav_top).map(|(fab, top)| Rect {
+            y: fab.y - top,
+            ..fab
+        }));
     }
 }
 
@@ -1431,7 +1877,7 @@ crate::transparent::forward_transparent!(Scaffold {
 /// **Round**, and not only because the convention is round: a docked button sits in the
 /// circular notch a [`BottomAppBar`](crate::BottomAppBar) cuts for it, and the reference's
 /// own sixteen-pixel corner would leave four of them hanging over the bar. A stadium
-/// rather than `FAB_SIZE / 2`, which is the same number written out and only right while
+/// rather than half of 56 pixels, which is the same number written out and only right while
 /// the button is exactly that tall.
 pub fn fab_button<Msg: Clone + 'static>(
     label: impl Into<String>,
@@ -1860,7 +2306,6 @@ mod tests {
                 .nav(0, Msg::Go)
                 .destination("H", "Home")
                 .fab_location(location)
-                .fab_size(56.0)
                 .fab(marked::<Msg>(56.0).width(56.0))
                 .build();
             marks(scaffold)[0]
@@ -1960,7 +2405,6 @@ mod tests {
             .body(Container::<Msg>::new())
             .bottom_app_bar(BottomAppBar::new().height(bar_height).color(MARK))
             .fab_location(FabLocation::EndDocked)
-            .fab_size(56.0)
             .fab(Container::<Msg>::new().width(56.0).height(56.0))
             .build();
         let ui = build_ui(
@@ -2380,7 +2824,6 @@ mod tests {
                 .body(Container::<Msg>::new())
                 .bottom_app_bar(BottomAppBar::new().height(BAR).color(MARK))
                 .fab_location(FabLocation::StartDocked)
-                .fab_size(FAB)
                 .fab(Container::<Msg>::new().width(FAB).height(FAB))
                 .build();
             build_ui(tree.as_ref(), size, &Runtime::default(), &Theme::default())
@@ -2960,7 +3403,6 @@ mod tests {
                         .color(BAR_MARK),
                 )),
             )
-            .fab_size(56.0)
             .fab(
                 Container::<Msg>::new()
                     .width(56.0)
@@ -3145,7 +3587,6 @@ mod tests {
         }
         shell
             .fab_location(FabLocation::EndDocked)
-            .fab_size(56.0)
             .fab(
                 Container::<Msg>::new()
                     .width(56.0)
@@ -3243,6 +3684,424 @@ mod tests {
             footer[0].y + footer[0].height > size.height - keyboard + 1.0,
             "the footer stays low, under the keyboard: {:?}",
             footer[0]
+        );
+    }
+    // ---- Milestone 766: every placement, and what lifts the button. ----
+
+    /// A colour for a snack bar or a sheet, apart from the others.
+    const SNACK_MARK: Color = Color {
+        r: 0.5,
+        g: 0.0,
+        b: 1.0,
+        a: 1.0,
+    };
+
+    /// A phone: a 24 px status bar and a 48 px gesture bar.
+    fn phone_bars() -> WindowInsets {
+        WindowInsets::bars(Insets::new(24.0, 0.0, 48.0, 0.0))
+    }
+
+    /// A 56 px bottom navigation bar held off the gesture bar by what it is told: 104 px
+    /// from the window's edge on [`phone_bars`].
+    fn nav_bar() -> Flex<Msg> {
+        Flex::column().child(crate::SafeArea::new(
+            Container::<Msg>::new().height(56.0).color(BAR_MARK),
+        ))
+    }
+
+    fn fab_mark() -> Container<Msg> {
+        Container::<Msg>::new()
+            .width(56.0)
+            .height(56.0)
+            .color(FAB_MARK)
+    }
+
+    /// A 400 × 800 phone shell with a 56 px app bar, a body, a bottom bar and a 56 px
+    /// button at `location`.
+    fn located(location: impl FabLocator + 'static, theme: &Theme) -> frus_core::Rect {
+        let shell = Scaffold::new()
+            .size(W, H)
+            .window_insets(phone_bars())
+            .app_bar(Container::<Msg>::new().height(56.0))
+            .body(filling())
+            .bottom_navigation_bar(nav_bar())
+            .fab_location(location)
+            .fab(fab_mark())
+            .build();
+        let ui = build_ui(shell.as_ref(), Size::new(W, H), &Runtime::default(), theme);
+        ui.scene()
+            .primitives()
+            .iter()
+            .find_map(|p| match p {
+                frus_core::Primitive::Rect { rect, color, .. } if *color == FAB_MARK => Some(*rect),
+                _ => None,
+            })
+            .expect("the button")
+    }
+
+    /// **Every placement lands where the reference puts it**, in both reading directions.
+    ///
+    /// The shell: 800 px tall, a 56 px app bar, a bottom bar reaching 104 px up from the
+    /// window's edge (so the content stops at 696), a 48 px gesture bar, a 56 px button.
+    /// - **At the top**, the button's centre is on the app bar's bottom edge: `y` 28.
+    /// - **Floating**, its margin above the content's bottom: `y` 696 − 56 − 16 = 624.
+    /// - **Docked**, its centre on the bar's top edge: `y` 696 − 28 = 668.
+    /// - **Contained**, centred in the bar above the gesture bar: `y` 696 + (104 − 48 −
+    ///   56) / 2 = 696.
+    /// - At the start `x` is 16, centred 172, at the end 328; a mini one is 4 px nearer
+    ///   the edge, and a mini floating one 4 px lower.
+    #[test]
+    fn every_location_lands_where_it_belongs() {
+        use FabLocation::*;
+        let (start, centre, end) = (16.0, 172.0, 328.0);
+        let (top, float, docked, contained) = (28.0, 624.0, 668.0, 696.0);
+        let table = [
+            (StartTop, start, top),
+            (MiniStartTop, start - 4.0, top),
+            (CenterTop, centre, top),
+            (MiniCenterTop, centre, top),
+            (EndTop, end, top),
+            (MiniEndTop, end + 4.0, top),
+            (StartFloat, start, float),
+            (MiniStartFloat, start - 4.0, float + 4.0),
+            (CenterFloat, centre, float),
+            (MiniCenterFloat, centre, float + 4.0),
+            (EndFloat, end, float),
+            (MiniEndFloat, end + 4.0, float + 4.0),
+            (StartDocked, start, docked),
+            (MiniStartDocked, start - 4.0, docked),
+            (CenterDocked, centre, docked),
+            (MiniCenterDocked, centre, docked),
+            (EndDocked, end, docked),
+            (MiniEndDocked, end + 4.0, docked),
+            (EndContained, end, contained),
+        ];
+        let ltr = Theme::default();
+        let rtl = Theme::default().rtl();
+        for (location, x, y) in table {
+            let at = located(location, &ltr);
+            assert!(
+                (at.x - x).abs() < 0.5 && (at.y - y).abs() < 0.5,
+                "{location:?}: at ({}, {}), not ({x}, {y})",
+                at.x,
+                at.y
+            );
+            // Mirrored: the start is the right in a right-to-left script.
+            let at = located(location, &rtl);
+            let x = W - 56.0 - x;
+            assert!(
+                (at.x - x).abs() < 0.5 && (at.y - y).abs() < 0.5,
+                "{location:?} right to left: at ({}, {}), not ({x}, {y})",
+                at.x,
+                at.y
+            );
+        }
+    }
+
+    /// **A placement of one's own**: a function from what the shell measured to the
+    /// button's corner, built from the standard halves or not.
+    #[test]
+    fn a_location_of_ones_own_is_honoured() {
+        let theme = Theme::default();
+        let at = located(|_: &FabGeometry| Point::new(10.0, 20.0), &theme);
+        assert_eq!((at.x, at.y), (10.0, 20.0));
+        let at = located(
+            |g: &FabGeometry| Point::new(g.end_x(0.0) - 16.0, g.float_y(0.0) - 16.0),
+            &theme,
+        );
+        assert_eq!((at.x, at.y), (312.0, 608.0));
+    }
+
+    /// **A persistent footer lifts the button** (milestone 757 left it covering the
+    /// footer). The footer is measured before the button is placed, and the button
+    /// floats its margin above it.
+    #[test]
+    fn a_persistent_footer_lifts_the_button() {
+        let shell = || {
+            Scaffold::new()
+                .size(W, H)
+                .window_insets(phone_bars())
+                .body(Container::<Msg>::new())
+                .persistent_footer_color(BAR_MARK)
+                .persistent_footer(Container::<Msg>::new().width(80.0).height(40.0))
+                .fab(fab_mark())
+                .build()
+        };
+        let footer = painted(shell(), Size::new(W, H), BAR_MARK);
+        let fab = painted(shell(), Size::new(W, H), FAB_MARK);
+        let footer_top = footer[0].y;
+        assert!(footer_top < H - 48.0 - 40.0, "a footer: {footer:?}");
+        assert!(
+            (fab[0].y + fab[0].height - (footer_top - FAB_MARGIN)).abs() < 1.0,
+            "the button floats its margin above the footer ({footer_top}): {:?}",
+            fab[0]
+        );
+    }
+
+    /// **A snack bar fixed to the bottom stands on the bottom bar, and the button rises
+    /// above it**; a floating one goes above the button, which stays where it was.
+    #[test]
+    fn a_snack_bar_lifts_the_button_or_goes_above_it() {
+        let shell = |bar: Option<crate::SnackBar<Msg>>| {
+            let mut shell = Scaffold::new()
+                .size(W, H)
+                .window_insets(phone_bars())
+                .body(Container::<Msg>::new())
+                .bottom_navigation_bar(nav_bar())
+                .fab(fab_mark());
+            if let Some(bar) = bar {
+                shell = shell.snack_bar(bar);
+            }
+            shell.build()
+        };
+        let size = Size::new(W, H);
+        let content_bottom = H - 104.0;
+
+        let fixed = || crate::SnackBar::new("Saved").background(SNACK_MARK);
+        let bar = painted(shell(Some(fixed())), size, SNACK_MARK);
+        let fab = painted(shell(Some(fixed())), size, FAB_MARK);
+        assert_eq!(bar.len(), 1, "{bar:?}");
+        assert!(
+            (bar[0].y + bar[0].height - content_bottom).abs() < 1.0,
+            "the bar stands on the bottom bar: {:?}",
+            bar[0]
+        );
+        assert!(
+            (fab[0].y + fab[0].height - (bar[0].y - FAB_MARGIN)).abs() < 1.0,
+            "the button rises its margin above the bar ({:?}): {:?}",
+            bar[0],
+            fab[0]
+        );
+
+        let floating = || {
+            crate::SnackBar::new("Saved")
+                .behavior(SnackBarBehavior::Floating)
+                .background(SNACK_MARK)
+        };
+        let alone = painted(shell(None), size, FAB_MARK)[0];
+        let fab = painted(shell(Some(floating())), size, FAB_MARK)[0];
+        let bar = painted(shell(Some(floating())), size, SNACK_MARK)[0];
+        assert_eq!(
+            fab.y, alone.y,
+            "a floating bar leaves the button where it was"
+        );
+        assert!(
+            bar.y + bar.height <= fab.y + 0.5 && bar.y + bar.height > fab.y - 20.0,
+            "the floating bar is just above the button ({fab:?}): {bar:?}"
+        );
+    }
+
+    /// **A fixed bar in a transition spans the shell**, as a bare one does. The shell hands
+    /// its width to the transition; the bar inside used to keep its own width and sit at the
+    /// start (seen on a device with the demo's fading "Saved" bar).
+    #[test]
+    fn a_fixed_bar_in_a_transition_spans_the_shell() {
+        let shell = Scaffold::new()
+            .size(W, H)
+            .window_insets(phone_bars())
+            .body(Container::<Msg>::new())
+            .bottom_navigation_bar(nav_bar())
+            .fab(fab_mark())
+            .snack_bar_widget(
+                crate::AnimatedOpacity::new(
+                    1.0,
+                    0.25,
+                    frus_core::Curve::ease_in_out(),
+                    crate::SnackBar::new("Saved").background(SNACK_MARK),
+                ),
+                SnackBarBehavior::Fixed,
+            )
+            .build();
+        let bar = painted(shell, Size::new(W, H), SNACK_MARK);
+        assert_eq!(bar.len(), 1, "{bar:?}");
+        assert!(
+            bar[0].x.abs() < 0.5 && (bar[0].width - W).abs() < 0.5,
+            "the bar spans the shell: {:?}",
+            bar[0]
+        );
+    }
+
+    /// **A fixed bar with an action spans the shell** as one without does. The action makes
+    /// the bar a container, and a container's measured width used to stop its request to
+    /// fill, so the bar kept its own width at the start edge.
+    #[test]
+    fn a_fixed_bar_with_an_action_spans_the_shell() {
+        let shell = Scaffold::new()
+            .size(W, H)
+            .window_insets(phone_bars())
+            .body(Container::<Msg>::new())
+            .bottom_navigation_bar(nav_bar())
+            .fab(fab_mark())
+            .snack_bar_widget(
+                crate::SnackBar::new("Saved")
+                    .action("Undo", Msg::Add)
+                    .background(SNACK_MARK),
+                SnackBarBehavior::Fixed,
+            )
+            .build();
+        let bar = painted(shell, Size::new(W, H), SNACK_MARK);
+        assert_eq!(bar.len(), 1, "{bar:?}");
+        assert!(
+            bar[0].x.abs() < 0.5 && (bar[0].width - W).abs() < 0.5,
+            "the bar spans the shell: {:?}",
+            bar[0]
+        );
+    }
+
+    /// **A persistent bottom sheet carries the button on its top edge**, and stands on
+    /// the bottom bar.
+    #[test]
+    fn a_persistent_sheet_carries_the_button_on_its_edge() {
+        let shell = || {
+            Scaffold::new()
+                .size(W, H)
+                .window_insets(phone_bars())
+                .body(Container::<Msg>::new())
+                .bottom_navigation_bar(nav_bar())
+                .persistent_bottom_sheet(Container::<Msg>::new().height(200.0).color(SNACK_MARK))
+                .fab(fab_mark())
+                .build()
+        };
+        let size = Size::new(W, H);
+        let sheet = painted(shell(), size, SNACK_MARK)[0];
+        let fab = painted(shell(), size, FAB_MARK)[0];
+        assert_eq!(
+            (sheet.x, sheet.width, sheet.y + sheet.height),
+            (0.0, W, H - 104.0),
+            "as wide as the body, on the bottom bar: {sheet:?}"
+        );
+        assert!(
+            (fab.y + 28.0 - sheet.y).abs() < 0.5,
+            "the button's centre on the sheet's top edge ({}): {fab:?}",
+            sheet.y
+        );
+    }
+
+    /// Whether the bottom app bar painted in `color` was cut for a notch.
+    fn notched(shell: Box<dyn Widget<Msg>>, size: Size, color: Color) -> bool {
+        let ui = build_ui(shell.as_ref(), size, &Runtime::default(), &Theme::default());
+        let primitives = ui.scene().primitives();
+        let path = primitives
+            .iter()
+            .any(|p| matches!(p, frus_core::Primitive::Path { fill, .. } if *fill == Some(color)));
+        let rect = primitives
+            .iter()
+            .any(|p| matches!(p, frus_core::Primitive::Rect { color: c, .. } if *c == color));
+        assert!(path != rect, "the bar is painted once");
+        path
+    }
+
+    /// **The notch is cut only where the button is** (milestone 757 left it cut under a
+    /// button the keyboard had lifted off the bar): docked on the bar, the bar is cut; lifted
+    /// off it by the keyboard or by a snack bar, or contained inside it, it is not.
+    #[test]
+    fn the_notch_follows_the_button() {
+        use crate::BottomAppBar;
+        let size = Size::new(412.0, 846.0);
+        let shell = |location: FabLocation, insets: WindowInsets, snack: bool| {
+            let mut shell = Scaffold::new()
+                .size(size.width, size.height)
+                .window_insets(insets)
+                .body(Container::<Msg>::new())
+                .bottom_app_bar(BottomAppBar::new().color(BAR_MARK))
+                .fab_location(location)
+                .fab(fab_mark());
+            if snack {
+                shell = shell.snack_bar(crate::SnackBar::new("Saved"));
+            }
+            shell.build()
+        };
+        let docked = FabLocation::EndDocked;
+        assert!(notched(shell(docked, phone_bars(), false), size, BAR_MARK));
+        assert!(
+            !notched(shell(docked, phone_keyboard(300.0), false), size, BAR_MARK),
+            "lifted off the bar by the keyboard"
+        );
+        assert!(
+            !notched(shell(docked, phone_bars(), true), size, BAR_MARK),
+            "lifted off the bar by a snack bar"
+        );
+        assert!(
+            !notched(
+                shell(FabLocation::EndContained, phone_bars(), false),
+                size,
+                BAR_MARK
+            ),
+            "contained inside the bar"
+        );
+        assert!(
+            !notched(
+                shell(FabLocation::EndFloat, phone_bars(), false),
+                size,
+                BAR_MARK
+            ),
+            "floating above the bar"
+        );
+    }
+
+    /// **The application's snack bar is shown by the shell**, above its bottom bar with
+    /// the button above it, and not a second time over the window. Before, it was laid
+    /// over the window's bottom edge, on top of the bottom bar, and the button stayed
+    /// where it was.
+    #[test]
+    fn the_application_s_snack_bar_is_shown_in_the_shell() {
+        use crate::callback::Callback;
+        use crate::component::Component;
+        use crate::portal::{OverlayPortal, Placement};
+        crate::host::clear_snack_bars();
+        crate::host::show_snack_bar(crate::SnackBar::new("Saved").background(SNACK_MARK));
+        let _ = crate::host::take_effects();
+
+        let size = Size::new(W, H);
+        let surface = MediaQuery::new(size).with_insets(phone_bars());
+        // What the application's root does: the pages, with the bar on screen over them.
+        let ui = surface.scope(|| {
+            let page = Scaffold::<Callback>::new()
+                .size(W, H)
+                .window_insets(phone_bars())
+                .body(Container::new())
+                .bottom_navigation_bar(Flex::column().child(crate::SafeArea::new(
+                    Container::new().height(56.0).color(BAR_MARK),
+                )))
+                .fab(Container::new().width(56.0).height(56.0).color(FAB_MARK))
+                .build();
+            let bar = Component::stateless(|_: &crate::BuildContext| -> Box<dyn Widget> {
+                crate::host::current_snack_bar_widget()
+                    .unwrap_or_else(|| Box::new(Container::new()))
+            });
+            let root: Box<dyn Widget> =
+                Box::new(OverlayPortal::new_boxed(page).overlay(bar, Placement::Notification));
+            let (runtime, theme) = (Runtime::default(), Theme::default());
+            // Components are built before the walk, as the shell builds them.
+            crate::build_deferred(root.as_ref(), &theme, &runtime);
+            let ui = build_ui(root.as_ref(), size, &runtime, &theme);
+            let found = |color: Color| -> Vec<frus_core::Rect> {
+                ui.scene()
+                    .primitives()
+                    .iter()
+                    .filter_map(|p| match p {
+                        frus_core::Primitive::Rect { rect, color: c, .. } if *c == color => {
+                            Some(*rect)
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            };
+            (found(SNACK_MARK), found(FAB_MARK))
+        });
+        crate::host::clear_snack_bars();
+        let _ = crate::host::take_effects();
+        let (bars, fab) = ui;
+        assert_eq!(bars.len(), 1, "shown once: {bars:?}");
+        let bar = bars[0];
+        assert!(
+            (bar.y + bar.height - (H - 104.0)).abs() < 1.0,
+            "the bar stands on the bottom bar: {bar:?}"
+        );
+        assert!(
+            (fab[0].y + fab[0].height - (bar.y - FAB_MARGIN)).abs() < 1.0,
+            "the button rises above the bar ({bar:?}): {:?}",
+            fab[0]
         );
     }
 }

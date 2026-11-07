@@ -154,6 +154,12 @@ impl<Msg: Clone> Widget<Msg> for ScaffoldMessenger<Msg> {
         crate::widget::FillAxes::BOTH
     }
 
+    /// Toasts placed at a corner keep **their own** width, whatever they ask for: a fixed
+    /// bar fills the width only where a shell slot hands it that width (milestone 766).
+    fn grants_cross_fill(&self) -> bool {
+        matches!(self.position.align(), Align::Stretch)
+    }
+
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         &self.children
     }
@@ -204,6 +210,83 @@ mod tests {
             2,
             "two toasts, wrapped in a fade"
         );
+    }
+
+    /// The rectangles painted in `color`, top to bottom.
+    fn painted(host: &ScaffoldMessenger<()>, color: frus_core::Color) -> Vec<Rect> {
+        let ui = crate::build_ui(
+            host,
+            frus_core::Size::new(420.0, 220.0),
+            &crate::Runtime::default(),
+            &Theme::default(),
+        );
+        let mut found: Vec<Rect> = ui
+            .scene()
+            .primitives()
+            .iter()
+            .filter_map(|p| match p {
+                frus_core::Primitive::Rect {
+                    rect,
+                    color: c,
+                    clip,
+                    ..
+                } if *c == color => Some(rect.intersect(*clip)),
+                _ => None,
+            })
+            .collect();
+        found.sort_by(|a, b| a.y.total_cmp(&b.y));
+        found
+    }
+
+    /// **Fixed bars at a corner keep their own widths** (milestone 766): a fixed bar fills
+    /// the width only where a shell slot hands it that width. Both bars used to be offered
+    /// the host's width; the one without an action took it and spanned the host.
+    #[test]
+    fn fixed_bars_at_a_corner_keep_their_own_widths() {
+        use crate::{SnackBar, SnackBarBehavior};
+        const FIRST: frus_core::Color = frus_core::Color {
+            r: 0.5,
+            g: 0.0,
+            b: 1.0,
+            a: 1.0,
+        };
+        const SECOND: frus_core::Color = frus_core::Color {
+            r: 1.0,
+            g: 0.0,
+            b: 0.5,
+            a: 1.0,
+        };
+        for fade in [false, true] {
+            let mut host = ScaffoldMessenger::<()>::new(SnackBarPosition::BottomEnd)
+                .toast(
+                    SnackBar::new("File uploaded")
+                        .behavior(SnackBarBehavior::Fixed)
+                        .background(FIRST),
+                )
+                .toast(
+                    SnackBar::new("Message archived")
+                        .behavior(SnackBarBehavior::Fixed)
+                        .action("Undo", ())
+                        .background(SECOND),
+                );
+            if fade {
+                host = host.fade_in(0.2);
+            }
+            for color in [FIRST, SECOND] {
+                let bar = painted(&host, color);
+                assert_eq!(bar.len(), 1, "fade {fade}: {bar:?}");
+                assert!(
+                    bar[0].width < 300.0,
+                    "fade {fade}: the bar keeps its own width: {:?}",
+                    bar[0]
+                );
+                assert!(
+                    (bar[0].x + bar[0].width - 420.0).abs() < 0.5,
+                    "fade {fade}: the bar sits at the end edge: {:?}",
+                    bar[0]
+                );
+            }
+        }
     }
 
     #[test]

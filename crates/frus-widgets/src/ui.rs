@@ -2011,6 +2011,11 @@ impl Fills {
 
     /// Drops any axis this box was **given a size on**: it has already been told how big
     /// to be, and a request to fill cannot reach past that answer.
+    ///
+    /// A size that is **only a default** on that axis is not such an answer: the room on
+    /// offer replaces it. Dropping it too made a snack bar with an action, which lays its
+    /// button out as a child, keep its measured width where the same bar without one
+    /// filled (milestone 766).
     fn bounded_by(self, style: &frus_layout::Style) -> Self {
         let auto = |d| matches!(d, frus_layout::Dimension::Auto);
         // A box with an aspect ratio decides its children's size from its own, as the
@@ -2024,8 +2029,8 @@ impl Fills {
             };
         }
         Fills {
-            horizontal: self.horizontal && auto(style.width),
-            vertical: self.vertical && auto(style.height),
+            horizontal: self.horizontal && (auto(style.width) || self.soft_horizontal),
+            vertical: self.vertical && (auto(style.height) || self.soft_vertical),
             ..self
         }
     }
@@ -2558,12 +2563,18 @@ fn build_layout_scoped<'a, Msg>(
         // The request is the child's **and its subtree's**: a column whose row fills the
         // width is itself as wide as the room it was given.
         let alone = children.len() == 1;
+        // A container that places its children at a corner keeps them their own size
+        // across its axis: the alignment is the point (milestone 766).
+        let cross_granted = widget.grants_cross_fill();
         for (node, fills) in &built {
             for horizontal in [true, false] {
                 if !fills.wants(horizontal) {
                     continue;
                 }
                 let parallel = horizontal == style.flex_direction.is_horizontal();
+                if !parallel && !cross_granted {
+                    continue;
+                }
                 // Along an axis the parent runs too, the reference leaves the main axis
                 // **unbounded** and `Max` quietly degrades to `Min`: there is no maximum
                 // to take. The exception is a parent with a single child — a padding, an
@@ -2664,11 +2675,20 @@ fn build_layout_scoped<'a, Msg>(
             if divides_both {
                 continue;
             }
-            fills = fills.merge(if alone {
+            let mut passed = if alone {
                 *child
             } else {
                 child.across(style.flex_direction)
-            });
+            };
+            // A request this container refused does not travel past it either.
+            if !cross_granted {
+                if style.flex_direction.is_horizontal() {
+                    passed.vertical = false;
+                } else {
+                    passed.horizontal = false;
+                }
+            }
+            fills = fills.merge(passed);
         }
         (
             layout.container(style, &child_ids),
@@ -5402,7 +5422,7 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                 let child = children[i].as_ref();
                 self.cached_rects(child_id(id, i, child), child, custom_constraints(c))
             };
-            let mut layout = crate::ChildLayout::new(custom.keys, &measure);
+            let mut layout = crate::ChildLayout::new(custom.keys, &measure, &self.theme);
             (custom.delegate)(Size::new(own.width, own.height), &mut layout);
             let (laid, at) = (layout.laid, layout.at);
             for (i, child) in children.iter().enumerate() {
@@ -6204,6 +6224,12 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
             theme,
         )) = self.overlays.pop()
         {
+            // The application's snack bar, already shown inside a scaffold's own layout —
+            // above its bottom bar, its floating button above it — is not shown again over
+            // the window (milestone 766).
+            if placement == Placement::Notification && crate::messenger::hosted() {
+                continue;
+            }
             // The theme this overlay was declared under, for the whole of its layout and
             // painting; whatever was in force when the walk ended is put back after it,
             // so two overlays declared under two themes do not bleed into each other.
@@ -6761,6 +6787,8 @@ fn build_ui_walk<'a, Msg: Clone + 'static>(
 ) -> (Ui<Msg>, Option<Vec<crate::inspector::InspectorNode>>) {
     #[cfg(debug_assertions)]
     assert_surface_is_whole();
+    // No scaffold has shown the application's snack bar yet in this frame (milestone 766).
+    crate::messenger::reset_hosted();
 
     let (mut rects, overflows) = runtime.layout_cache.borrow_mut().rects(
         WidgetId::ROOT,

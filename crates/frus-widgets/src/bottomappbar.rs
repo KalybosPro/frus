@@ -24,6 +24,9 @@
 //! are the scaffold's business — it places both — so the scaffold cuts the notch. A
 //! bar built by hand and dropped anywhere else is simply a bar.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use frus_core::{Color, Path, Point, Rect, Scene};
 use frus_layout::{Dimension, Style};
 
@@ -49,9 +52,10 @@ pub struct BottomAppBar<Msg = crate::callback::Callback> {
     height: f32,
     padding: f32,
     notch_margin: f32,
-    /// Where the notch goes: the button's centre `x` and its radius, in the bar's own
-    /// coordinates. Set by the scaffold, never by the application.
-    notch: Option<(f32, f32)>,
+    /// Where the button the notch is cut for landed, in the bar's own coordinates, once the
+    /// scaffold has placed it: the scaffold writes it during its layout, before the bar is
+    /// painted (milestone 766). Set by the scaffold, never by the application.
+    notch: Option<Rc<Cell<Option<Rect>>>>,
 }
 
 impl<Msg: Clone + 'static> Default for BottomAppBar<Msg> {
@@ -104,11 +108,44 @@ impl<Msg: Clone + 'static> BottomAppBar<Msg> {
         self
     }
 
-    /// Cuts the notch. **The scaffold's to call**, once it knows where it is putting
-    /// the button: `centre_x` in the bar's own coordinates, `radius` the button's.
-    pub(crate) fn notched_at(mut self, centre_x: f32, radius: f32) -> Self {
-        self.notch = Some((centre_x, radius));
+    /// Cuts the notch around the button whose box the scaffold writes into `button`.
+    /// **The scaffold's to call**: it is the one that places the button.
+    pub(crate) fn notched_by(mut self, button: Rc<Cell<Option<Rect>>>) -> Self {
+        self.notch = Some(button);
         self
+    }
+
+    /// Cuts the notch for a round button of `radius` centred at `centre_x` on the bar's
+    /// top edge.
+    #[cfg(test)]
+    pub(crate) fn notched_at(self, centre_x: f32, radius: f32) -> Self {
+        let button = Rect::new(centre_x - radius, -radius, radius * 2.0, radius * 2.0);
+        self.notched_by(Rc::new(Cell::new(Some(button))))
+    }
+
+    /// The outline to fill: the bar's box, with a notch when the button, grown by the
+    /// notch's margin, is astride the bar's top edge. A button the keyboard or a snack bar
+    /// lifted off the bar, or one contained inside it, cuts nothing.
+    fn outline(&self, bounds: Rect) -> Option<Path> {
+        let button = self.notch.as_ref()?.get()?;
+        let m = self.notch_margin;
+        let top = button.y - m;
+        let bottom = button.y + button.height + m;
+        let left = bounds.x + button.x - m;
+        let right = bounds.x + button.x + button.width + m;
+        let straddles =
+            top < 0.0 && bottom > 0.0 && left < bounds.x + bounds.width && right > bounds.x;
+        if !straddles {
+            return None;
+        }
+        let centre_x = (left + right) / 2.0;
+        let centre_y = (top + bottom) / 2.0;
+        Some(notched_outline(
+            bounds,
+            centre_x,
+            (right - left) / 2.0,
+            centre_y,
+        ))
     }
 
     /// The bar's declared height, which the scaffold needs to know where its top edge
@@ -220,12 +257,8 @@ impl<Msg: Clone + 'static> Widget<Msg> for BottomAppBar<Msg> {
             .color
             .or(theme.widgets.bottom_app_bar.color)
             .unwrap_or(theme.scheme.surface_container);
-        match self.notch {
-            Some((centre_x, radius)) => {
-                let path =
-                    notched_outline(bounds, bounds.x + centre_x, radius + self.notch_margin, 0.0);
-                scene.fill_path(&path, color);
-            }
+        match self.outline(bounds) {
+            Some(path) => scene.fill_path(&path, color),
             None => scene.fill_rect(bounds, color),
         }
     }

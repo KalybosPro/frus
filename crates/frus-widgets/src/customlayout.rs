@@ -85,6 +85,7 @@ pub(crate) fn key_of(key: impl Hash) -> u64 {
 pub struct ChildLayout<'a> {
     keys: &'a [u64],
     measure: &'a dyn Fn(usize, ChildConstraints) -> Vec<Rect>,
+    theme: &'a Theme,
     pub(crate) laid: Vec<Option<Vec<Rect>>>,
     pub(crate) at: Vec<Point>,
 }
@@ -93,10 +94,12 @@ impl<'a> ChildLayout<'a> {
     pub(crate) fn new(
         keys: &'a [u64],
         measure: &'a dyn Fn(usize, ChildConstraints) -> Vec<Rect>,
+        theme: &'a Theme,
     ) -> Self {
         Self {
             keys,
             measure,
+            theme,
             laid: vec![None; keys.len()],
             at: vec![Point::new(0.0, 0.0); keys.len()],
         }
@@ -105,6 +108,13 @@ impl<'a> ChildLayout<'a> {
     fn index(&self, key: impl Hash) -> Option<usize> {
         let key = key_of(key);
         self.keys.iter().position(|k| *k == key)
+    }
+
+    /// The theme in force where the layout stands, its reading direction included: a
+    /// layout that puts a child at the **start** of a line puts it on the right in a
+    /// right-to-left script (milestone 766).
+    pub fn theme(&self) -> &Theme {
+        self.theme
     }
 
     /// Whether a child was given under `key`: a layout whose children come and go asks

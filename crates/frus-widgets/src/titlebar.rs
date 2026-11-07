@@ -739,8 +739,8 @@ mod tests {
 
     /// **The window's menu bar is its first line, and the page gets the rest**: off the
     /// title bar's line a desktop's 30 px; the page is built for the window less them, so
-    /// its scaffold fits under the bar — its footer and floating button still at the
-    /// window's bottom — and nothing below is on the line.
+    /// its scaffold fits under the bar — its footer still at the window's bottom, the
+    /// floating button just above it — and nothing below is on the line.
     #[test]
     fn the_menu_bar_is_the_window_s_first_line_and_the_page_gets_the_rest() {
         let seen = Seen::default();
@@ -757,13 +757,16 @@ mod tests {
             "the page is built for the window less the bar"
         );
         assert_eq!(page.title_bar, None, "the line is the bar's");
-        for part in ["Foot", "Fab"] {
-            let r = text_at(&ui, part);
-            assert!(
-                r.y + r.height <= SIZE.height && r.y + r.height > SIZE.height - 80.0,
-                "{part} is at the window's bottom: {r:?}"
-            );
-        }
+        let foot = text_at(&ui, "Foot");
+        assert!(
+            foot.y + foot.height <= SIZE.height && foot.y + foot.height > SIZE.height - 80.0,
+            "the footer is at the window's bottom: {foot:?}"
+        );
+        let fab = text_at(&ui, "Fab");
+        assert!(
+            fab.y + fab.height <= foot.y && fab.y + fab.height > foot.y - 80.0,
+            "the floating button floats just above the footer: {fab:?}"
+        );
         assert!(
             ui.title_bar_regions().is_empty(),
             "nothing of the system's on it"

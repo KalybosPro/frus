@@ -13,6 +13,23 @@ any release may break.
 
 ## [Unreleased]
 
+- **The floating action button is placed from what the screen shell measured** (J766).
+  `FabLocation` now has every placement: at the top (astride the app bar's bottom edge),
+  floating, docked, the mini form of each, and `EndContained` inside the bottom bar; and
+  `Scaffold::fab_location` takes any `FabLocator`, a closure over `FabGeometry` included, for a
+  placement of one's own. The shell is now one layout that measures its slots before placing
+  the button, so a persistent footer lifts it, a snack bar fixed to the bottom lifts it (a
+  floating one goes above it), and a button sits astride a `persistent_bottom_sheet`'s top
+  edge. `Scaffold::snack_bar` and `snack_bar_widget` put a bar in the shell's layout, and the
+  application's bar (`show_snack_bar`) is now shown by the primary shell, on its bottom bar,
+  rather than over the window's bottom edge; `host_snack_bars(false)` declines. A
+  `BottomAppBar` cuts its notch only while the button is actually astride its top edge, not
+  when the keyboard or a snack bar lifted it. `Scaffold::fab_size` is deprecated and does
+  nothing: the button is measured. A fixed `SnackBar` takes the whole width it is offered,
+  with or without an action and wrapped in a transition or not, so it spans the shell's
+  snack-bar slot and any box it is put in; toasts in a `ScaffoldMessenger` keep their own
+  width at its corner. A container can refuse its children's requests to fill across its
+  axis with the new `Widget::grants_cross_fill`.
 - **An autocomplete takes the width it is offered; table labels never overlap** (J767). An
   `Autocomplete` with no `width` used to be 260 px wide wherever it was put. Its field now
   takes the width on offer, like any text field, and keeps 260 only where the room is
