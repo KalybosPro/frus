@@ -29,6 +29,14 @@ any release may break.
   - A `PageView` with `page_snapping(false)` keeps where it rests in pages, fraction included,
     rather than the nearest page; a view that snaps keeps its page, as before.
 
+- **Ctrl and an arrow move by the word drawn next to the caret** (J764). In a field or a
+  selectable text whose line mixes directions, Ctrl+Left and Ctrl+Right crossed words in the
+  text's order, so in `abc אבג def` the caret could land on the far side of a Hebrew word from
+  where the press pointed. They now cross the separators and then the word drawn on that side,
+  and stop at its edge on screen; on a line in one direction the stops are the same as before.
+  After typing, the caret belongs to the last character typed, so at a change of direction it
+  is drawn beside it rather than at the far edge of the next run. A new golden renders spaced
+  rich text with a selection at 2.625x.
 - **The Web on a real phone** (J765). Running the Web build in Chrome on an Android phone
   found two faults, both fixed. In landscape the keyboard leaves the page so little room that
   a focused field is not laid out, and the editing element went with the layout: the keyboard
