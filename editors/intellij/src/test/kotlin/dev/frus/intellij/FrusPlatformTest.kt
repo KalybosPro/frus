@@ -31,14 +31,14 @@ class FrusPlatformTest : BasePlatformTestCase() {
     }
 
     /** The fake `frus run --machine`, its output as the console receives it. */
-    private fun fakeRun(): Pair<FrusProcessHandler, MutableList<Pair<String, Key<*>>>> {
+    private fun fakeRun(vararg args: String): Pair<FrusProcessHandler, MutableList<Pair<String, Key<*>>>> {
         // Only what the fake needs: the whole test class path is too long a command line for
         // Windows (CreateProcess error 206).
         val classPath = listOf(FakeFrus::class.java, Json::class.java, Unit::class.java)
             .map(::classPathEntry)
             .distinct()
             .joinToString(File.pathSeparator)
-        val line = GeneralCommandLine(java(), "-cp", classPath, FakeFrus::class.java.name)
+        val line = GeneralCommandLine(listOf(java(), "-cp", classPath, FakeFrus::class.java.name) + args)
             .withCharset(StandardCharsets.UTF_8)
         val handler = FrusProcessHandler(line)
         val seen = CopyOnWriteArrayList<Pair<String, Key<*>>>()
@@ -92,6 +92,34 @@ class FrusPlatformTest : BasePlatformTestCase() {
         waitFor("got app.stop", seen)
         assertTrue("it ends", handler.waitFor(TimeUnit.SECONDS.toMillis(30)))
         assertEquals("it ended on app.stop, without being killed", 0, handler.exitCode)
+        waitFor("frus run ended (exit code 0).", seen)
+    }
+
+    fun testARunThatFailsSaysSoWithItsExitCodeAndTheLastError() {
+        val (handler, seen) = fakeRun("fail")
+        handler.startNotify()
+        assertTrue("it ends", handler.waitFor(TimeUnit.SECONDS.toMillis(30)))
+        waitFor("frus run failed (exit code 3). The last error: error: the hot-reload engine stopped", seen)
+        assertEquals(ProcessOutputTypes.STDERR, seen.first { it.first.contains("frus run failed") }.second)
+    }
+
+    fun testTheHotReloadHintFollowsTheChoice() {
+        val editor = FrusRunEditor(project)
+        try {
+            editor.component // Builds the form.
+            val type = ConfigurationTypeUtil.findConfigurationType(FrusConfigurationType::class.java)
+            val config = type.factory.createTemplateConfiguration(project) as FrusRunConfiguration
+            editor.resetFrom(config)
+            assertTrue(editor.hotHintText.contains(HotMode.ON.hint))
+            editor.chooseHot(HotMode.OFF)
+            assertTrue(editor.hotHintText.contains(HotMode.OFF.hint))
+            editor.chooseHot(HotMode.FRUS)
+            assertTrue(editor.hotHintText.contains(HotMode.FRUS.hint))
+            editor.applyTo(config)
+            assertEquals(HotMode.FRUS, config.options.hot)
+        } finally {
+            com.intellij.openapi.util.Disposer.dispose(editor)
+        }
     }
 
     fun testARunConfigurationIsMadeForTheApplicationAndKeepsItsOptions() {

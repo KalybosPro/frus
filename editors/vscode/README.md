@@ -57,7 +57,12 @@ Saving a Rust file patches the change into the **running application, without re
 every state stays where it was (desktop, web, Android; the first run installs the patch engine,
 about twenty minutes once). A restart, when you want every state afresh, is one key away. With
 `"hot": false` in a launch configuration, a save rebuilds the application instead and brings it
-back on the same page, with the state of every component that keeps one.
+back on the same page, with the state of every component that keeps one. F5 passes `--hot` for
+a debug build, so hot reload is on with every frus, 0.5.0 included; `"hot": "frus"` passes
+nothing and lets the frus installed decide.
+
+Every run ends with a line in the Debug Console: its exit code and, when it failed, the last
+error it printed.
 
 ### The framework's tools, in the palette
 
@@ -96,8 +101,11 @@ To pin a device or pass options, add one to `.vscode/launch.json`:
 }
 ```
 
-`deviceId` pins the device, `hot: false` restarts to reload instead of patching, `release` builds
-optimised, and `args` are passed on to `frus run`.
+`deviceId` pins the device, `hot: false` restarts to reload instead of patching (`true`: a
+release build is patched too; `"frus"`: frus decides), `release` builds optimised, and `args`
+are passed on to `frus run`. Without `deviceId`, F5 runs on the device in the status bar: the one
+you picked, else a phone plugged in, a running emulator, or this computer, never a simulated
+device unless you pick it.
 
 ## Settings
 

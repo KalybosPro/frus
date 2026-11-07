@@ -38,6 +38,43 @@ object MachineOutput {
     }
 }
 
+/**
+ * How a run ended, for the last line of its console: every end is shown, with its exit code, and
+ * an end that is not a success with the last error seen, so that a run never stops in silence.
+ */
+class RunEnding {
+    private var lastError: String? = null
+    private var stopSaid = false
+
+    /** A piece of console text, as shown: an error is remembered. */
+    fun saw(text: String?, shown: Shown, stopped: Boolean = false) {
+        if (stopped) stopSaid = true
+        if (!text.isNullOrBlank() && (shown == Shown.TOOL_ERROR || shown == Shown.APP_ERROR)) lastError = text.trim()
+    }
+
+    /** A line of the tool's standard error (the build, the tool's own diagnostics): one that
+     *  reads as an error is remembered. */
+    fun sawStderr(line: String) {
+        val text = line.trim()
+        if (ERROR_LINE.containsMatchIn(text)) lastError = text
+    }
+
+    /** The console's last line for an exit with `code`. */
+    fun message(code: Int): Said {
+        if (code == 0) {
+            val how = if (stopSaid) "" else ", without saying it was stopping"
+            return Said("frus run ended (exit code 0$how).", Shown.TOOL)
+        }
+        val why = lastError?.let { " The last error: $it" } ?: " It said no error: the lines above are all it printed."
+        return Said("frus run failed (exit code $code).$why", Shown.TOOL_ERROR)
+    }
+
+    private companion object {
+        /** `error: …`, `error[E0425]: …`, `Error: …`, a panic. */
+        val ERROR_LINE = Regex("""^(error(\[\w+])?:|Error:|thread '.*' panicked)|\bpanicked at\b""")
+    }
+}
+
 /** Splits text that arrives in pieces into whole lines. */
 class LineBuffer {
     private val pending = StringBuilder()

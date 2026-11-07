@@ -8,6 +8,13 @@ package dev.frus.intellij
 object FakeFrus {
     @JvmStatic
     fun main(args: Array<String>) {
+        if (args.firstOrNull() == "fail") {
+            // A run that ends on an error of its own, with no event to say so.
+            System.err.println("   Compiling app v0.1.0")
+            System.err.println("error: the hot-reload engine stopped")
+            System.err.flush()
+            kotlin.system.exitProcess(3)
+        }
         System.err.println("   Compiling app v0.1.0")
         println("""{"event":"app.start","params":{"deviceName":"Fake device"}}""")
         println("""{"event":"app.log","params":{"log":"hello from the app"}}""")

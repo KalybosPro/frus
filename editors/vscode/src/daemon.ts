@@ -24,6 +24,34 @@ export function isSimulated(device: Pick<Device, "id" | "platform" | "category">
   return device.category === "desktop" && device.id !== device.platform;
 }
 
+/** An Android emulator the daemon lists that is not running: started, not picked. */
+export function isStoppedEmulator(device: Pick<Device, "id" | "platform" | "emulator">): boolean {
+  return device.emulator && device.platform === "android" && !device.id.startsWith("emulator-");
+}
+
+/** `devices` in the picker's order: this computer first, then phones, then browsers, then the
+ *  phones and tablets simulated in a window. */
+export function sortDevices(devices: Device[]): Device[] {
+  const order = { desktop: 0, mobile: 1, web: 2 };
+  const rank = (d: Device) => (isSimulated(d) ? 4 : (order[d.category] ?? 3));
+  return [...devices].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+}
+
+/**
+ * The device a run goes to when none was chosen: a phone plugged in, then a running emulator,
+ * then this computer, then a browser. Never a simulated device or an emulator that is not
+ * running: those are run on only when chosen.
+ */
+export function preferredDevice(devices: Device[]): Device | undefined {
+  const usable = sortDevices(devices).filter((d) => d.available && !isSimulated(d) && !isStoppedEmulator(d));
+  return (
+    usable.find((d) => d.category === "mobile" && !d.emulator) ??
+    usable.find((d) => d.id.startsWith("emulator-")) ??
+    usable.find((d) => d.category === "desktop") ??
+    usable[0]
+  );
+}
+
 /** An emulator that can be started, as `emulator.getEmulators` lists it. */
 export interface Emulator {
   id: string;
@@ -148,12 +176,10 @@ export class Devices {
     this.listeners.forEach((listener) => listener());
   }
 
-  /** The devices now, the desktop first, then phones, then browsers. */
+  /** The devices now, as `frus devices` lists them: this computer first, then phones, then
+   *  browsers, then the phones and tablets simulated in a window. */
   list(): Device[] {
-    const order = { desktop: 0, mobile: 1, web: 2 };
-    return [...this.devices.values()].sort(
-      (a, b) => order[a.category] - order[b.category] || a.name.localeCompare(b.name),
-    );
+    return sortDevices([...this.devices.values()]);
   }
 
   get(id: string): Device | undefined {

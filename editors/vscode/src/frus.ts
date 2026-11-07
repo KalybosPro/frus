@@ -43,6 +43,23 @@ async function locate(): Promise<string> {
   return program;
 }
 
+const noHot = new Map<string, Promise<boolean>>();
+
+/** Whether `program`'s `run` takes `--no-hot`: frus 0.5.0's does not (hot reload was off by
+ *  default then) and refuses to run when given it. Asked once per program. */
+export function knowsNoHot(program: string): Promise<boolean> {
+  let known = noHot.get(program);
+  if (!known) {
+    known = new Promise((resolve) =>
+      execFile(program, ["help", "run"], { windowsHide: true }, (error, out) =>
+        resolve(error ? true : out.includes("--no-hot")),
+      ),
+    );
+    noHot.set(program, known);
+  }
+  return known;
+}
+
 /** Whether `program` has the editor protocol: its `run` takes `--machine`. */
 function speaksToEditors(program: string): Promise<boolean> {
   return new Promise((resolve) =>

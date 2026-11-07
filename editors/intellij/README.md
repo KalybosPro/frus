@@ -39,6 +39,10 @@ follows phones as they come and go. From the same menu you can **start an emulat
 chosen once it is up) or **create an Android emulator**, which installs whatever is missing. A
 device your application does not build for says why.
 
+Until you choose one, runs go to a phone plugged in, else a running emulator, else this
+computer: a simulated device or an emulator that has to be started is used only when you pick
+it.
+
 The selector appears in projects that hold a frus application (a package whose `Cargo.toml`
 depends on `frus`); elsewhere the IDE's own selector stays as it is.
 
@@ -51,8 +55,12 @@ phone's logcat, the browser's console. The application's errors are shown as err
 build's progress apart from them. **Stop** stops the application.
 
 A configuration can name its own device (an id from `frus devices`, or `android`, `web`,
-`desktop`), ask for a release build, turn hot reload on or off, and pass arguments to a
-desktop application.
+`desktop`), ask for a release build, set hot reload, and pass arguments to a desktop
+application. Hot reload is **On** by default, passed as `--hot` so that it is on with every
+frus, 0.5.0 included; **Off** passes `--no-hot`; **Let frus decide** passes nothing.
+
+Every run ends with a line in the console: its exit code and, when it failed, the last error it
+printed.
 
 ### Reload on save, state kept
 

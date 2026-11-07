@@ -31,10 +31,11 @@ class FrusProject(private val project: Project) : PersistentStateComponent<FrusP
         data = state
     }
 
-    /** The device chosen in the toolbar, if it is still there; else the first one. */
+    /** The device chosen in the toolbar, if it is still there; else the preferred one: a phone
+     *  plugged in, a running emulator, this computer (never a simulated device unless chosen). */
     fun device(): Device? {
         val daemon = FrusDaemon.get()
-        return data.device?.let(daemon::get) ?: daemon.list().firstOrNull { it.available && !it.isStoppedEmulator }
+        return data.device?.let(daemon::get) ?: Device.preferred(daemon.list())
     }
 
     /** The id chosen, whether or not the device is there now. */

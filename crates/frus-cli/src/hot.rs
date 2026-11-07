@@ -544,8 +544,9 @@ pub(crate) enum DxLine {
     Launched,
     /// A patch was built for `file`, in that many milliseconds.
     Patched { file: String, millis: u64 },
-    /// The application is gone.
-    Exited,
+    /// The application is gone; with what the engine said when it did not end well
+    /// (`Application [windows] exited with error: exit code: 0xc000041d`).
+    Exited(Option<String>),
     /// Something failed: the build, a patch.
     Failed(String),
     /// Nothing the developer needs.
@@ -584,7 +585,7 @@ pub(crate) fn dx_line(line: &str) -> DxLine {
         .unwrap_or(text);
     if let Some(app) = body.strip_prefix("ERROR ") {
         if app.starts_with("Application [") && app.contains("exited") {
-            return DxLine::Exited;
+            return DxLine::Exited(app.contains("with error").then(|| app.to_string()));
         }
         if app.starts_with("Build failed") || app.starts_with("Hot-patching failed") {
             return DxLine::Failed(app.to_string());
@@ -605,10 +606,16 @@ pub(crate) fn dx_line(line: &str) -> DxLine {
             };
         }
         if info.starts_with("Application [") && info.contains("exited") {
-            return DxLine::Exited;
+            return DxLine::Exited(info.contains("with error").then(|| info.to_string()));
         }
     }
-    if body.contains("Build failed") || body.starts_with("error") {
+    // The engine's own end: `Error: …` (its error, as it exits) or a panic of its own; read
+    // as noise, they left `the hot-reload engine stopped` without its reason.
+    if body.contains("Build failed")
+        || body.starts_with("error")
+        || body.starts_with("Error:")
+        || (body.starts_with("thread '") && body.contains("panicked"))
+    {
         return DxLine::Failed(body.to_string());
     }
     DxLine::Noise
@@ -934,8 +941,23 @@ resources = "res"
         );
         assert_eq!(
             dx_line(" 39.97s ERROR Application [windows] exited with error: exit code: 0xc000041d"),
-            DxLine::Exited
+            DxLine::Exited(Some(
+                "Application [windows] exited with error: exit code: 0xc000041d".into()
+            ))
         );
+        assert_eq!(
+            dx_line(" 52.10s  INFO Application [windows] exited gracefully"),
+            DxLine::Exited(None)
+        );
+        // The engine's own end, with its reason: not noise.
+        assert_eq!(
+            dx_line("Error: Failed to bind to 127.0.0.1:8080"),
+            DxLine::Failed("Error: Failed to bind to 127.0.0.1:8080".into())
+        );
+        assert!(matches!(
+            dx_line("thread 'main' panicked at packages/cli/src/serve/mod.rs:12:5:"),
+            DxLine::Failed(_)
+        ));
         assert!(matches!(
             dx_line("106.20s ERROR \u{1b}[31mBuild failed\u{1b}[0m: os error 1224"),
             DxLine::Failed(_)

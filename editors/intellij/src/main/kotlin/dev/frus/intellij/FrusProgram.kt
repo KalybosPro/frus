@@ -32,6 +32,12 @@ object FrusProgram {
     var installed: File? = null
         private set
 
+    /** Whether the program takes `frus run --no-hot` (frus 0.5.0 does not: hot reload was off
+     *  by default then, and `--no-hot` an error). */
+    @Volatile
+    var knowsNoHot: Boolean = true
+        private set
+
     /** The program to run, ready now: `null` until [locate] has found it. */
     fun readyOrNull(): String? = ready
 
@@ -67,6 +73,7 @@ object FrusProgram {
                     "update it with Tools › frus › Update frus, or name a newer one in the frus settings.",
             )
         }
+        knowsNoHot = help.stdout.contains("--no-hot")
         installed = file
         val copy = try {
             runnableCopy(file, File(PathManager.getSystemPath(), "frus/bin"))

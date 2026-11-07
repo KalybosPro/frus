@@ -28,9 +28,11 @@ import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.openapi.util.IconLoader
 import com.intellij.ui.components.JBCheckBox
+import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.execution.ParametersListUtil
 import com.intellij.util.ui.FormBuilder
+import com.intellij.util.ui.UIUtil
 import java.io.File
 import java.nio.charset.StandardCharsets
 import javax.swing.JComponent
@@ -69,11 +71,11 @@ class FrusRunOptions : LocatableRunConfigurationOptions() {
     var workingDirectory by string("")
     var device by string("")
     var release by property(false)
-    var hotMode by string(HotMode.DEFAULT.name)
+    var hotMode by string(HotMode.ON.name)
     var arguments by string("")
 
     var hot: HotMode
-        get() = HotMode.entries.find { it.name == hotMode } ?: HotMode.DEFAULT
+        get() = HotMode.named(hotMode)
         set(value) {
             hotMode = value.name
         }
@@ -120,7 +122,13 @@ class FrusRunState(private val configuration: FrusRunConfiguration) : RunProfile
             throw ExecutionException(e.message)
         }
         val device = options.device.orEmpty().trim().ifEmpty { FrusProject.get(project).let { it.chosenId ?: it.device()?.id }.orEmpty() }
-        val args = runArguments(device, options.release, options.hot, ParametersListUtil.parse(options.arguments.orEmpty()))
+        val args = runArguments(
+            device,
+            options.release,
+            options.hot,
+            ParametersListUtil.parse(options.arguments.orEmpty()),
+            knowsNoHot = FrusProgram.knowsNoHot,
+        )
         val commandLine = GeneralCommandLine(listOf(frus) + args)
             .withWorkDirectory(dir)
             .withCharset(StandardCharsets.UTF_8)
@@ -144,6 +152,10 @@ class FrusRunEditor(private val project: Project) : SettingsEditor<FrusRunConfig
     private val device = JBTextField()
     private val release = JBCheckBox("Release build")
     private val hot = ComboBox(HotMode.entries.toTypedArray())
+    private val hotHint = JBLabel().apply {
+        componentStyle = UIUtil.ComponentStyle.SMALL
+        fontColor = UIUtil.FontColor.BRIGHTER
+    }
     private val arguments = JBTextField()
 
     override fun createEditor(): JComponent {
@@ -154,6 +166,9 @@ class FrusRunEditor(private val project: Project) : SettingsEditor<FrusRunConfig
         device.emptyText.text = "The device chosen in the toolbar"
         (directory.textField as? JBTextField)?.emptyText?.text = "The project's frus application"
         hot.renderer = textRenderer { it.label }
+        // The hint is the chosen mode's, and follows the choice.
+        hot.addItemListener { showHotHint() }
+        showHotHint()
         return FormBuilder.createFormBuilder()
             .addLabeledComponent("Application directory:", directory)
             .addTooltip("Where its Cargo.toml is.")
@@ -161,7 +176,7 @@ class FrusRunEditor(private val project: Project) : SettingsEditor<FrusRunConfig
             .addTooltip("A device id as frus devices prints it, or android, web, desktop.")
             .addComponent(release)
             .addLabeledComponent("Hot reload:", hot)
-            .addTooltip("Each saved change patched into the running application, every state kept (desktop, web, Android).")
+            .addComponentToRightColumn(hotHint, 0)
             .addLabeledComponent("Application arguments:", arguments)
             .addTooltip("Passed to the application (desktop).")
             .panel
@@ -173,7 +188,19 @@ class FrusRunEditor(private val project: Project) : SettingsEditor<FrusRunConfig
         device.text = o.device.orEmpty()
         release.isSelected = o.release
         hot.item = o.hot
+        showHotHint()
         arguments.text = o.arguments.orEmpty()
+    }
+
+    /** The text under the hot reload box: what the mode chosen does. */
+    internal val hotHintText: String get() = hotHint.text
+
+    internal fun chooseHot(mode: HotMode) {
+        hot.item = mode
+    }
+
+    private fun showHotHint() {
+        hotHint.text = "<html>${(hot.item ?: HotMode.ON).hint}</html>"
     }
 
     override fun applyEditorTo(configuration: FrusRunConfiguration) {

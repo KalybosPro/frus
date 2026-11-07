@@ -17,6 +17,7 @@ class FrusProcessHandler(commandLine: GeneralCommandLine) : KillableProcessHandl
     private val stdout = LineBuffer()
     private val stderr = LineBuffer()
     private val nextId = AtomicInteger(1)
+    private val ending = RunEnding()
 
     /** Whether the application has started: a reload before then has nothing to reload. */
     @Volatile var started = false
@@ -30,7 +31,7 @@ class FrusProcessHandler(commandLine: GeneralCommandLine) : KillableProcessHandl
         when {
             outputType == ProcessOutputTypes.STDOUT -> stdout.take(text).forEach(::fromFrus)
             // The build's own output (cargo, cargo-apk) and the tool's diagnostics.
-            outputType == ProcessOutputTypes.STDERR -> stderr.take(text).forEach { show(it, Shown.TOOL) }
+            outputType == ProcessOutputTypes.STDERR -> stderr.take(text).forEach(::fromStderr)
             else -> super.notifyTextAvailable(text, outputType)
         }
     }
@@ -38,7 +39,13 @@ class FrusProcessHandler(commandLine: GeneralCommandLine) : KillableProcessHandl
     private fun fromFrus(line: String) {
         val said = MachineOutput.translate(line)
         if (said.started) started = true
+        ending.saw(said.text, said.shown, said.stopped)
         said.text?.let { show(it, said.shown) }
+    }
+
+    private fun fromStderr(line: String) {
+        ending.sawStderr(line)
+        show(line, Shown.TOOL)
     }
 
     /** Text in the console, as the application's or as the tool's. */
@@ -91,7 +98,9 @@ class FrusProcessHandler(commandLine: GeneralCommandLine) : KillableProcessHandl
 
     override fun notifyProcessTerminated(exitCode: Int) {
         stdout.rest()?.let(::fromFrus)
-        stderr.rest()?.let { show(it, Shown.TOOL) }
+        stderr.rest()?.let(::fromStderr)
+        // Every end in the console, with its exit code and, on a failure, the last error.
+        ending.message(exitCode).let { show(it.text.orEmpty(), it.shown) }
         super.notifyProcessTerminated(exitCode)
     }
 }

@@ -10,7 +10,8 @@
 //   `hotReload` (custom)  → app.restart with fullRestart: false
 //   `key` (custom)        → app.key: any other key of the run's, `{ key: "p" }`
 //   disconnect/terminate  → app.stop, then the process is ended if it lingers
-//   app.stop / exit       → terminated
+//   app.stop              → its error, if any, in the console
+//   exit                  → the exit code (and, on a failure, the last error), then terminated
 
 import { ChildProcess, spawn } from "child_process";
 
@@ -22,11 +23,60 @@ export interface LaunchArguments {
   deviceId?: string;
   release?: boolean;
   /** True hot reload (desktop, web, Android): each saved change patched into the running
-   *  application. Unset: frus's default, on for a debug build; false: `--no-hot`. */
-  hot?: boolean;
+   *  application. Unset: on for a debug build, passed as `--hot` so that every frus has it (frus
+   *  0.5.0's own default is off); true: `--hot`, a release build too; false: `--no-hot`;
+   *  `"frus"`: nothing passed, frus decides. */
+  hot?: boolean | "frus";
   args?: string[];
   /** The `frus` program. */
   frus: string;
+  /** Whether that program takes `--no-hot` (frus 0.5.0 does not, and its default is off).
+   *  Unset: it does. */
+  knowsNoHot?: boolean;
+}
+
+/** The arguments of the `frus run --machine` a launch starts. */
+export function runArguments(args: Omit<LaunchArguments, "cwd" | "frus">): string[] {
+  const command = ["run", "--machine"];
+  if (args.deviceId) command.push("-d", args.deviceId);
+  if (args.release) command.push("--release");
+  const hot = args.hot ?? !args.release;
+  if (hot === true) command.push("--hot");
+  if (args.hot === false && args.knowsNoHot !== false) command.push("--no-hot");
+  if (args.args?.length) command.push("--", ...args.args);
+  return command;
+}
+
+/**
+ * How a run ended, for the console's last line: every end is shown, with its exit code, and an
+ * end that is not a success with the last error seen, so that a run never stops in silence.
+ */
+export class RunEnding {
+  private lastError: string | undefined;
+  private stopSaid = false;
+
+  /** Something shown as an error, or `app.stop` (with its error, if any). */
+  saw(text: string | undefined | null, error: boolean, stopped = false): void {
+    if (stopped) this.stopSaid = true;
+    if (error && text && text.trim()) this.lastError = text.trim();
+  }
+
+  /** A line of the tool's standard error: one that reads as an error is remembered. */
+  sawStderr(line: string): void {
+    const text = line.trim();
+    if (/^(error(\[\w+\])?:|Error:|thread '.*' panicked)|\bpanicked at\b/.test(text)) this.lastError = text;
+  }
+
+  /** The console's last line for an exit with `code` (null: ended by `signal`). */
+  message(code: number | null, signal?: string | null): { text: string; error: boolean } {
+    if (code === 0) {
+      const how = this.stopSaid ? "" : ", without saying it was stopping";
+      return { text: `frus run ended (exit code 0${how}).`, error: false };
+    }
+    const how = code === null ? `ended by ${signal ?? "a signal"}` : `exit code ${code}`;
+    const why = this.lastError ? ` The last error: ${this.lastError}` : " It said no error: the lines above are all it printed.";
+    return { text: `frus run failed (${how}).${why}`, error: true };
+  }
 }
 
 type Message = { seq?: number; type: string; [key: string]: any };
@@ -44,6 +94,7 @@ export class FrusDebugAdapter {
   private run: ChildProcess | undefined;
   private nextCommandId = 1;
   private ended = false;
+  private ending = new RunEnding();
 
   constructor(private readonly spawner: Spawner = defaultSpawner) {}
 
@@ -123,12 +174,7 @@ export class FrusDebugAdapter {
   }
 
   private launch(args: LaunchArguments): void {
-    const command = ["run", "--machine"];
-    if (args.deviceId) command.push("-d", args.deviceId);
-    if (args.release) command.push("--release");
-    if (args.hot === true) command.push("--hot");
-    if (args.hot === false) command.push("--no-hot");
-    if (args.args?.length) command.push("--", ...args.args);
+    const command = runArguments(args);
     this.output(`frus ${command.join(" ")}\n`, "console");
     const run = this.spawner(args.frus, command, args.cwd);
     this.run = run;
@@ -138,12 +184,21 @@ export class FrusDebugAdapter {
       (line) => this.output(line + "\n", "console"),
     );
     // The build's own output (cargo, cargo-apk) and the tool's diagnostics.
-    readLines(run.stderr!, () => {}, (line) => this.output(line + "\n", "console"));
+    readLines(run.stderr!, () => {}, (line) => {
+      this.ending.sawStderr(line);
+      this.output(line + "\n", "console");
+    });
     run.on("error", (error) => {
       this.output(`Could not start frus: ${error.message}\n`, "stderr");
       this.end();
     });
-    run.on("exit", () => this.end());
+    // Once its output is all read: every end in the console, with its exit code.
+    run.on("close", (code: number | null, signal: string | null) => {
+      if (this.ended) return;
+      const said = this.ending.message(code, signal);
+      this.output(said.text + "\n", said.error ? "stderr" : "console");
+      this.end();
+    });
   }
 
   /** An event of `frus run --machine`. */
@@ -151,9 +206,11 @@ export class FrusDebugAdapter {
     const params = message.params ?? {};
     switch (message.event) {
       case "app.log":
+        this.ending.saw(params.log, Boolean(params.error));
         this.output(params.log + "\n", params.error ? "stderr" : "stdout");
         break;
       case "app.progress":
+        this.ending.saw(params.message, Boolean(params.error));
         this.output(params.message + "\n", params.error ? "stderr" : "console");
         break;
       case "app.start":
@@ -167,10 +224,16 @@ export class FrusDebugAdapter {
         this.output(`${what} in ${Number(params.seconds).toFixed(1)} s.\n`, "console");
         break;
       }
-      case "app.stop":
+      case "app.stop": {
+        this.ending.saw(params.error, true, true);
         if (params.error) this.output(params.error + "\n", "stderr");
-        this.end();
+        // frus ends right after; its exit is reported then. If it lingers, the session ends.
+        const run = this.run;
+        setTimeout(() => {
+          if (run && run.exitCode === null) this.end();
+        }, 5000).unref?.();
         break;
+      }
     }
   }
 
