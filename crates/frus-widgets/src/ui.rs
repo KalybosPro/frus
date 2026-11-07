@@ -2492,7 +2492,15 @@ fn build_layout_scoped<'a, Msg>(
         // parent grants the room, the default gives way and the anchor is as wide as the
         // room; where the room cannot be granted (a row beside other children), the
         // default stands — on the portal, which the anchor then fills.
+        // Having handed its default over, the anchor **fills the portal** on that axis:
+        // left at its content size, a page whose list was the anchor (the application's
+        // root portal) collapsed to nothing.
         let mut style = effective_style(widget, id, runtime, theme);
+        style.flex_direction = if fills.vertical && !fills.horizontal {
+            frus_layout::FlexDirection::Row
+        } else {
+            frus_layout::FlexDirection::Column
+        };
         let anchor_style = effective_style(anchor_w, child_id(id, 0, anchor_w), runtime, theme);
         for horizontal in [true, false] {
             if fills.wants(horizontal) && fills.soft(horizontal) {
@@ -2502,13 +2510,10 @@ fn build_layout_scoped<'a, Msg>(
                 } else {
                     style.height = anchor_style.height;
                 }
+                let parallel = horizontal == style.flex_direction.is_horizontal();
+                layout.fill_parent(anchor, horizontal, parallel);
             }
         }
-        style.flex_direction = if fills.vertical && !fills.horizontal {
-            frus_layout::FlexDirection::Row
-        } else {
-            frus_layout::FlexDirection::Column
-        };
         return (layout.container(style, &[anchor]), fills);
     }
     let children = widget.children();
