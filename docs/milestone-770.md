@@ -77,8 +77,25 @@ Unit tests (`frus-shell`), with the values measured on the phone:
   `element_top` (no pan), the element over a field at 300 was kept at 111.9, in the top quarter of
   the canvas, and the browser had no reason to pan to the field.
 
-PHONE_RESULTS
+- `frus-shell` tests (466 + 13 pass), `cargo fmt --all`, `cargo clippy --workspace
+  --all-targets -- -D warnings`, and `cargo clippy -p frus-shell --target
+  wasm32-unknown-unknown -- -D warnings` (the changed shell code is compiled for the Web only).
+- On the phone, with a plain page (an `<input>` at y = 250 in a page that does not scroll, as
+  the editing element is): Chrome panned the visual viewport to the focused input when the
+  keyboard came up (`offsetTop` 0 → 252), but **not** when the input then moved while it kept
+  the focus (`offsetTop` stayed 252 after it moved to y = 100). `scrollIntoView({block:
+  "center"})` on it then panned to 107.8, the input in the middle of the 38-pixel strip. This is
+  why the shell scrolls the element into view itself when the page pans.
 
 ## Not done
 
-NOT_DONE
+- **The frus build was not run on the phone.** The phone was unplugged and held by another
+  check for the rest of this milestone, so the fixed `frus-demo` was not loaded there. What was
+  measured on the phone is the browser's side: the viewports, and how Chrome pans to the
+  editing element (plain page, above). The frus side is covered by the unit tests only.
+- While the page pans, the application is laid out as if there were no keyboard: a bottom bar
+  or a floating button sits under the keyboard, and the app bar is panned out of sight with the
+  rest of the page, as with a phone's own window pan.
+- One frame is laid out above the keyboard before the page pans (it is how the shell learns
+  that the field does not fit), so the switch can show a frame with no room for the body.
+- iOS Safari, which also resizes the layout viewport in some versions, was not run.
