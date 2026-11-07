@@ -107,6 +107,42 @@ and a contained one cut nothing.
 layer stacked over the screen, so it stands on the navigation bar and the floating button
 rises above it.
 
+**A fixed bar in a transition spans the shell** (`toast.rs`, found on the emulator). The
+shell forces its width on the slot's widget, and a bare `SnackBar` took it; the demo's bar,
+in an `AnimatedOpacity`, did not: the wrapper was as wide as the shell and the bar inside kept
+its own measured width, at the start edge. A fixed `SnackBar` now asks to fill the width it
+is offered (`fill_axes`), its measured width being only a default (`soft_extent`); a floating
+bar does not ask, and keeps its own width or the one it was given.
+
+**Where it fills is the reference's answer, not only the shell's.** The reference builds a
+fixed bar's content as a row whose message is wrapped in an expanded child, the action and
+the close button after it (`snack_bar.dart:767-779`); a row with an expanded child takes the
+whole width it is given. So a fixed bar fills the width any parent offers it, in a shell's
+slot or in a plain padded box. The `snackbar_action` golden (a fixed bar with an action alone
+in a box padded by 20 on a 340 px canvas) changes accordingly: the bar now spans the 300 px
+and its action sits at the right end. The new image differs from the old only right of x 200:
+the bar's right edge and the "Undo" label both move 42 px to the right, and everything to
+their left is identical.
+
+That request also stretched toasts out of their corner: the `toast_host` golden (two fixed
+bars at the bottom end of a `ScaffoldMessenger`, a host of frus's own with no counterpart in
+the reference) failed, the first bar spanning the host. Two changes keep that golden as it
+was:
+
+- **A corner-aligned host keeps its toasts their own width.** A new hook,
+  `Widget::grants_cross_fill` (`true` by default, forwarded by the transparent wrappers),
+  lets a container refuse its children's requests to fill across its axis; the layout walk
+  (`ui.rs`) then neither grants the request nor passes it up. `ScaffoldMessenger` refuses
+  unless its alignment is a stretch, which none of its positions is. Nothing in it names
+  `SnackBar`. A toast at a corner keeps its own width; the corner alignment wins.
+- **A soft size no longer stops a container's request** (`Fills::bounded_by`, `ui.rs`). Of
+  the two bars, only the one without an action stretched. A bar with an action or a close
+  button lays them out as children, so it is built as a container, and a container whose
+  style gives a definite width had its request to fill dropped, even where that width is
+  only a default. It now keeps the request on an axis whose size is soft, so a fixed bar with
+  an action fills as one without does. This is the change that moves the `snackbar_action`
+  golden.
+
 ## How it was tested
 
 New `scaffold.rs` tests, reading the painted rectangles:
@@ -119,12 +155,26 @@ New `scaffold.rs` tests, reading the painted rectangles:
 - `a_persistent_footer_lifts_the_button`.
 - `a_snack_bar_lifts_the_button_or_goes_above_it`: a fixed bar on the bottom bar with the
   button 16 px above it; a floating bar just above an unmoved button.
+- `a_fixed_bar_in_a_transition_spans_the_shell`: a bar in an `AnimatedOpacity`, given with
+  `snack_bar_widget`, is painted the shell's whole width. It failed before the `toast.rs`
+  change (the bar was 97 px wide at x 0 in a 400 px shell).
+- `a_fixed_bar_with_an_action_spans_the_shell`: the same with an Undo action. It passes
+  with or without the `bounded_by` change, the shell forcing the slot's width; it guards the
+  slot, and `toast.rs`'s column test below is the one that catches the second bug.
 - `a_persistent_sheet_carries_the_button_on_its_edge`.
 - `the_notch_follows_the_button`: notched when docked; not when the keyboard or a snack bar
   lifted the button, not for a contained or a floating button.
 - `the_application_s_snack_bar_is_shown_in_the_shell`: `host::show_snack_bar`, then the pages
   under the root's notification overlay as the application's root builds them. The bar is
   painted once, on the bottom bar, and the button rises above it.
+
+New in `toasthost.rs`: `fixed_bars_at_a_corner_keep_their_own_widths`, two fixed bars (one
+with an action) at the bottom end of a 420 px messenger, bare and with `fade_in`, each painted
+at its own width against the end edge. Without `grants_cross_fill` it failed: the first bar
+was painted 420 px wide at x 0. New in `toast.rs`:
+`a_fixed_bar_fills_a_column_with_an_action_or_without`, two fixed bars in a 400 px column
+aligned to the start, both painted the column's whole width. Without the `bounded_by` change
+it failed: the bar with the action was 258 px wide at x 0.
 
 **Failing before.** The three tests that need nothing new from the API were run against the
 previous `scaffold.rs` and `bottomappbar.rs` (the rest of the tree kept): the footer test
@@ -136,13 +186,24 @@ rather than standing on it). The other new tests use placements and slots that d
 All the earlier `scaffold` tests pass unchanged except for the removal of their `fab_size`
 calls (68 tests in the module).
 
-RESULTS_FULL
+After merging master: the `frus-widgets` unit tests (2151), the demo's (88), `core_exports`,
+`thread_locals` and the doc tests (117, 110 ignored) all pass; the goldens (`frus-test`, all
+targets, under WSL with a fresh build: 105 goldens and 132 other rendering tests) all pass.
+One golden changed, `snackbar_action`, regenerated after checking the difference was only the
+bar spanning its box (see above); `toast_host` failed with the first version of the fix and
+passes, unchanged, with the corner rule. `cargo fmt --all --check` and
+`cargo clippy --workspace --all-targets -- -D warnings` are clean.
 
 ## Checked on the phone
 
 PHONE
 
 ## Not done
+
+- **A floating bar without a width of its own** still keeps its measured width. The
+  reference's floating bar has the same expanded content row, and without a width it is only
+  wrapped in its margin (`snack_bar.dart:815-824`), so it too fills the width it is offered,
+  less the margin. Only the fixed bar was changed here.
 
 - **The button does not animate** between places. The leading toolkit moves it with a short
   scale-and-move transition when its location changes, and a fixed snack bar grows in, so the

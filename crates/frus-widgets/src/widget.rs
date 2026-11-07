@@ -1638,6 +1638,18 @@ pub trait Widget<Msg = crate::callback::Callback> {
         FillAxes::NONE
     }
 
+    /// Whether this container grants a child's request to fill **across** its axis
+    /// (milestone 766). `true` by default: a column stretches a child that asks for the
+    /// width, whatever its cross alignment, as the reference's loose cross constraint lets
+    /// a child take its whole maximum.
+    ///
+    /// A container that places its children at a corner answers `false`: there the cross
+    /// alignment is the point, and a child that took the whole width would have nowhere to
+    /// be aligned. The request then stops here, and the child keeps its own size.
+    fn grants_cross_fill(&self) -> bool {
+        true
+    }
+
     /// The width below which this widget must not be squeezed **when its parent runs
     /// horizontally** — a line of text that would rather run past the end of a row than
     /// be folded into a column of single words. `None` means squeeze freely.
@@ -2476,6 +2488,9 @@ impl<Msg> Widget<Msg> for Box<dyn Widget<Msg>> {
     }
     fn soft_extent(&self) -> FillAxes {
         (**self).soft_extent()
+    }
+    fn grants_cross_fill(&self) -> bool {
+        (**self).grants_cross_fill()
     }
     fn main_axis_floor(&self, theme: &Theme) -> Option<f32> {
         (**self).main_axis_floor(theme)

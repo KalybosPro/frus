@@ -762,6 +762,10 @@ macro_rules! forward_transparent {
                 self.inner.soft_extent()
             }
 
+            fn grants_cross_fill(&self) -> bool {
+                self.inner.grants_cross_fill()
+            }
+
             fn main_axis_floor(&self, theme: &$crate::theme::Theme) -> Option<f32> {
                 self.inner.main_axis_floor(theme)
             }

@@ -2011,6 +2011,11 @@ impl Fills {
 
     /// Drops any axis this box was **given a size on**: it has already been told how big
     /// to be, and a request to fill cannot reach past that answer.
+    ///
+    /// A size that is **only a default** on that axis is not such an answer: the room on
+    /// offer replaces it. Dropping it too made a snack bar with an action, which lays its
+    /// button out as a child, keep its measured width where the same bar without one
+    /// filled (milestone 766).
     fn bounded_by(self, style: &frus_layout::Style) -> Self {
         let auto = |d| matches!(d, frus_layout::Dimension::Auto);
         // A box with an aspect ratio decides its children's size from its own, as the
@@ -2024,8 +2029,8 @@ impl Fills {
             };
         }
         Fills {
-            horizontal: self.horizontal && auto(style.width),
-            vertical: self.vertical && auto(style.height),
+            horizontal: self.horizontal && (auto(style.width) || self.soft_horizontal),
+            vertical: self.vertical && (auto(style.height) || self.soft_vertical),
             ..self
         }
     }
@@ -2536,12 +2541,18 @@ fn build_layout_scoped<'a, Msg>(
         // The request is the child's **and its subtree's**: a column whose row fills the
         // width is itself as wide as the room it was given.
         let alone = children.len() == 1;
+        // A container that places its children at a corner keeps them their own size
+        // across its axis: the alignment is the point (milestone 766).
+        let cross_granted = widget.grants_cross_fill();
         for (node, fills) in &built {
             for horizontal in [true, false] {
                 if !fills.wants(horizontal) {
                     continue;
                 }
                 let parallel = horizontal == style.flex_direction.is_horizontal();
+                if !parallel && !cross_granted {
+                    continue;
+                }
                 // Along an axis the parent runs too, the reference leaves the main axis
                 // **unbounded** and `Max` quietly degrades to `Min`: there is no maximum
                 // to take. The exception is a parent with a single child — a padding, an
@@ -2642,11 +2653,20 @@ fn build_layout_scoped<'a, Msg>(
             if divides_both {
                 continue;
             }
-            fills = fills.merge(if alone {
+            let mut passed = if alone {
                 *child
             } else {
                 child.across(style.flex_direction)
-            });
+            };
+            // A request this container refused does not travel past it either.
+            if !cross_granted {
+                if style.flex_direction.is_horizontal() {
+                    passed.vertical = false;
+                } else {
+                    passed.horizontal = false;
+                }
+            }
+            fills = fills.merge(passed);
         }
         (
             layout.container(style, &child_ids),

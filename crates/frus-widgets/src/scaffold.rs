@@ -3891,6 +3891,63 @@ mod tests {
         );
     }
 
+    /// **A fixed bar in a transition spans the shell**, as a bare one does. The shell hands
+    /// its width to the transition; the bar inside used to keep its own width and sit at the
+    /// start (seen on a device with the demo's fading "Saved" bar).
+    #[test]
+    fn a_fixed_bar_in_a_transition_spans_the_shell() {
+        let shell = Scaffold::new()
+            .size(W, H)
+            .window_insets(phone_bars())
+            .body(Container::<Msg>::new())
+            .bottom_navigation_bar(nav_bar())
+            .fab(fab_mark())
+            .snack_bar_widget(
+                crate::AnimatedOpacity::new(
+                    1.0,
+                    0.25,
+                    frus_core::Curve::ease_in_out(),
+                    crate::SnackBar::new("Saved").background(SNACK_MARK),
+                ),
+                SnackBarBehavior::Fixed,
+            )
+            .build();
+        let bar = painted(shell, Size::new(W, H), SNACK_MARK);
+        assert_eq!(bar.len(), 1, "{bar:?}");
+        assert!(
+            bar[0].x.abs() < 0.5 && (bar[0].width - W).abs() < 0.5,
+            "the bar spans the shell: {:?}",
+            bar[0]
+        );
+    }
+
+    /// **A fixed bar with an action spans the shell** as one without does. The action makes
+    /// the bar a container, and a container's measured width used to stop its request to
+    /// fill, so the bar kept its own width at the start edge.
+    #[test]
+    fn a_fixed_bar_with_an_action_spans_the_shell() {
+        let shell = Scaffold::new()
+            .size(W, H)
+            .window_insets(phone_bars())
+            .body(Container::<Msg>::new())
+            .bottom_navigation_bar(nav_bar())
+            .fab(fab_mark())
+            .snack_bar_widget(
+                crate::SnackBar::new("Saved")
+                    .action("Undo", Msg::Add)
+                    .background(SNACK_MARK),
+                SnackBarBehavior::Fixed,
+            )
+            .build();
+        let bar = painted(shell, Size::new(W, H), SNACK_MARK);
+        assert_eq!(bar.len(), 1, "{bar:?}");
+        assert!(
+            bar[0].x.abs() < 0.5 && (bar[0].width - W).abs() < 0.5,
+            "the bar spans the shell: {:?}",
+            bar[0]
+        );
+    }
+
     /// **A persistent bottom sheet carries the button on its top edge**, and stands on
     /// the bottom bar.
     #[test]

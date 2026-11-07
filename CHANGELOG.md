@@ -25,7 +25,11 @@ any release may break.
   rather than over the window's bottom edge; `host_snack_bars(false)` declines. A
   `BottomAppBar` cuts its notch only while the button is actually astride its top edge, not
   when the keyboard or a snack bar lifted it. `Scaffold::fab_size` is deprecated and does
-  nothing: the button is measured.
+  nothing: the button is measured. A fixed `SnackBar` takes the whole width it is offered,
+  with or without an action and wrapped in a transition or not, so it spans the shell's
+  snack-bar slot and any box it is put in; toasts in a `ScaffoldMessenger` keep their own
+  width at its corner. A container can refuse its children's requests to fill across its
+  axis with the new `Widget::grants_cross_fill`.
 - **The Web on a real phone** (J765). Running the Web build in Chrome on an Android phone
   found two faults, both fixed. In landscape the keyboard leaves the page so little room that
   a focused field is not laid out, and the editing element went with the layout: the keyboard

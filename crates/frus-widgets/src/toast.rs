@@ -519,6 +519,25 @@ impl<Msg: Clone> Widget<Msg> for SnackBar<Msg> {
         self.sizing(Some(theme))
     }
 
+    /// A **fixed** bar takes the width it is offered, wherever it is: the reference lays its
+    /// content out as a row whose message is expanded (`snack_bar.dart:767`), and a row with
+    /// an expanded child takes all the width it is given. A shell that hands its whole width
+    /// to a bar wrapped in a transition so reaches the bar itself, not only the wrapper. A
+    /// container that places its children at a corner can still refuse
+    /// ([`Widget::grants_cross_fill`]). A floating bar keeps its own width.
+    fn fill_axes(&self, theme: &Theme) -> crate::widget::FillAxes {
+        match self.placing(Some(theme)) {
+            SnackBarBehavior::Fixed => crate::widget::FillAxes::WIDTH,
+            SnackBarBehavior::Floating => crate::widget::FillAxes::NONE,
+        }
+    }
+
+    /// The measured width is only a default, replaced by the room offered where the bar
+    /// fills (a fixed bar); a floating bar, which does not ask to fill, keeps it.
+    fn soft_extent(&self) -> crate::widget::FillAxes {
+        crate::widget::FillAxes::WIDTH
+    }
+
     fn children(&self) -> &[Box<dyn Widget<Msg>>] {
         &self.children
     }
@@ -1372,5 +1391,66 @@ mod tests {
             vec![2.0],
             "the bar's word over the theme's"
         );
+    }
+
+    /// **A fixed bar fills the width a column offers, with an action or without**
+    /// (milestone 766). The action is laid out as a child, which makes the bar a container,
+    /// and a container's measured width used to stop its request to fill: the bare bar
+    /// spanned the column while the one with an action kept its own width.
+    #[test]
+    fn a_fixed_bar_fills_a_column_with_an_action_or_without() {
+        const BARE: Color = Color {
+            r: 0.5,
+            g: 0.0,
+            b: 1.0,
+            a: 1.0,
+        };
+        const WITH_ACTION: Color = Color {
+            r: 1.0,
+            g: 0.0,
+            b: 0.5,
+            a: 1.0,
+        };
+        let column = crate::Column::<()>::new()
+            .cross_axis_alignment(Align::Start)
+            .child(
+                SnackBar::new("File uploaded")
+                    .behavior(SnackBarBehavior::Fixed)
+                    .background(BARE),
+            )
+            .child(
+                SnackBar::new("Message archived")
+                    .behavior(SnackBarBehavior::Fixed)
+                    .action("Undo", ())
+                    .background(WITH_ACTION),
+            );
+        let ui = crate::build_ui(
+            &column,
+            frus_core::Size::new(400.0, 300.0),
+            &crate::Runtime::default(),
+            &Theme::default(),
+        );
+        for color in [BARE, WITH_ACTION] {
+            let bars: Vec<Rect> = ui
+                .scene()
+                .primitives()
+                .iter()
+                .filter_map(|p| match p {
+                    Primitive::Rect {
+                        rect,
+                        color: c,
+                        clip,
+                        ..
+                    } if *c == color => Some(rect.intersect(*clip)),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(bars.len(), 1, "{color:?}: {bars:?}");
+            assert!(
+                bars[0].x.abs() < 0.5 && (bars[0].width - 400.0).abs() < 0.5,
+                "{color:?}: the bar spans the column: {:?}",
+                bars[0]
+            );
+        }
     }
 }
