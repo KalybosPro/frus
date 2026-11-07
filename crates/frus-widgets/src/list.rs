@@ -204,9 +204,10 @@ pub struct ListView<Msg = crate::callback::Callback> {
     variable: bool,
     /// Where the offset is kept for restoration; see [`ListView::restoration_id`].
     restoration: Option<Vec<String>>,
-    /// The restoration scope the rows are built in: the list's own, below which each row
-    /// has a scope `row <index>` (milestone 753).
-    rows_scope: std::rc::Rc<std::cell::RefCell<crate::restoration::Scope>>,
+    /// The restoration scopes the rows are built in: below the list's own, a scope per row,
+    /// `key <hex>` for a row with a key and `row <index>` for one without (milestones 753
+    /// and 762).
+    rows_scope: std::rc::Rc<crate::restoration::ItemScopes>,
     /// Whether rows out of view keep their state by default; see [`ListView::keep_alive`].
     keep_alive: bool,
     /// See [`ListView::find_child_index`].
@@ -225,8 +226,7 @@ impl<Msg> ListView<Msg> {
         item_extent: f32,
         build: impl Fn(usize) -> W + 'static,
     ) -> Self {
-        let rows_scope =
-            std::rc::Rc::new(std::cell::RefCell::new(crate::restoration::current_scope()));
+        let rows_scope = crate::restoration::ItemScopes::here("row");
         let rows = rows_scope.clone();
         Self {
             count,
@@ -245,11 +245,9 @@ impl<Msg> ListView<Msg> {
             grain: 0.0,
             build: Box::new(move |index| {
                 // A row is built during the layout, after the page's build has returned:
-                // it is put back in the scope the list was made in, in a bucket of its own.
-                let scope =
-                    crate::restoration::scope_below(&rows.borrow(), &format!("row {index}"));
-                let _scope = crate::restoration::enter_scope(scope);
-                Box::new(build(index)) as Box<dyn Widget<Msg>>
+                // it is put back in the scope the list was made in, in a bucket of its own,
+                // named by its key when it has one.
+                rows.build(index, || Box::new(build(index)) as Box<dyn Widget<Msg>>)
             }),
             variable: false,
             restoration: None,
@@ -300,12 +298,15 @@ impl<Msg> ListView<Msg> {
     /// the system started again opens the list where it was. `id` must be unique within its
     /// scope — the page, or a [`restoration_scope`](crate::restoration_scope).
     ///
-    /// The rows are built in a restoration scope of their own, `row <index>` — below this
-    /// id when the list has one — so a field in a row is given a `restoration_id` that is
-    /// unique within its row. What a row keeps follows its index.
+    /// The rows are built in a restoration scope of their own — below this id when the list
+    /// has one — so a field in a row is given a `restoration_id` that is unique within its
+    /// row. What a row with a key ([`Keyed`](crate::Keyed), [`keyed`](crate::keyed),
+    /// [`Component::with_key`](crate::Component::with_key)) keeps follows its key, so it
+    /// comes back to the same item when the data is in another order after the restart;
+    /// what a row without a key keeps follows its index.
     pub fn restoration_id(mut self, id: &str) -> Self {
         let path = crate::restoration::path_here(id);
-        *self.rows_scope.borrow_mut() = std::rc::Rc::from(path.clone());
+        self.rows_scope.set_parent(std::rc::Rc::from(path.clone()));
         self.restoration = Some(path);
         self
     }

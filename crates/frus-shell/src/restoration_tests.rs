@@ -330,8 +330,12 @@ fn values_in_keyed_list_rows_come_back_to_their_rows() {
         .find(|(name, _)| name.starts_with("route 0 "))
         .map(|(_, b)| b.clone())
         .expect("the page has a scope");
+    // A keyed row is kept under its key (milestone 762).
+    let key = frus_widgets::Keyed::<Callback>::new(("item", 2usize), Text::new(""))
+        .key()
+        .unwrap();
     assert_eq!(
-        page.get(&["items".into(), "row 2".into(), "taps".into()]),
+        page.get(&["items".into(), format!("key {key:016x}"), "taps".into()]),
         Some("2"),
         "{page:?}"
     );
@@ -614,4 +618,263 @@ fn told_widgets_come_back_through_the_application_values() {
     settle(&mut second);
     assert!(shows(&second, "Sent panel"), "{:?}", second.texts());
     assert!(shows(&second, "The details"));
+}
+
+// ---------------------------------------------------------------------------------------
+// Milestone 762: the rows and cells with a key follow their key
+// ---------------------------------------------------------------------------------------
+
+/// A row that counts its taps in a restorable hook, named after the item it shows.
+fn counting_item(name: char) -> frus_widgets::Component {
+    component(move |cx| {
+        let taps = cx.use_restorable_state("taps", || 0u32);
+        let tap = taps.clone();
+        Box::new(column![
+            Text::new(format!("{name}: {}", taps.get())),
+            Button::new(format!("Tap {name}")).on_press(move || tap.update(|n| *n += 1)),
+        ]) as Box<dyn Widget>
+    })
+}
+
+/// A page listing the items of `order`, each row keyed by its item when `keyed`.
+fn ordered_list_app(order: &'static str, keyed: bool) -> FrusApp {
+    let router = GoRouter::new(vec![GoRoute::new("/", move |_, _| {
+        let items: Vec<char> = order.chars().collect();
+        ListView::new(items.len(), 60.0, move |i| -> Box<dyn Widget> {
+            match keyed {
+                true => Box::new(frus_widgets::keyed(items[i], counting_item(items[i]))),
+                false => Box::new(counting_item(items[i])),
+            }
+        })
+        .height(400.0)
+        .restoration_id("items")
+    })])
+    .animate(false);
+    FrusApp::router(router).restoration_scope_id("app")
+}
+
+/// The data comes back in another order after the restart: what a keyed row kept comes
+/// back to the row of the same item, not to the row at the same index.
+#[test]
+fn keyed_rows_follow_their_item_into_another_order() {
+    let mut first = Driver::new(ordered_list_app("abcde", true), W, H);
+    settle(&mut first);
+    tap(&mut first, "Tap c");
+    tap(&mut first, "Tap c");
+    tap(&mut first, "Tap a");
+    assert!(shows(&first, "c: 2"), "{:?}", first.texts());
+    let data = first.restoration_data().unwrap();
+
+    // `c` was third and is now last; `a` was first and is now second.
+    let mut second = Driver::new(ordered_list_app("badec", true), W, H);
+    assert!(second.restore(&data));
+    settle(&mut second);
+    for (item, count) in [('a', 1), ('b', 0), ('c', 2), ('d', 0), ('e', 0)] {
+        assert!(
+            shows(&second, &format!("{item}: {count}")),
+            "{item} comes back with {count}: {:?}",
+            second.texts()
+        );
+    }
+}
+
+/// Rows without a key have nothing but their index to be found by: what they kept follows
+/// the index, as before.
+#[test]
+fn rows_without_a_key_keep_following_their_index() {
+    let mut first = Driver::new(ordered_list_app("abcde", false), W, H);
+    settle(&mut first);
+    tap(&mut first, "Tap c");
+    tap(&mut first, "Tap c");
+    let data = first.restoration_data().unwrap();
+    let page = bucket(&data)
+        .children()
+        .find(|(name, _)| name.starts_with("route 0 "))
+        .map(|(_, b)| b.clone())
+        .expect("the page has a scope");
+    assert_eq!(
+        page.get(&["items".into(), "row 2".into(), "taps".into()]),
+        Some("2"),
+        "{page:?}"
+    );
+
+    let mut second = Driver::new(ordered_list_app("badec", false), W, H);
+    assert!(second.restore(&data));
+    settle(&mut second);
+    assert!(shows(&second, "d: 2"), "{:?}", second.texts());
+    assert!(shows(&second, "c: 0"), "{:?}", second.texts());
+}
+
+/// The data moves while the process lives — the rows follow their key, as their state does
+/// (milestone 748) — and then the process ends: what is kept is under each row's key, so
+/// the next process finds every count on its own item.
+#[test]
+fn keyed_rows_moved_in_the_process_are_kept_under_their_key() {
+    let make = || {
+        let router = GoRouter::new(vec![GoRoute::new("/", |_, _| {
+            component(|cx| {
+                let order = cx.use_restorable_state("order", || "abcde".to_string());
+                let reverse = order.clone();
+                let items: Vec<char> = order.get().chars().collect();
+                Box::new(column![
+                    Button::new("Reverse").on_press(move || {
+                        reverse.update(|order| *order = order.chars().rev().collect())
+                    }),
+                    ListView::new(items.len(), 60.0, move |i| {
+                        frus_widgets::keyed(items[i], counting_item(items[i]))
+                    })
+                    .height(400.0)
+                    .keep_alive(true)
+                    .restoration_id("items"),
+                ]) as Box<dyn Widget>
+            })
+        })])
+        .animate(false);
+        FrusApp::router(router).restoration_scope_id("app")
+    };
+    let mut first = Driver::new(make(), W, H);
+    settle(&mut first);
+    tap(&mut first, "Tap a");
+    tap(&mut first, "Tap a");
+    tap(&mut first, "Reverse");
+    tap(&mut first, "Tap e");
+    assert!(shows(&first, "a: 2"), "{:?}", first.texts());
+    assert!(shows(&first, "e: 1"), "{:?}", first.texts());
+    let data = first.restoration_data().unwrap();
+
+    let mut second = Driver::new(make(), W, H);
+    assert!(second.restore(&data));
+    settle(&mut second);
+    for (item, count) in [('a', 2), ('b', 0), ('c', 0), ('d', 0), ('e', 1)] {
+        assert!(
+            shows(&second, &format!("{item}: {count}")),
+            "{item} comes back with {count}: {:?}",
+            second.texts()
+        );
+    }
+}
+
+/// A page with a windowed grid of the items of `order`, each cell keyed by its item.
+fn ordered_grid_app(order: &'static str) -> FrusApp {
+    let router = GoRouter::new(vec![GoRoute::new("/", move |_, _| {
+        let items: Vec<char> = order.chars().collect();
+        GridView::builder(3, items.len(), move |i| {
+            frus_widgets::keyed(items[i], counting_item(items[i]))
+        })
+        .width(W)
+        .height(500.0)
+        .restoration_id("tiles")
+    })])
+    .animate(false);
+    FrusApp::router(router).restoration_scope_id("app")
+}
+
+/// The cells of a windowed grid keep their values in scopes of their own, under their key:
+/// the same id in every cell does not collide, and a cell's count follows its item into
+/// another order.
+#[test]
+fn keyed_grid_cells_follow_their_item_into_another_order() {
+    let mut first = Driver::new(ordered_grid_app("abcdef"), W, H);
+    settle(&mut first);
+    tap(&mut first, "Tap b");
+    tap(&mut first, "Tap b");
+    tap(&mut first, "Tap f");
+    assert!(shows(&first, "b: 2"), "{:?}", first.texts());
+    assert!(shows(&first, "f: 1"), "{:?}", first.texts());
+    assert!(shows(&first, "a: 0"), "{:?}", first.texts());
+    let data = first.restoration_data().unwrap();
+
+    let mut second = Driver::new(ordered_grid_app("fedcba"), W, H);
+    assert!(second.restore(&data));
+    settle(&mut second);
+    for (item, count) in [('a', 0), ('b', 2), ('c', 0), ('d', 0), ('e', 0), ('f', 1)] {
+        assert!(
+            shows(&second, &format!("{item}: {count}")),
+            "{item} comes back with {count}: {:?}",
+            second.texts()
+        );
+    }
+}
+
+/// A page view that does not snap to its pages, with a restoration id.
+fn free_paged_app() -> FrusApp {
+    let router = GoRouter::new(vec![GoRoute::new("/", |_, _| {
+        PageView::new(6, |i| Text::new(format!("Page {i}")))
+            .height(200.0)
+            .page_snapping(false)
+            .restoration_id("pages")
+    })])
+    .animate(false);
+    FrusApp::router(router).restoration_scope_id("app")
+}
+
+/// A page view that does not snap rests wherever the finger left it, between two pages
+/// as often as not: that position, in pages, is what is kept — and it is still pages, so
+/// a window of another width opens at the same fraction of the same page.
+#[test]
+fn a_page_view_that_does_not_snap_keeps_where_it_rests() {
+    let mut first = Driver::new(free_paged_app(), W, H);
+    settle(&mut first);
+    let page = first
+        .texts()
+        .into_iter()
+        .find(|(t, _)| t == "Page 0")
+        .map(|(_, rect)| rect)
+        .unwrap_or_else(|| panic!("the first page is on screen: {:?}", first.texts()));
+    let at = Point::new(page.x + 300.0, page.y + 5.0);
+    first.press(at);
+    let mut x = at.x;
+    for _ in 0..30 {
+        x -= 20.0;
+        first.move_to(Point::new(x, at.y));
+        first.frame(1.0 / 60.0);
+    }
+    // Held still before letting go: no fling.
+    for _ in 0..20 {
+        first.move_to(Point::new(x, at.y));
+        first.frame(1.0 / 60.0);
+    }
+    first.release(Point::new(x, at.y));
+    settle(&mut first);
+    let (viewport, (offset, _)) = first
+        .offsets()
+        .into_iter()
+        .find(|(_, (x, _))| *x > 0.0)
+        .expect("the view moved");
+    let position = offset / viewport.width;
+    assert!(
+        (position - position.round()).abs() > 0.1,
+        "the view rests between two pages: {position}"
+    );
+    let data = first.restoration_data().unwrap();
+    let kept = bucket(&data);
+    let scope = kept
+        .children()
+        .find(|(name, _)| name.starts_with("route 0 "))
+        .map(|(_, b)| b.clone())
+        .expect("the page has a scope");
+    let saved: f32 = scope
+        .value("pages")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or_else(|| panic!("a position is kept: {scope:?}"));
+    assert!(
+        (saved - position).abs() < 0.01,
+        "{saved} kept for {position}"
+    );
+
+    for width in [W, 700.0] {
+        let mut second = Driver::new(free_paged_app(), width, H);
+        assert!(second.restore(&data));
+        settle(&mut second);
+        let (viewport, (offset, _)) = second
+            .offsets()
+            .into_iter()
+            .find(|(_, (x, _))| *x > 0.0)
+            .expect("the view opens moved");
+        assert!(
+            (offset - position * viewport.width).abs() < 1.0,
+            "{position} pages of {} at width {width}: {offset}",
+            viewport.width
+        );
+    }
 }
