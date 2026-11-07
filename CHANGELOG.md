@@ -30,6 +30,30 @@ any release may break.
   snack-bar slot and any box it is put in; toasts in a `ScaffoldMessenger` keep their own
   width at its corner. A container can refuse its children's requests to fill across its
   axis with the new `Widget::grants_cross_fill`.
+- **Restored rows follow their key; restoration before Android 10; free page views keep their
+  fraction** (J762).
+  - A row of a `ListView` with a key (`keyed(..)`, `Keyed`, `Component::with_key`) keeps its
+    restorable values under its key instead of its index, so they come back to the same item
+    when the data is in another order after the restart, or moved while the process lived.
+    Rows without a key still follow their index. The cells of a `GridView::builder` or
+    `GridView::extent` now have restoration scopes of their own too (they had none: the same
+    id in two cells collided), under their key or their index.
+  - Android before 10: an application whose manifest names `frus_native_activity_on_create` as
+    the activity's `android.app.func_name` has its state kept by answering the activity's own
+    save request, on every Android version. The demonstration, the sample crates and the
+    example projects declare it; other applications keep the Android 10 path until they add the
+    three lines (see `docs/milestone-762.md`).
+  - A `PageView` with `page_snapping(false)` keeps where it rests in pages, fraction included,
+    rather than the nearest page; a view that snaps keeps its page, as before.
+
+- **Ctrl and an arrow move by the word drawn next to the caret** (J764). In a field or a
+  selectable text whose line mixes directions, Ctrl+Left and Ctrl+Right crossed words in the
+  text's order, so in `abc אבג def` the caret could land on the far side of a Hebrew word from
+  where the press pointed. They now cross the separators and then the word drawn on that side,
+  and stop at its edge on screen; on a line in one direction the stops are the same as before.
+  After typing, the caret belongs to the last character typed, so at a change of direction it
+  is drawn beside it rather than at the far edge of the next run. A new golden renders spaced
+  rich text with a selection at 2.625x.
 - **The Web on a real phone** (J765). Running the Web build in Chrome on an Android phone
   found two faults, both fixed. In landscape the keyboard leaves the page so little room that
   a focused field is not laid out, and the editing element went with the layout: the keyboard

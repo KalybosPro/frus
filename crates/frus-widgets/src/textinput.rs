@@ -569,6 +569,47 @@ pub(crate) fn caret_key_in(
     true
 }
 
+/// A word at a time **on screen** from `from`: the caret crosses, one drawn character at a
+/// time, whatever separates it from the next word on that side, then that word, and stops
+/// beside its last letter — so in a line that mixes directions Ctrl and an arrow moves the
+/// way the arrow points, a whole word drawn next to the caret per press, and lands where
+/// that word ends on screen.
+///
+/// On a line in one direction this is the word movement through the text's order: going
+/// forwards it stops after a word, going back before one. The end of a line counts as a
+/// separator, so the caret goes on to the next line the way the arrows do.
+fn visual_word_step(
+    chars: &[char],
+    layout: &TextLayout,
+    from: TextPosition,
+    rightwards: bool,
+) -> TextPosition {
+    let mut at = from;
+    let mut crossed_word = false;
+    loop {
+        let next = layout.visual_step(at, rightwards);
+        if next == at {
+            return at;
+        }
+        // The character crossed: the one the caret now belongs to. A step to another line
+        // crosses none.
+        let same_line = layout.line_bounds(at) == layout.line_bounds(next);
+        let crossed = match next.affinity {
+            TextAffinity::Upstream => next.offset.checked_sub(1),
+            TextAffinity::Downstream => Some(next.offset),
+        };
+        let word = same_line
+            && crossed
+                .and_then(|i| chars.get(i))
+                .is_some_and(|&c| is_word(c));
+        if crossed_word && !word {
+            return at;
+        }
+        crossed_word |= word;
+        at = next;
+    }
+}
+
 /// The one implementation of the caret keys, through the text's order without a layout and
 /// on screen with one.
 fn move_caret_in(
@@ -581,15 +622,13 @@ fn move_caret_in(
 ) -> bool {
     let len = chars.len();
     let from = TextPosition::with((*cursor).min(len), *affinity);
-    // A word at a time goes through the text's order, forwards being leftwards on a line
-    // that reads right to left; it stops after a word going forwards, before one going back.
-    let by_word = |rightwards: bool| {
-        let forwards = rightwards != layout.is_some_and(|l| l.line_is_rtl(from));
-        if forwards {
-            TextPosition::upstream(word_boundary_right(chars, from.offset))
-        } else {
-            TextPosition::new(word_boundary_left(chars, from.offset))
-        }
+    // A word at a time: on screen with a layout — past the separators and then the word
+    // drawn on that side — and through the text's order without one, where it stops after
+    // a word going forwards and before one going back.
+    let by_word = |rightwards: bool| match layout {
+        Some(layout) => visual_word_step(chars, layout, from, rightwards),
+        None if rightwards => TextPosition::upstream(word_boundary_right(chars, from.offset)),
+        None => TextPosition::new(word_boundary_left(chars, from.offset)),
     };
     let target = match (key, layout) {
         (Key::Left { word: true, .. }, _) => by_word(false),
@@ -2374,6 +2413,8 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
             .filter(|(s, e)| s < e);
 
         let mut changed = false;
+        // The last character typed, which the caret is left beside.
+        let mut typed_last = None;
 
         match key {
             Key::Text(text) => {
@@ -2394,6 +2435,7 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
                         cursor = s;
                     }
                     let n = inserted.len();
+                    typed_last = inserted.last().copied();
                     chars.splice(cursor..cursor, inserted);
                     cursor += n;
                     anchor = None;
@@ -2480,8 +2522,14 @@ impl<Msg: Clone + 'static> Widget<Msg> for TextField<Msg> {
         edit.anchor = anchor;
 
         if changed {
-            // What was typed or deleted leaves the caret before what follows it.
-            edit.affinity = TextAffinity::Downstream;
+            // What was typed leaves the caret beside it — after its last character, belonging
+            // to it — so that at a change of direction the caret is drawn where the text went,
+            // not at the far edge of the run after it. After a line break, and after a deletion,
+            // the caret is before what follows it.
+            edit.affinity = match typed_last {
+                Some(c) if c != '\n' && cursor > 0 => TextAffinity::Upstream,
+                _ => TextAffinity::Downstream,
+            };
             let new_value: String = chars.into_iter().collect();
             self.on_input.as_ref().map(|make| make(new_value))
         } else {
@@ -5600,16 +5648,173 @@ mod bidi_tests {
         assert_eq!(edit.cursor, 1);
     }
 
-    /// Typing after a move resets the side: what is typed goes before what follows it.
+    /// Typing leaves the caret after what was typed, belonging to it; a line break and a
+    /// deletion leave it before what follows.
     #[test]
-    fn typing_puts_the_caret_before_what_follows() {
-        let field = TextField::<()>::new("ab");
+    fn typing_leaves_the_caret_beside_what_was_typed() {
+        let field = TextField::<()>::new("ab").multiline();
         let mut edit = Edit {
             cursor: 1,
-            affinity: TextAffinity::Upstream,
             ..Edit::default()
         };
         Widget::<()>::on_edit(&field, &mut edit, &Key::Text("x".into()));
+        assert_eq!(edit.position(), TextPosition::upstream(2));
+        let field = TextField::<()>::new("axb").multiline();
+        Widget::<()>::on_edit(&field, &mut edit, &Key::Backspace);
+        assert_eq!(edit.position(), TextPosition::new(1));
+        let field = TextField::<()>::new("ab").multiline();
+        Widget::<()>::on_edit(&field, &mut edit, &Key::Text("\n".into()));
         assert_eq!(edit.position(), TextPosition::new(2));
+        Widget::<()>::on_edit(&field, &mut edit, &Key::Enter);
+        assert_eq!(edit.position(), TextPosition::new(3));
+    }
+
+    /// **What is typed at a change of direction is where the caret is then drawn.** With the
+    /// caret at the right of the Hebrew run in `abc אבג def` — before alef, which is drawn at
+    /// the run's right — a Latin letter typed there goes logically before alef, which draws
+    /// it after the space, at the run's left. The caret follows it there, instead of staying
+    /// at the right of the run, a whole word away from the letter just typed.
+    #[test]
+    fn a_letter_typed_at_a_change_of_direction_has_the_caret_beside_it() {
+        let mut edit = Edit {
+            cursor: 4,
+            ..Edit::default()
+        };
+        let field = TextField::<()>::new(MIXED);
+        Widget::<()>::on_edit(&field, &mut edit, &Key::Text("x".into()));
+        assert_eq!(edit.cursor, 5);
+        let typed = TextField::<()>::new("abc x\u{5d0}\u{5d1}\u{5d2} def");
+        let layout = typed.layout(None);
+        let x_box = layout.selection_rects(4, 5)[0];
+        let caret = painted_caret(&typed, &edit, WIDTH);
+        let x_right = typed.lead() + x_box.x + x_box.width;
+        assert!(
+            (caret.x - x_right).abs() < 1.5,
+            "the caret {caret:?} is drawn right after the x, which ends at {x_right}"
+        );
+    }
+
+    fn ctrl(rightwards: bool) -> Key {
+        if rightwards {
+            Key::Right {
+                shift: false,
+                word: true,
+            }
+        } else {
+            Key::Left {
+                shift: false,
+                word: true,
+            }
+        }
+    }
+
+    /// **Ctrl and an arrow move a word at a time on screen.** Rightwards through
+    /// `abc אבג def`: after `abc`, then at the right of the Hebrew word — past it on screen,
+    /// before alef — then after `def`. Leftwards back: before `def`, at the left of the
+    /// Hebrew word — after gimel — then the start. The painted caret moves the way the arrow
+    /// points at every press, and stands at the far edge of the word it crossed.
+    #[test]
+    fn ctrl_and_an_arrow_cross_the_word_drawn_next_to_the_caret() {
+        let field = TextField::<()>::new(MIXED);
+        let layout = field.layout(None);
+        let hebrew = layout.selection_rects(4, 7);
+        assert_eq!(hebrew.len(), 1, "one run on screen");
+        let (run_left, run_right) = (
+            field.lead() + hebrew[0].x,
+            field.lead() + hebrew[0].x + hebrew[0].width,
+        );
+        let mut edit = Edit::default();
+        let mut x = painted_caret(&field, &edit, WIDTH).x;
+        let mut press = |edit: &mut Edit, rightwards: bool| {
+            assert!(Widget::<()>::caret_key(
+                &field,
+                WIDTH,
+                edit,
+                &ctrl(rightwards)
+            ));
+            let now = painted_caret(&field, edit, WIDTH).x;
+            if rightwards {
+                assert!(now > x + 1.0, "{x} -> {now}, {edit:?}");
+            } else {
+                assert!(now < x - 1.0, "{x} -> {now}, {edit:?}");
+            }
+            x = now;
+            now
+        };
+        press(&mut edit, true);
+        assert_eq!(edit.position(), TextPosition::upstream(3));
+        let at = press(&mut edit, true);
+        assert_eq!(edit.position(), TextPosition::new(4), "before alef");
+        assert!(
+            (at - run_right).abs() < 1.5,
+            "at the run's right: {at} vs {run_right}"
+        );
+        press(&mut edit, true);
+        assert_eq!(edit.position(), TextPosition::upstream(11));
+        press(&mut edit, false);
+        assert_eq!(edit.position(), TextPosition::new(8));
+        let at = press(&mut edit, false);
+        assert_eq!(edit.position(), TextPosition::upstream(7), "after gimel");
+        assert!(
+            (at - run_left).abs() < 1.5,
+            "at the run's left: {at} vs {run_left}"
+        );
+        press(&mut edit, false);
+        assert_eq!(edit.position(), TextPosition::new(0));
+    }
+
+    /// On a line in one direction, a word on screen is a word through the text's order:
+    /// from every boundary, Ctrl and an arrow land where the logical word movement does —
+    /// forwards after a word, back before one — leftwards being forwards in Hebrew.
+    #[test]
+    fn ctrl_and_an_arrow_on_a_line_in_one_direction_move_through_the_words() {
+        for (text, rtl) in [("foo, bar  baz_1 qux.", false), (HEBREW, true)] {
+            let field = TextField::<()>::new(text);
+            let chars: Vec<char> = text.chars().collect();
+            for from in 0..=chars.len() {
+                for rightwards in [false, true] {
+                    let mut edit = Edit {
+                        cursor: from,
+                        ..Edit::default()
+                    };
+                    Widget::<()>::caret_key(&field, 2000.0, &mut edit, &ctrl(rightwards));
+                    let expected = if rightwards != rtl {
+                        word_boundary_right(&chars, from)
+                    } else {
+                        word_boundary_left(&chars, from)
+                    };
+                    assert_eq!(
+                        edit.cursor, expected,
+                        "{text:?} from {from}, rightwards {rightwards}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Through a wrapped field the end of a line separates two words: Ctrl and an arrow go
+    /// on to the next line the way the arrows do, word by word, and come back.
+    #[test]
+    fn ctrl_and_an_arrow_cross_the_lines_of_a_wrapped_field() {
+        let width = 200.0;
+        let field = TextField::<()>::new(HEBREW).multiline().rows(4);
+        let chars: Vec<char> = HEBREW.chars().collect();
+        let mut edit = Edit::default();
+        let mut stops = vec![edit.cursor];
+        while edit.cursor < chars.len() {
+            Widget::<()>::caret_key(&field, width, &mut edit, &ctrl(false));
+            assert!(edit.cursor > *stops.last().unwrap(), "{stops:?} {edit:?}");
+            stops.push(edit.cursor);
+        }
+        let mut logical = vec![0];
+        while *logical.last().unwrap() < chars.len() {
+            logical.push(word_boundary_right(&chars, *logical.last().unwrap()));
+        }
+        assert_eq!(stops, logical);
+        while edit.cursor > 0 {
+            let was = edit.cursor;
+            Widget::<()>::caret_key(&field, width, &mut edit, &ctrl(true));
+            assert!(edit.cursor < was, "{edit:?}");
+        }
     }
 }

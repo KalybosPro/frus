@@ -720,10 +720,15 @@ pub struct Runtime {
     /// The page each paged view was last **reported as showing**, so that
     /// `on_page_changed` fires on a change and not on every frame of the motion.
     pub page_shown: HashMap<WidgetId, usize>,
+    /// Where each paged view that does not snap to its pages was last seen, in pages: a
+    /// fraction when it rests between two (milestone 762). Restoration keeps it rather than
+    /// the page on show.
+    pub(crate) page_position: HashMap<WidgetId, f32>,
     /// The page each paged view was **restored** on and has not been placed at yet
-    /// (milestone 756): its offset is not known until its pages are measured, so the walk
-    /// opens the view there, and [`Runtime::sync_pages`] makes it the view's offset.
-    pub(crate) page_restored: HashMap<WidgetId, usize>,
+    /// (milestone 756) — a fraction for a view that does not snap (milestone 762): its
+    /// offset is not known until its pages are measured, so the walk opens the view there,
+    /// and [`Runtime::sync_pages`] makes it the view's offset.
+    pub(crate) page_restored: HashMap<WidgetId, f32>,
     /// The offset each scroll region was last **reported at**, so that
     /// [`crate::Widget::on_scroll`] fires on a change and not on every frame, and so
     /// that a region's grain is measured from what the application was actually told
@@ -2047,9 +2052,7 @@ impl Runtime {
                 } else {
                     area.max_y
                 };
-                let along = snap
-                    .offset_of(page.min(snap.count.saturating_sub(1)))
-                    .clamp(0.0, max);
+                let along = snap.offset_at(page).clamp(0.0, max);
                 let current = self.scroll.get(&area.id).copied().unwrap_or((0.0, 0.0));
                 let offset = if snap.horizontal {
                     (along, current.1)
@@ -2154,19 +2157,23 @@ impl Runtime {
         for area in regions {
             let Some(snap) = area.page else { continue };
             let offset = self.scroll.get(&area.id).copied().unwrap_or_else(|| {
-                let opening = self
-                    .page_restored
-                    .get(&area.id)
-                    .copied()
-                    .unwrap_or(snap.requested);
-                let start = snap.offset_of(opening);
+                let start = match self.page_restored.get(&area.id) {
+                    Some(&page) => snap.offset_at(page),
+                    None => snap.offset_of(snap.requested),
+                };
                 if snap.horizontal {
                     (start, 0.0)
                 } else {
                     (0.0, start)
                 }
             });
-            let page = snap.page_at(if snap.horizontal { offset.0 } else { offset.1 });
+            let along = if snap.horizontal { offset.0 } else { offset.1 };
+            if snap.snapping {
+                self.page_position.remove(&area.id);
+            } else {
+                self.page_position.insert(area.id, snap.position_at(along));
+            }
+            let page = snap.page_at(along);
             match self.page_shown.insert(area.id, page) {
                 Some(previous) if previous != page => changed.push((area.id, page)),
                 _ => {}

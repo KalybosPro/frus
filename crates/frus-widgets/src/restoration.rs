@@ -438,6 +438,78 @@ pub(crate) fn path_here(id: &str) -> Vec<String> {
     scope_below(&current_scope(), id).to_vec()
 }
 
+/// The restoration scopes of the items of a list or a grid built on demand (milestones 753
+/// and 762): each item is built in a bucket of its own, below `parent`, so the same id can
+/// be used in every item.
+///
+/// An item with a key — [`Keyed`](crate::Keyed), `keyed(..)`,
+/// [`Component::with_key`] — is kept under its key, `key <hex>`, so its values follow it
+/// when the data moves between the two processes; an item without one is kept under its
+/// index, `<prefix> <index>`.
+///
+/// The key is only known once the item is built, and what the item holds takes its scope
+/// when it is made, so the scope is guessed from the key the index had last time; an item
+/// whose key is not the one guessed (the first time an index is built, or after the data
+/// moved) is made again in the right scope. Items without a key are built once.
+pub(crate) struct ItemScopes {
+    /// The scope the items' buckets are below: where the list was made, or its own
+    /// restoration id.
+    parent: RefCell<Scope>,
+    /// What an item without a key is kept under, before its index.
+    prefix: &'static str,
+    /// The key each index had when it was last built.
+    keys: RefCell<std::collections::HashMap<usize, u64>>,
+}
+
+impl ItemScopes {
+    /// The scopes of items below the scope current now.
+    pub(crate) fn here(prefix: &'static str) -> Rc<Self> {
+        Rc::new(Self {
+            parent: RefCell::new(current_scope()),
+            prefix,
+            keys: RefCell::default(),
+        })
+    }
+
+    /// Puts the items below `parent` instead: the list's own restoration id.
+    pub(crate) fn set_parent(&self, parent: Scope) {
+        *self.parent.borrow_mut() = parent;
+    }
+
+    /// The bucket of the item at `index` whose key is `key`.
+    fn scope_of(&self, index: usize, key: Option<u64>) -> Scope {
+        let id = match key {
+            Some(key) => format!("key {key:016x}"),
+            None => format!("{} {index}", self.prefix),
+        };
+        scope_below(&self.parent.borrow(), &id)
+    }
+
+    /// Builds the item at `index` with `build`, in its bucket.
+    pub(crate) fn build<Msg>(
+        &self,
+        index: usize,
+        build: impl Fn() -> Box<dyn Widget<Msg>>,
+    ) -> Box<dyn Widget<Msg>> {
+        let guess = self.keys.borrow().get(&index).copied();
+        let item = {
+            let _scope = enter_scope(self.scope_of(index, guess));
+            build()
+        };
+        let key = item.key();
+        if key == guess {
+            return item;
+        }
+        match key {
+            Some(key) => self.keys.borrow_mut().insert(index, key),
+            None => self.keys.borrow_mut().remove(&index),
+        };
+        drop(item);
+        let _scope = enter_scope(self.scope_of(index, key));
+        build()
+    }
+}
+
 /// A part of the page with restoration ids of its own: what `build` builds — its hooks, its
 /// fields, its scroll areas, the components it makes — keeps its values in the bucket `id`,
 /// below the bucket of what is around it.
@@ -511,7 +583,7 @@ pub(crate) enum Pending {
     /// the one on show (milestone 756).
     Page {
         id: WidgetId,
-        page: usize,
+        page: f32,
         requested: usize,
     },
 }
@@ -598,10 +670,13 @@ impl Restoration {
                     .get(id)
                     .map(write_edit)
                     .or_else(|| entry.last.clone()),
+                // A view that snaps keeps the page on show; one that does not keeps where
+                // it rests, which may be between two pages (milestone 762).
                 Source::Page(id) => runtime
-                    .page_shown
+                    .page_position
                     .get(id)
-                    .map(usize::to_string)
+                    .map(f32::to_string)
+                    .or_else(|| runtime.page_shown.get(id).map(usize::to_string))
                     .or_else(|| entry.last.clone()),
             };
             if let Some(value) = now {
@@ -678,13 +753,15 @@ impl Restoration {
     /// handed to the runtime (milestone 756).
     ///
     /// A **page**, not an offset: a phone turned on its side between the two processes
-    /// has pages of another width, and the page is what the reader was on.
+    /// has pages of another width, and the page is what the reader was on. A view that
+    /// does not snap keeps a fraction of a page when it rests between two (milestone 762).
     pub(crate) fn register_page(&self, path: Vec<String>, id: WidgetId, requested: usize) {
         if !self.is_enabled() {
             return;
         }
         if let Some(saved) = self.claim(&path) {
-            if let Ok(page) = saved.parse::<usize>() {
+            let page = saved.parse::<f32>().ok();
+            if let Some(page) = page.filter(|page| page.is_finite() && *page >= 0.0) {
                 self.pending.borrow_mut().push(Pending::Page {
                     id,
                     page,
