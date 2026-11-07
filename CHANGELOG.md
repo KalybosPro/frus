@@ -8,10 +8,17 @@ any release may break.
 > frus is **pre-alpha**. From 0.2.1 the ten library crates are on crates.io (`cargo add frus`);
 > earlier releases are tagged source releases, to depend on by `path` or by git revision. For the reasoning behind any individual
 > decision, the milestone notes in [`docs/milestone-*.md`](docs/) remain the authoritative
-> record — one per step, 767 so far, each documenting the objective, the alternatives
+> record — one per step, 770 so far, each documenting the objective, the alternatives
 > weighed, and the decision.
 
 ## [Unreleased]
+
+- **On the Web, a field above a landscape keyboard is in sight** (J770). In landscape a phone's
+  keyboard leaves a browser page a few dozen pixels, less than an app bar: laid out above the
+  keyboard, the application had no room for the focused field, and typing went into a field
+  nobody could see. When a frame laid out above the keyboard cannot show the focused field, the
+  application now keeps its whole size and the page is panned to the field, as a phone pans a
+  window it cannot shrink. Where the field fits, the keyboard stays an inset as before.
 
 - **The floating action button is placed from what the screen shell measured** (J766).
   `FabLocation` now has every placement: at the top (astride the app bar's bottom edge),

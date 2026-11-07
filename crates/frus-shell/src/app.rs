@@ -1677,6 +1677,41 @@ impl<A: Application> App<A> {
         }
     }
 
+    /// Learns from the frame just laid out which way the page makes room for the on-screen
+    /// keyboard (milestone 770), and lays the next frame out again when that changed: above the
+    /// keyboard while the focused field fits in what it leaves, at the whole size, the page
+    /// panned to the field, when it does not — a phone in landscape leaves a few dozen pixels.
+    #[cfg(web)]
+    fn fit_web_keyboard(&mut self) {
+        let css = if self.simulated.is_some() {
+            1.0
+        } else {
+            self.app.density()
+        };
+        let focused = self.runtime.input.focused.filter(|&id| {
+            self.tree
+                .as_ref()
+                .and_then(|tree| find_widget(tree.as_ref(), id))
+                .is_some_and(wants_keyboard)
+        });
+        let focused = focused.map(|id| {
+            let height = self.ui.as_ref().and_then(|ui| {
+                ui.semantics()
+                    .iter()
+                    .find(|(node, ..)| *node == id)
+                    .map(|(_, rect, _)| f64::from(rect.height * css))
+            });
+            (id, height)
+        });
+        let Some(editor) = self.web_editor.as_mut() else {
+            return;
+        };
+        if editor.learn_keyboard(focused) {
+            self.build_dirty = true;
+            self.request_redraw();
+        }
+    }
+
     /// Puts what the browser did to the element into its field (milestone 711): the text
     /// as the field's own typing — so a field that refuses typing, or filters it, or limits
     /// its length, does so to this too, and the next frame puts the field's own text back in
@@ -2186,7 +2221,17 @@ impl<A: Application> App<A> {
             use winit::platform::web::WindowExtWebSys;
             window.canvas()
         }) {
-            let cover = crate::web_page::keyboard_cover_of(&canvas);
+            // A page that pans for the keyboard keeps the application's whole size
+            // (milestone 770).
+            let pans = self
+                .web_editor
+                .as_ref()
+                .is_some_and(|editor| editor.keyboard_fit() == crate::web_page::KeyboardFit::Pan);
+            let cover = if pans {
+                0.0
+            } else {
+                crate::web_page::keyboard_cover_of(&canvas)
+            };
             let [top, right, bottom, left] =
                 crate::web_page::window_insets(crate::web_page::safe_area(), cover)
                     .map(|css| css as f32 * self.scale / scale);
@@ -3834,6 +3879,8 @@ impl<A: Application> ApplicationHandler<A::Message> for App<A> {
                 // bridge, which hides that field's own node while it is (milestone 713).
                 #[cfg(web)]
                 self.sync_web_editing();
+                #[cfg(web)]
+                self.fit_web_keyboard();
                 // Publish the frame's semantic tree to the DOM bridge (#18). The page's
                 // coordinates are CSS pixels, the layout's own: no scale to carry.
                 #[cfg(web)]

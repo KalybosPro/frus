@@ -240,6 +240,10 @@ web-sys = { version = "0.3", features = [
     "VisualViewport",
     # Whether the page is used with a finger, for where the editing element may sit.
     "MediaQueryList",
+    # A page that pans for the keyboard brings the field being edited into sight (milestone
+    # 770).
+    "ScrollIntoViewOptions",
+    "ScrollLogicalPosition",
 ] }
 
 # On Android, winit goes through the native activity (android-activity) and the logs

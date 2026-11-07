@@ -19,6 +19,11 @@
 //! Android. The browser is told nothing changed size, so it has nothing to pan (see
 //! `web_editing`, which keeps the element it edits through out of the keyboard's way).
 //!
+//! **Unless the keyboard leaves too little** (milestone 770): in landscape a phone's keyboard
+//! leaves a page a few dozen pixels, and an application laid out in them has no room for the
+//! field being typed into. Then the application keeps its whole size and the page is panned to
+//! the field instead ([`KeyboardFit`]), as a phone pans a window it cannot shrink.
+//!
 //! Best-effort like the other bridges: with no document, the page keeps the colour it had, and
 //! with no visual viewport the keyboard covers what it covers.
 
@@ -256,6 +261,157 @@ pub(crate) fn keyboard_cover(
     }
 }
 
+/// How the page makes room for the on-screen keyboard (milestone 770).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum KeyboardFit {
+    /// The keyboard is an inset: the application lays itself out in what the keyboard leaves
+    /// and scrolls the focused field into it.
+    #[default]
+    Resize,
+    /// The application keeps its whole size and the browser pans the page to the focused
+    /// field, as a phone pans a window that cannot be shrunk to what its keyboard leaves. Taken
+    /// when what the keyboard leaves cannot hold the field: a phone in landscape leaves a page
+    /// a few dozen pixels, less than an app bar.
+    Pan,
+}
+
+/// The page's viewport while the on-screen keyboard is up, as `[width, height, visible
+/// height]` in whole CSS pixels; `None` when no keyboard is up. `inner_width` and
+/// `inner_height` are the layout viewport's, `vv_height` and `vv_scale` the visual viewport's.
+///
+/// The keyboard is what the visual viewport leaves out of the layout viewport, whatever the
+/// browser panned: a pan moves the visual viewport, not its height. A pinch-zoomed page and a
+/// visual viewport with no height (Chrome's, after a rotation with the keyboard up) are not a
+/// keyboard, as for [`keyboard_cover`].
+pub(crate) fn keyboard_view(
+    inner_width: f64,
+    inner_height: f64,
+    vv_height: f64,
+    vv_scale: f64,
+) -> Option<[i32; 3]> {
+    if (vv_scale - 1.0).abs() > 0.01 || vv_height < 1.0 || inner_height - vv_height < 1.0 {
+        return None;
+    }
+    Some([
+        inner_width.round() as i32,
+        inner_height.round() as i32,
+        vv_height.round() as i32,
+    ])
+}
+
+/// What the keyboard leaves of a canvas whose top is at `canvas_top`, in CSS pixels, when the
+/// application is laid out above it: from the canvas's top to the visual viewport's bottom.
+pub(crate) fn keyboard_room(canvas_top: f64, vv_top: f64, vv_height: f64) -> f64 {
+    (vv_top + vv_height - canvas_top).max(0.0)
+}
+
+/// Which way the page makes room for the keyboard, after a frame laid out above it: `field` is
+/// the height of the focused field in CSS pixels, `None` when that frame had no room to lay it
+/// out at all, and `room` what the keyboard leaves ([`keyboard_room`]).
+///
+/// A field the layout cannot show above the keyboard — not laid out, or taller than all there
+/// is — is never seen there however the application scrolls: the page pans to it instead.
+pub(crate) fn keyboard_fit(field: Option<f64>, room: f64) -> KeyboardFit {
+    match field {
+        Some(height) if height <= room => KeyboardFit::Resize,
+        _ => KeyboardFit::Pan,
+    }
+}
+
+/// Remembers, for one keyboard over one page, which way the page makes room for it
+/// ([`KeyboardFit`]).
+///
+/// The choice is made once per keyboard height and field, from a frame laid out above the
+/// keyboard: a pan is kept while the keyboard stays as it is — moving the focus to the next
+/// field does not lay the page out above it again — and a resize is kept for that field, so a
+/// field the application later scrolls out of its layout does not turn the keyboard into a pan.
+#[derive(Debug, Default)]
+pub(crate) struct KeyboardFitter {
+    /// The keyboard the choice was made for ([`keyboard_view`]).
+    view: Option<[i32; 3]>,
+    /// The field it was made for.
+    field: Option<u64>,
+    fit: KeyboardFit,
+}
+
+impl KeyboardFitter {
+    /// The way to lay out a frame over the keyboard `view`: [`KeyboardFit::Pan`] only when
+    /// that was chosen for this very keyboard.
+    pub(crate) fn fit(&self, view: Option<[i32; 3]>) -> KeyboardFit {
+        if view.is_some() && self.view == view {
+            self.fit
+        } else {
+            KeyboardFit::Resize
+        }
+    }
+
+    /// Learns from a frame laid out with [`Self::fit`]: `view` is the keyboard, `focused` the
+    /// focused field that takes typing (its id, and its height in CSS pixels when the frame
+    /// laid it out), `room` what the keyboard leaves. True when the choice changed what the
+    /// next frame must lay out.
+    pub(crate) fn learn(
+        &mut self,
+        view: Option<[i32; 3]>,
+        focused: Option<(u64, Option<f64>)>,
+        room: f64,
+    ) -> bool {
+        let before = self.fit(self.view);
+        let (Some(view), Some((field, height))) = (view, focused) else {
+            *self = Self::default();
+            return before == KeyboardFit::Pan;
+        };
+        if self.view == Some(view) && (self.fit == KeyboardFit::Pan || self.field == Some(field)) {
+            self.field = Some(field);
+            return false;
+        }
+        // A new keyboard or a new field: this frame was laid out above the keyboard.
+        let fit = keyboard_fit(height, room);
+        *self = Self {
+            view: Some(view),
+            field: Some(field),
+            fit,
+        };
+        fit == KeyboardFit::Pan
+    }
+}
+
+/// Whether an element from `top` to `bottom` is as much in sight as a visual viewport from
+/// `vv_top`, `vv_height` tall, can show of it: all of it, or, for one taller than the visual
+/// viewport, as much as fits. All in the layout viewport's CSS pixels.
+pub(crate) fn in_sight(top: f64, bottom: f64, vv_top: f64, vv_height: f64) -> bool {
+    let shown = bottom.min(vv_top + vv_height) - top.max(vv_top);
+    shown >= (bottom - top).min(vv_height) - 1.0
+}
+
+/// The keyboard as the page has it now ([`keyboard_view`]).
+#[cfg(web)]
+pub(crate) fn keyboard_view_now() -> Option<[i32; 3]> {
+    let window = web_sys::window()?;
+    let vv = window.visual_viewport()?;
+    let number = |value: Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>| {
+        value.ok().and_then(|v| v.as_f64()).unwrap_or(0.0)
+    };
+    keyboard_view(
+        number(window.inner_width()),
+        number(window.inner_height()),
+        vv.height(),
+        vv.scale(),
+    )
+}
+
+/// What the keyboard leaves of `canvas` now ([`keyboard_room`]).
+#[cfg(web)]
+pub(crate) fn keyboard_room_of(canvas: &web_sys::HtmlCanvasElement) -> f64 {
+    let Some(vv) = web_sys::window().and_then(|window| window.visual_viewport()) else {
+        return 0.0;
+    };
+    keyboard_room(
+        canvas.get_bounding_client_rect().top(),
+        vv.offset_top(),
+        vv.height(),
+    )
+}
+
 /// The on-screen keyboard's cover of `canvas`, in CSS pixels, measured now.
 #[cfg(web)]
 pub(crate) fn keyboard_cover_of(canvas: &web_sys::HtmlCanvasElement) -> f64 {
@@ -452,5 +608,90 @@ mod tests {
     fn a_visual_viewport_with_no_height_is_not_a_keyboard() {
         assert_eq!(keyboard_cover(318.04, 96.86, 0.0, 1.0), 0.0);
         assert_eq!(keyboard_cover(318.04, 38.0, 0.0, 1.0), 0.0);
+    }
+
+    /// The keyboard is what the visual viewport leaves out of the layout viewport, however the
+    /// browser panned it (milestone 770).
+    #[test]
+    fn a_keyboard_is_a_visual_viewport_shorter_than_the_page() {
+        // The phone in landscape: a 339-pixel page, the keyboard leaving 38.
+        assert_eq!(keyboard_view(778.4, 339.2, 38.0, 1.0), Some([778, 339, 38]));
+        // No keyboard, a pinch zoom, Chrome's visual viewport with no height.
+        assert_eq!(keyboard_view(778.4, 339.2, 339.2, 1.0), None);
+        assert_eq!(keyboard_view(778.4, 339.2, 169.6, 2.0), None);
+        assert_eq!(keyboard_view(318.0, 318.04, 0.0, 1.0), None);
+    }
+
+    /// What the keyboard leaves of the canvas: from its top to the visual viewport's bottom.
+    #[test]
+    fn the_room_is_what_the_visual_viewport_shows_of_the_canvas() {
+        // Portrait: the canvas under a 36-pixel header, the keyboard leaving 322.
+        assert_eq!(keyboard_room(36.18, 0.0, 321.96), 321.96 - 36.18);
+        // Landscape: 38 pixels, nearly all of them the header's.
+        assert!((keyboard_room(36.18, 0.0, 38.0) - 1.82).abs() < 1e-9);
+        // Panned past the header.
+        assert_eq!(keyboard_room(36.18, 100.0, 38.0), 138.0 - 36.18);
+        // Nothing of it.
+        assert_eq!(keyboard_room(36.18, 0.0, 20.0), 0.0);
+    }
+
+    /// A field the layout cannot show above the keyboard makes the page pan to it
+    /// (milestone 770). In landscape on the phone the keyboard left the page 38 CSS pixels:
+    /// the field was not laid out, and the person typed into a field they could not see.
+    #[test]
+    fn a_field_with_no_room_above_the_keyboard_pans_the_page() {
+        assert_eq!(keyboard_fit(Some(48.0), 285.78), KeyboardFit::Resize);
+        assert_eq!(keyboard_fit(Some(48.0), 48.0), KeyboardFit::Resize);
+        // Not laid out.
+        assert_eq!(keyboard_fit(None, 285.78), KeyboardFit::Pan);
+        // Laid out, but taller than all the keyboard leaves.
+        assert_eq!(keyboard_fit(Some(48.0), 1.82), KeyboardFit::Pan);
+    }
+
+    /// The choice is made from a frame laid out above the keyboard, and kept: a pan while the
+    /// keyboard stays, a resize for the field it was made for.
+    #[test]
+    fn the_fit_is_chosen_once_per_keyboard_and_field() {
+        let landscape = Some([778, 339, 38]);
+        let portrait = Some([393, 788, 322]);
+        let mut fitter = KeyboardFitter::default();
+        // No keyboard yet: laid out above nothing.
+        assert!(!fitter.learn(None, Some((7, Some(48.0))), 303.0));
+        assert_eq!(fitter.fit(None), KeyboardFit::Resize);
+        // The landscape keyboard comes up; the first frame above it had no room for field 7.
+        assert_eq!(fitter.fit(landscape), KeyboardFit::Resize);
+        assert!(fitter.learn(landscape, Some((7, None)), 1.82));
+        assert_eq!(fitter.fit(landscape), KeyboardFit::Pan);
+        // Panned, the frame lays the field out at its full size: still a pan.
+        assert!(!fitter.learn(landscape, Some((7, Some(48.0))), 1.82));
+        // The next field, under the same keyboard: still a pan, no frame above the keyboard.
+        assert!(!fitter.learn(landscape, Some((8, Some(48.0))), 1.82));
+        assert_eq!(fitter.fit(landscape), KeyboardFit::Pan);
+        // The keyboard goes: a resize again, and the frame must be laid out again.
+        assert!(fitter.learn(None, Some((8, Some(48.0))), 303.0));
+        assert_eq!(fitter.fit(landscape), KeyboardFit::Resize);
+
+        // Portrait: room for the field, a resize, kept even when the field leaves the layout
+        // later (scrolled out of a list).
+        assert!(!fitter.learn(portrait, Some((7, Some(48.0))), 285.78));
+        assert!(!fitter.learn(portrait, Some((7, None)), 285.78));
+        assert_eq!(fitter.fit(portrait), KeyboardFit::Resize);
+        // A different keyboard height is a new choice, made with a resize.
+        assert_eq!(fitter.fit(landscape), KeyboardFit::Resize);
+        // The focus goes: no choice left.
+        assert!(!fitter.learn(portrait, None, 285.78));
+        assert_eq!(fitter.fit(portrait), KeyboardFit::Resize);
+    }
+
+    /// The field is in sight when the visual viewport shows all of it, or all it can.
+    #[test]
+    fn a_field_is_in_sight_when_shown_as_much_as_it_can_be() {
+        // A 48-pixel field in a 38-pixel visual viewport: 38 of it is all there is.
+        assert!(in_sight(100.0, 148.0, 105.0, 38.0));
+        assert!(!in_sight(100.0, 148.0, 0.0, 38.0));
+        assert!(!in_sight(100.0, 148.0, 130.0, 38.0));
+        // A small field: all of it.
+        assert!(in_sight(100.0, 120.0, 90.0, 38.0));
+        assert!(!in_sight(100.0, 120.0, 110.0, 38.0));
     }
 }

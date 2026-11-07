@@ -214,6 +214,10 @@ pub(crate) fn browser_change<Msg>(
 /// element must not give the browser a reason to as well. So on a touch screen it stays in the
 /// top quarter of the canvas until the keyboard is up (`keyboard`, the CSS pixels it covers, is
 /// not zero), and then within what the keyboard leaves visible.
+///
+/// Unless the page pans for the keyboard (`pan`, milestone 770): what the keyboard leaves
+/// cannot hold the field, the application keeps its size, and the browser is to pan to the
+/// field — so the element is over it, wherever it is.
 pub(crate) fn element_top(
     field_top: f64,
     height: f64,
@@ -221,8 +225,9 @@ pub(crate) fn element_top(
     canvas_bottom: f64,
     keyboard: f64,
     touch: bool,
+    pan: bool,
 ) -> f64 {
-    if !touch {
+    if !touch || pan {
         return field_top;
     }
     let lowest = if keyboard > 0.0 {
@@ -283,6 +288,7 @@ mod web {
     use winit::window::Window;
 
     use super::{browser_edits, selection, Element};
+    use crate::web_page::{KeyboardFit, KeyboardFitter};
 
     /// The field being edited, as this frame has it.
     pub(crate) struct Field<'a> {
@@ -322,6 +328,8 @@ mod web {
         mac: bool,
         /// The page is used with a finger: a keyboard will come up over it.
         touch: bool,
+        /// Which way the page makes room for the keyboard (milestone 770).
+        fitter: KeyboardFitter,
         _selection: Listener,
     }
 
@@ -377,6 +385,7 @@ mod web {
                 changes,
                 mac,
                 touch,
+                fitter: KeyboardFitter::default(),
                 _selection: selection,
             })
         }
@@ -393,6 +402,23 @@ mod web {
             if self.editing() != Some(id) {
                 self.sync(None, css);
             }
+        }
+
+        /// Which way the page makes room for the keyboard up now (milestone 770): an inset the
+        /// application lays itself out above, or a pan of the page to the field.
+        pub(crate) fn keyboard_fit(&self) -> KeyboardFit {
+            self.fitter.fit(crate::web_page::keyboard_view_now())
+        }
+
+        /// Learns from the frame just laid out which way the page makes room for the keyboard:
+        /// `focused` is the focused field that takes typing, with its height in CSS pixels when
+        /// the frame laid it out. True when the next frame must be laid out again.
+        pub(crate) fn learn_keyboard(&mut self, focused: Option<(WidgetId, Option<f64>)>) -> bool {
+            self.fitter.learn(
+                crate::web_page::keyboard_view_now(),
+                focused.map(|(id, height)| (id.as_u64(), height)),
+                crate::web_page::keyboard_room_of(&self.canvas),
+            )
         }
 
         /// The changes the browser made since the last call, oldest first.
@@ -425,6 +451,7 @@ mod web {
             };
             let bounds = self.canvas.get_bounding_client_rect();
             let height = (field.rect.height * css).max(1.0);
+            let pan = self.keyboard_fit() == KeyboardFit::Pan;
             let top = super::element_top(
                 bounds.top() + f64::from(field.rect.y * css),
                 f64::from(height),
@@ -432,6 +459,7 @@ mod web {
                 bounds.bottom(),
                 crate::web_page::keyboard_cover_of(&self.canvas),
                 self.touch,
+                pan,
             );
             let style = format!(
                 "{STYLE}left:{}px;top:{}px;width:{}px;height:{}px;",
@@ -479,6 +507,25 @@ mod web {
                         .is_none_or(|active| self.adrift(active, &live.el)))
             {
                 let _ = live.el.focus();
+            }
+            // A page that pans for the keyboard shows the field being edited: the browser pans
+            // to an element it focuses, but not to one that moves while it has the focus.
+            if pan {
+                if let Some(vv) = web_sys::window().and_then(|window| window.visual_viewport()) {
+                    let seen = crate::web_page::in_sight(
+                        top,
+                        top + f64::from(height),
+                        vv.offset_top(),
+                        vv.height(),
+                    );
+                    if !seen {
+                        let options = web_sys::ScrollIntoViewOptions::new();
+                        options.set_block(web_sys::ScrollLogicalPosition::Center);
+                        options.set_inline(web_sys::ScrollLogicalPosition::Nearest);
+                        live.el
+                            .scroll_into_view_with_scroll_into_view_options(&options);
+                    }
+                }
             }
         }
 
@@ -954,16 +1001,52 @@ mod tests {
     #[test]
     fn the_element_keeps_out_of_the_keyboard_s_way_on_a_touch_screen() {
         // The phone: a canvas from 0 to 788, a field at 690, 50 high.
-        assert_eq!(element_top(690.0, 50.0, 0.0, 788.0, 0.0, false), 690.0);
+        assert_eq!(
+            element_top(690.0, 50.0, 0.0, 788.0, 0.0, false, false),
+            690.0
+        );
         // A finger, no keyboard yet: the top quarter.
-        assert_eq!(element_top(690.0, 50.0, 0.0, 788.0, 0.0, true), 197.0);
+        assert_eq!(
+            element_top(690.0, 50.0, 0.0, 788.0, 0.0, true, false),
+            197.0
+        );
         // A field already there stays over its field.
-        assert_eq!(element_top(120.0, 50.0, 0.0, 788.0, 0.0, true), 120.0);
+        assert_eq!(
+            element_top(120.0, 50.0, 0.0, 788.0, 0.0, true, false),
+            120.0
+        );
         // The keyboard up, 466 high: anywhere above it, and over the field once it is there.
-        assert_eq!(element_top(690.0, 50.0, 0.0, 788.0, 466.0, true), 272.0);
-        assert_eq!(element_top(200.0, 50.0, 0.0, 788.0, 466.0, true), 200.0);
+        assert_eq!(
+            element_top(690.0, 50.0, 0.0, 788.0, 466.0, true, false),
+            272.0
+        );
+        assert_eq!(
+            element_top(200.0, 50.0, 0.0, 788.0, 466.0, true, false),
+            200.0
+        );
         // Never above the canvas.
-        assert_eq!(element_top(-80.0, 50.0, 0.0, 788.0, 466.0, true), 0.0);
+        assert_eq!(
+            element_top(-80.0, 50.0, 0.0, 788.0, 466.0, true, false),
+            0.0
+        );
+    }
+
+    /// When the page pans for the keyboard, the element is over the field wherever it is: the
+    /// browser pans to the element (milestone 770). The phone in landscape: a canvas from 36 to
+    /// 339, the keyboard leaving 38 pixels of the page, the field at 120, 48 high.
+    #[test]
+    fn the_element_is_over_the_field_when_the_page_pans() {
+        assert_eq!(
+            element_top(120.0, 48.0, 36.18, 339.2, 0.0, true, true),
+            120.0
+        );
+        assert_eq!(
+            element_top(300.0, 48.0, 36.18, 339.2, 0.0, true, true),
+            300.0
+        );
+        // Resized instead, the element would be kept in the top quarter of the canvas.
+        let kept = element_top(300.0, 48.0, 36.18, 339.2, 0.0, true, false);
+        assert!((kept - 111.935).abs() < 1e-9);
     }
 
     /// A focused field the frame had no room for keeps its element, and so the keyboard;
