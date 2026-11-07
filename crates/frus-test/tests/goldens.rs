@@ -3979,3 +3979,49 @@ fn a_moving_text_style_matches_its_golden() {
     shots[1].assert_golden(golden("moving_text_style_middle"));
     shots[2].assert_golden(golden("moving_text_style_end"));
 }
+
+/// **Spaced rich text with a selection on a dense screen** (milestone 764): a letter-spaced
+/// paragraph with "framework" selected, painted in logical pixels and scaled by 2.625 the way
+/// the shell scales a phone's scene. The highlight is laid out from the logical runs and the
+/// words are shaped from the scaled ones; the golden shows them on top of each other. Before
+/// milestone 760 a rich run's spacing was not scaled, the words were drawn tighter than they
+/// were laid out, and the highlight sat a few letters to the right of its word.
+#[test]
+fn spaced_rich_text_selected_on_a_dense_screen_matches_its_golden() {
+    use frus_widgets::{Status, Widget};
+    let theme = Theme::dark().with_platform(frus_core::TargetPlatform::Linux);
+    let rich = RichText::new(
+        TextSpan::new("A ")
+            .child(TextSpan::new("fast").bold())
+            .child(TextSpan::new(", portable Rust UI framework")),
+    )
+    .base_style(TextStyle::new(14.0).letter_spacing(1.0));
+    let plain = "A fast, portable Rust UI framework";
+    let start = plain.find("framework").expect("the word");
+    let status = Status {
+        region: Some((start, start + "framework".len())),
+        ..Status::default()
+    };
+    let mut scene = Scene::new();
+    scene.draw_rect(
+        Rect::new(0.0, 0.0, 300.0, 28.0),
+        theme.background,
+        0.0,
+        0.0,
+        Color::TRANSPARENT,
+    );
+    Widget::<()>::paint(
+        &rich,
+        Rect::new(6.0, 4.0, 290.0, 20.0),
+        status,
+        &theme,
+        &mut scene,
+    );
+    let dpi = 2.625;
+    let Some(snapshot) = render_scene(&scene.scaled(dpi), 788, 74, theme.background) else {
+        eprintln!("no GPU adapter available: test skipped");
+        return;
+    };
+    assert!(snapshot.lit_pixels(64) > 500, "the paragraph is drawn");
+    snapshot.assert_golden(golden("rich_text_spaced_selection_2_625x"));
+}
