@@ -4999,16 +4999,11 @@ impl<'a, Msg: Clone + 'static> Builder<'a, Msg> {
                     }
                 }
                 // A view restored on a page opens on it (milestone 756).
-                None => snap
-                    .offset_of(
-                        self.runtime
-                            .page_restored
-                            .get(&id)
-                            .copied()
-                            .unwrap_or(snap.requested)
-                            .min(pages.count.saturating_sub(1)),
-                    )
-                    .clamp(0.0, max),
+                None => match self.runtime.page_restored.get(&id) {
+                    Some(&page) => snap.offset_at(page),
+                    None => snap.offset_of(snap.requested.min(pages.count.saturating_sub(1))),
+                }
+                .clamp(0.0, max),
             };
             self.scrollables.push(Scrollable {
                 id,

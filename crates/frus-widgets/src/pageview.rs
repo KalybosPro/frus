@@ -54,6 +54,19 @@ impl PageSnap {
         index as f32 * self.extent
     }
 
+    /// The offset at which the view is `page` pages along — a fraction between two pages
+    /// for a view that does not snap — within the pages there are.
+    pub(crate) fn offset_at(&self, page: f32) -> f32 {
+        let last = self.count.saturating_sub(1) as f32;
+        page.clamp(0.0, last) * self.extent
+    }
+
+    /// How many pages along an `offset` is, fraction included, within the pages there are.
+    pub(crate) fn position_at(&self, offset: f32) -> f32 {
+        let last = self.count.saturating_sub(1) as f32;
+        crate::physics::page_of(offset, self.extent).clamp(0.0, last)
+    }
+
     /// The page an `offset` reads as — the one a reader would say they are on.
     pub fn page_at(&self, offset: f32) -> usize {
         let last = self.count.saturating_sub(1);
