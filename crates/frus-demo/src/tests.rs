@@ -2120,13 +2120,19 @@ fn the_tasks_page_comes_back_scrolled_where_it_was_left() {
     first.run(2.0);
     let before = first.offsets()[0].1;
     assert!(before.1 > 0.0, "the drag scrolled the page: {before:?}");
-    let data = first.restoration_data().expect("the demo asks for restoration");
+    let data = first
+        .restoration_data()
+        .expect("the demo asks for restoration");
 
     let (app, _router, _demo) = crate::build();
     let mut second = Driver::new(app, w, h);
     assert!(second.restore(&data));
     second.run(1.0 / 60.0);
-    assert_eq!(second.offsets()[0].1, before, "the first frame is already scrolled");
+    assert_eq!(
+        second.offsets()[0].1,
+        before,
+        "the first frame is already scrolled"
+    );
     second.run(1.0);
     assert_eq!(second.offsets()[0].1, before, "and it stays there");
 }

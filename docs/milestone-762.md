@@ -132,6 +132,60 @@ as of the last scroll that ended — not a pixel offset, and not a position mid-
 
 ## How it was tested
 
-(filled in below)
+- **Driver tests** (`frus-shell`, `restoration_tests`, 5 new): an application is driven, its
+  data taken, and a second application, made afresh, restored from it.
+  - `keyed_rows_follow_their_item_into_another_order`: counts raised in the keyed rows of a
+    `ListView` built on demand, the data in another order in the second process: each count
+    comes back to its item, not to the row at its old index;
+  - `rows_without_a_key_keep_following_their_index`: the same without keys: the values follow
+    the index, as before;
+  - `keyed_rows_moved_in_the_process_are_kept_under_their_key`: the rows reordered while the
+    process lives, then restored: no value is lost to two rows sharing an index;
+  - `keyed_grid_cells_follow_their_item_into_another_order`: the same for a
+    `GridView::builder`'s cells, which had no scope;
+  - `a_page_view_that_does_not_snap_keeps_where_it_rests`: a free `PageView` dragged to rest
+    between two pages comes back at the same fraction;
+  - milestone 753's `values_in_keyed_list_rows_come_back_to_their_rows` still passes.
+- **A demo test** (`frus-demo`): `the_tasks_page_comes_back_scrolled_where_it_was_left`, the
+  demo on a short window, the Tasks page dragged, restored in a new application: the first
+  frame is already at the same offset (see "Not done" for the phone).
+- **Mutations**: with the key scopes reverted to `row <index>` and the fraction reverted to the
+  rounded page, the five keyed/fraction tests above fail and the one without keys passes.
+- **On an Android 10 phone** (API 29, aarch64 release APK, the manifest entry declared): a
+  draft typed on the Tasks page (`J762draft`), HOME, `adb shell am kill com.frus.demo`, the
+  application opened from the recent apps: a new process, and the field shows `J762draft`
+  again. The guided tour left on panel 2 came back on panel 2; the drawer's Settings page
+  came back on Settings. The logcat of that round was not kept.
+- **On the Android emulator before 10** (Android 9, API 28, x86_64 release APK, `-feature
+  -Vulkan,GLESDynamicVersion -gpu host`; without `GLESDynamicVersion` this image offers
+  OpenGL ES 2 only and wgpu cannot start):
+  - The log at start: `state restoration installed (the activity's own save)`.
+  - `Milk` typed in the draft field, HOME: `state restoration: 101 bytes kept for the
+    system`; `adb shell am kill com.frus.demo`: `Killing 2813:com.frus.demo … kill
+    background`, `pidof` empty. Opened from the recent apps: a new process (3226),
+    `android-activity: Creating: … saved state size = 101`, `restoring the state the system
+    kept (101 bytes)`, and the field shows `Milk`.
+  - Second round, the one where a stale copy would win (the activity was created with saved
+    state): the draft changed to `s`, HOME: `98 bytes kept for the system`; killed; reopened:
+    process 3435, `saved state size = 98`, `restoring … (98 bytes)`, the field shows `s`, not
+    the `Milk` the activity was created with.
+- The whole of the workspace's tests, clippy (workspace, `frus-demo` with `shots`, `frus-shell`
+  on `aarch64-linux-android`), `cargo fmt --check` and the strict `cargo doc` pass after
+  merging master: `frus-widgets` 2140 unit tests, `frus-shell` 479, `frus-demo` 89, and every
+  other crate's, with no failure.
 
 ## Not done
+
+- **The Tasks page's scroll offset on the phone.** On the Android 10 phone the draft came back
+  but the page opened at the top, although it had been scrolled. Driven in a test, the same
+  demo restores the offset from its first frame, so what differs on the device (the first
+  frame's size before the insets are known, which may clamp the offset) is not found yet. Not
+  retried on the emulator: its page barely scrolls at 1080×1920.
+- **Typing into a field that already holds text replaces it** on the Android 9 emulator with
+  its keyboard (LatinIME): a field showing `Milk` (restored) or `a` (typed in the same
+  process), tapped and given one key, holds only that key. It is not specific to
+  restoration; not investigated.
+- **The template** (`frus create`) does not declare the entry: see above.
+- **iOS**: unchanged, still a TODO.
+- **Android 10 itself through the old path** (an application without the entry) was not run
+  again; the phone ran the new path.
